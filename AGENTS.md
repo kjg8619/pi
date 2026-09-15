@@ -12,6 +12,13 @@
 - When the user asks a question, answer it first before making edits or running implementation commands.
 - When responding to user feedback or an analysis, explicitly say whether you agree or disagree before saying what you changed.
 
+## Work History
+
+- For Personal AI Runtime work, read `docs/WORK_LOG.md` before continuing and append an entry after each completed or interrupted development, investigation, or documentation task.
+- Write entries in Korean. Record the date/timezone, phase/status, purpose, changed files, verification commands and actual results, problems and resolutions, remaining limitations, next steps, and commit status.
+- Keep prior entries; record follow-up changes or corrections in a new entry. Update the current progress summary without replacing the history.
+- Distinguish historical test results from checks run in the current task. Never record unexecuted checks as passed or include credentials and full conversation/tool logs.
+
 ## Code Quality
 
 - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes.

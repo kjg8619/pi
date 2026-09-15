@@ -1,0 +1,77 @@
+import type {
+	CheckRequirement,
+	Handoff,
+	Review,
+	RoleSessionReference,
+	Run,
+	StepReference,
+	Task,
+	VerificationResult,
+} from "./contracts.ts";
+import type { RuntimeEventSink } from "./events.ts";
+
+interface StepRequest {
+	runId: string;
+	/** Code revision cycle, not the monotonically increasing Run.revision used by StateStore. */
+	revision: number;
+	step: StepReference;
+	task: Task;
+	signal?: AbortSignal;
+}
+
+export type AgentExecutionRequest = StepRequest & {
+	/** Adapter calls once, before prompting. Rejection prevents worker execution. No Pi types cross this boundary. */
+	onSessionCreated?: (reference: RoleSessionReference) => Promise<void>;
+} & (
+		| { role: "Developer"; profile: "coding"; previousReview?: Review }
+		| { role: "Reviewer"; profile: "reasoning"; handoff: Handoff; verification: VerificationResult }
+	);
+export type AgentExecutionResult = { role: "Developer"; handoff: Handoff } | { role: "Reviewer"; review: Review };
+
+export interface AgentExecutor {
+	execute(request: AgentExecutionRequest): Promise<AgentExecutionResult>;
+}
+
+export interface VerificationRequest extends StepRequest {
+	handoff: Handoff;
+	checks: CheckRequirement[];
+}
+export interface Verifier {
+	verify(request: VerificationRequest): Promise<VerificationResult>;
+	/** Live workspace evidence, without executing checks. Required by the S4 adapter, optional for pure fakes. */
+	inspect?(signal?: AbortSignal): Promise<NonNullable<Run["workspace"]>>;
+}
+
+/** One run snapshot at a time. Files, locks and durable storage are S2 adapter responsibilities. */
+export interface StateStore {
+	load(runId: string): Promise<Run | undefined>;
+	save(run: Run): Promise<void>;
+}
+
+export interface ApprovalRequest {
+	runId: string;
+	actionId: string;
+	actionDigest: string;
+	configDigest: string;
+	reason: string;
+	expiresAt: number;
+}
+export interface ApprovalDecision {
+	runId: string;
+	actionId: string;
+	actionDigest: string;
+	configDigest: string;
+	approved: boolean;
+}
+export interface ApprovalPort {
+	requestApproval(request: ApprovalRequest): Promise<ApprovalDecision>;
+}
+
+export interface KernelPorts {
+	agents: AgentExecutor;
+	verifier: Verifier;
+	store: StateStore;
+	events?: RuntimeEventSink;
+	/** Reserved for S2/S5 action gates. Injecting this never enables R3 in S1. */
+	approval?: ApprovalPort;
+}
