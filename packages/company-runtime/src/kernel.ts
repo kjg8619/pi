@@ -1,13 +1,22 @@
+import { awaitApproval, selectR3Scope } from "./approval.ts";
 import { selectWorkflow } from "./classification.ts";
 import {
+	type ApprovalDecision,
+	type ApprovalProposal,
+	ApprovalRequestSchema,
 	type CheckRequirement,
 	CheckRequirementSchema,
 	type Classification,
 	ClassificationSchema,
+	type ExecutorHandoff,
+	ExecutorHandoffSchema,
 	type Handoff,
 	HandoffSchema,
+	QUICK_STEP_IDS,
+	type QuickScope,
 	type Review,
 	ReviewSchema,
+	type Risk,
 	type RoleSessionReference,
 	RoleSessionReferenceSchema,
 	type Run,
@@ -24,6 +33,7 @@ import {
 } from "./contracts.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
 import type { KernelPorts } from "./ports.ts";
+import { assertQuickWorkspace, selectQuickScope } from "./quick.ts";
 
 export interface CreateRunRequest {
 	runId: string;
@@ -32,6 +42,7 @@ export interface CreateRunRequest {
 	workflow?: Workflow | "adaptive";
 	maxRevisionCycles?: number;
 	checks?: CheckRequirement[];
+	approvalTimeoutMs?: number;
 }
 
 class BlockedError extends Error {}
@@ -59,6 +70,10 @@ function assertVerification(
 	const ids = new Set<string>();
 	for (const check of result.checks) {
 		assertIdentity(check, runId, revision);
+		requireEvidence(
+			!check.step || (check.step.stepId === result.step.stepId && check.step.attempt === result.step.attempt),
+			"Check step metadata is stale",
+		);
 		const expected = checks.find((item) => item.id === check.id);
 		requireEvidence(
 			!ids.has(check.id) && expected !== undefined,
@@ -125,7 +140,16 @@ export interface CompletionEvidence {
 	revision: number;
 	task: Task;
 	checks: CheckRequirement[];
-	handoff?: Handoff;
+	handoff?: Handoff | ExecutorHandoff;
+	workflow?: Workflow;
+	risk?: Risk;
+	r3Scope?: Run["r3Scope"];
+	approvals?: Run["approvals"];
+	developerSession?: RoleSessionReference;
+	reviewerSession?: RoleSessionReference;
+	quickScope?: QuickScope;
+	executorDigest?: string;
+	workspace?: Run["workspace"];
 	review?: Review;
 	selfCheck?: VerificationResult;
 	finalCheck?: VerificationResult;
@@ -134,9 +158,53 @@ export interface CompletionEvidence {
 /** Independent guard: a phase label, natural-language success or schema-valid PASS is not sufficient. */
 export function assertCanComplete(evidence: CompletionEvidence): void {
 	const { runId, revision, task, checks, handoff, review, selfCheck, finalCheck } = evidence;
-	if (!handoff || !review || !selfCheck || !finalCheck)
-		throw new BlockedError("Completion requires handoff, review and both verification stages");
-	validateContract(HandoffSchema, handoff);
+	if (evidence.risk === "R3") {
+		const approval = evidence.approvals?.[0];
+		requireEvidence(
+			evidence.workflow === "STANDARD" &&
+				revision === 0 &&
+				!!evidence.r3Scope &&
+				evidence.r3Scope.runId === runId &&
+				evidence.approvals?.length === 1 &&
+				approval?.status === "CONSUMED" &&
+				approval.request.runId === runId &&
+				approval.request.path === evidence.r3Scope.targetPath &&
+				approval.request.operation === "delete-file" &&
+				approval.request.revision === revision &&
+				approval.request.step.stepId === "implement" &&
+				approval.request.step.attempt === revision + 1 &&
+				JSON.stringify(evidence.workspace?.changedFiles) === JSON.stringify([evidence.r3Scope.targetPath]) &&
+				JSON.stringify(handoff?.changed_files) === JSON.stringify([evidence.r3Scope.targetPath]),
+			"R3 completion requires consumed one-file approval and actual scoped deletion evidence",
+		);
+	}
+	if (evidence.risk === "R2" || evidence.risk === "R3") {
+		requireEvidence(evidence.workflow === "STANDARD", "R2 requires STANDARD independent review");
+		const developer = evidence.developerSession;
+		const reviewer = evidence.reviewerSession;
+		if (!developer || !reviewer)
+			throw new BlockedError("R2 requires current Developer and independent Reviewer sessions");
+		validateContract(RoleSessionReferenceSchema, developer);
+		validateContract(RoleSessionReferenceSchema, reviewer);
+		requireEvidence(
+			developer.role === "Developer" &&
+				reviewer.role === "Reviewer" &&
+				developer.sessionId !== reviewer.sessionId &&
+				developer.sessionFile !== reviewer.sessionFile,
+			"R2 requires different implementation/review sessions",
+		);
+		requireEvidence(
+			checks.some((check) => check.required) &&
+				evidence.workspace?.safe === true &&
+				evidence.workspace.diffDigest === finalCheck?.diffDigest,
+			"R2 requires required checks and live workspace evidence",
+		);
+	}
+	const quick = evidence.workflow === "QUICK";
+	if (!handoff || (!quick && !review) || !selfCheck || !finalCheck)
+		throw new BlockedError("Completion requires handoff, required review and both verification stages");
+	if (quick) validateContract(ExecutorHandoffSchema, handoff);
+	else validateContract(HandoffSchema, handoff);
 	assertIdentity(handoff, runId, revision);
 	requireEvidence(
 		handoff.task === task.id && handoff.unresolved.length === 0,
@@ -151,6 +219,42 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 			finalCheck.step.attempt === revision + 1,
 		"Completion verification belongs to another step attempt",
 	);
+	if (quick) {
+		requireEvidence(
+			revision === 0 && checks.some((check) => check.required) && !review,
+			"QUICK requires required checks and no review/revision reuse",
+		);
+		if (!evidence.quickScope || !evidence.workspace || handoff.role !== "Executor")
+			throw new BlockedError("QUICK completion requires trusted scope and live workspace evidence");
+		try {
+			assertQuickWorkspace(evidence.quickScope, evidence.workspace);
+		} catch (error) {
+			throw new BlockedError(error instanceof Error ? error.message : "Invalid QUICK scope");
+		}
+		requireEvidence(
+			evidence.executorDigest === selfCheck.diffDigest &&
+				selfCheck.diffDigest === finalCheck.diffDigest &&
+				finalCheck.diffDigest === evidence.workspace.diffDigest,
+			"QUICK digest changed after SELF_CHECK; verification is stale",
+		);
+		requireEvidence(
+			handoff.known_risks.length === 0 &&
+				handoff.requirements.length === task.requirements.length &&
+				new Set(handoff.requirements.map((item) => item.requirement)).size === task.requirements.length &&
+				task.requirements.every((requirement) =>
+					handoff.requirements.some((item) => item.requirement === requirement && item.status === "MET"),
+				),
+			"QUICK requirements incomplete or risks unresolved; STANDARD required",
+		);
+		requireEvidence(
+			new Set(handoff.changed_files).size === handoff.changed_files.length &&
+				JSON.stringify([...handoff.changed_files].sort()) ===
+					JSON.stringify([...evidence.workspace.changedFiles].sort()),
+			"Executor result does not match actual changed files",
+		);
+		return;
+	}
+	if (!review) throw new BlockedError("Independent review missing");
 	assertReview(review, task, selfCheck);
 	requireEvidence(review.result === "PASS", "Completion requires an independent Reviewer PASS");
 	requireEvidence(
@@ -166,9 +270,12 @@ export class CompanyKernel {
 	private readonly now: () => number;
 	private readonly checks: CheckRequirement[];
 	private readonly maxRevisionCycles: number;
+	private readonly approvalTimeoutMs: number;
 	private busy = false;
 	private storageFailed = false;
-	private handoff?: Handoff;
+	private handoff?: Handoff | ExecutorHandoff;
+	private developerSession?: RoleSessionReference;
+	private reviewerSession?: RoleSessionReference;
 	private review?: Review;
 	private selfCheck?: VerificationResult;
 	private finalCheck?: VerificationResult;
@@ -179,7 +286,8 @@ export class CompanyKernel {
 		this.ports = ports;
 		this.now = now;
 		this.checks = structuredClone(request.checks ?? []);
-		this.maxRevisionCycles = request.maxRevisionCycles ?? 1;
+		this.maxRevisionCycles = state.maxRevisionCycles ?? 0;
+		this.approvalTimeoutMs = request.approvalTimeoutMs ?? 30_000;
 	}
 
 	static async create(
@@ -196,6 +304,12 @@ export class CompanyKernel {
 		) {
 			throw new Error("New runs require a pending task with unique requirements");
 		}
+		if (
+			!Number.isInteger(request.approvalTimeoutMs ?? 30_000) ||
+			(request.approvalTimeoutMs ?? 30_000) < 1 ||
+			(request.approvalTimeoutMs ?? 30_000) > 60_000
+		)
+			throw new Error("Invalid approval timeout");
 		const limit = request.maxRevisionCycles ?? 1;
 		if (!Number.isInteger(limit) || limit < 0 || limit > 3)
 			throw new Error("Revision limit must be an integer from 0 to 3");
@@ -217,6 +331,12 @@ export class CompanyKernel {
 			status: "CREATED",
 			phase: "PREFLIGHT",
 			workflow: selection.workflow,
+			...(request.classification.risk === "R3"
+				? { r3Scope: selectR3Scope(request.task.goal, request.runId), approvals: [] }
+				: {}),
+			...(selection.workflow === "QUICK"
+				? { quickScope: selectQuickScope(request.task.goal, request.classification) }
+				: {}),
 			classification: request.classification,
 			risk: request.classification.risk,
 			currentTask: request.task.id,
@@ -226,6 +346,8 @@ export class CompanyKernel {
 			next: ["implement"],
 			roleSessionRefs: [],
 			revisionCycle: 0,
+			maxRevisionCycles: selection.workflow === "QUICK" || request.classification.risk === "R3" ? 0 : limit,
+			reviewHistory: [],
 			verification: [],
 			lastError: null,
 			createdAt: timestamp,
@@ -290,8 +412,21 @@ export class CompanyKernel {
 		this.assertTransition("CREATED");
 		this.busy = true;
 		try {
-			if (this.state.workflow !== "STANDARD" || this.state.risk === "R3") {
-				await this.finish("BLOCKED", "S1 only models STANDARD execution and does not authorize R3 actions", []);
+			if (
+				this.state.workflow === "COMPLEX" ||
+				(this.state.risk === "R3" && (!this.state.r3Scope || !this.ports.approval)) ||
+				((this.state.risk === "R2" || this.state.risk === "R3") &&
+					(!this.ports.verifier.inspect || !this.checks.some((check) => check.required))) ||
+				(this.state.workflow === "QUICK" &&
+					(this.state.risk === "R2" ||
+						!this.ports.verifier.inspect ||
+						!this.checks.some((check) => check.required)))
+			) {
+				await this.finish(
+					"BLOCKED",
+					"Unsupported workflow/risk or missing QUICK/R2 live verification/required checks",
+					[],
+				);
 			} else {
 				await this.persist(
 					{
@@ -313,6 +448,7 @@ export class CompanyKernel {
 		status: "BLOCKED" | "FAILED" | "CANCELLED" | "INTERRUPTED",
 		reason: string,
 		events: RuntimeEventDetail[],
+		reviewHistory?: Review[],
 	): Promise<void> {
 		const eventType = {
 			BLOCKED: "RunBlocked",
@@ -323,6 +459,19 @@ export class CompanyKernel {
 		await this.persist(
 			{
 				status,
+				...(reviewHistory ? { reviewHistory } : {}),
+				...(this.state.approvals
+					? {
+							approvals: this.state.approvals.map((record) =>
+								record.status === "PENDING" || record.status === "APPROVED"
+									? {
+											...record,
+											status: status === "CANCELLED" ? ("CANCELLED" as const) : ("INTERRUPTED" as const),
+										}
+									: record,
+							),
+						}
+					: {}),
 				lastError: reason,
 				...(this.review ? { review: this.review } : {}),
 				activeAgents: [],
@@ -347,7 +496,20 @@ export class CompanyKernel {
 		}
 	}
 
-	/** One fixed STANDARD step per call. The caller cannot skip/reorder steps or inject a target status. */
+	private assertQuickScope(workspace: NonNullable<Run["workspace"]>): void {
+		if (!this.state.quickScope) return;
+		requireEvidence(
+			!this.state.executorDigest || workspace.diffDigest === this.state.executorDigest,
+			"QUICK digest changed after Executor result; verification is stale, rerun as STANDARD",
+		);
+		try {
+			assertQuickWorkspace(this.state.quickScope, workspace);
+		} catch (error) {
+			throw new BlockedError(error instanceof Error ? error.message : "QUICK scope exceeded");
+		}
+	}
+
+	/** One fixed sequential workflow step per call. The caller cannot skip/reorder steps or inject a target status. */
 	async advance(expectedStep: StepId, signal?: AbortSignal): Promise<Run> {
 		this.assertTransition("RUNNING");
 		const step = this.state.currentStep;
@@ -358,11 +520,21 @@ export class CompanyKernel {
 		let started = false;
 		let sessionRef: RoleSessionReference | undefined;
 		let sessionRegistrationOpen = true;
+		let approvalCallbacksOpen = true;
+		let approvalInFlight = false;
+		let approvalFailure: string | undefined;
 		const task = structuredClone(this.state.tasks[0]);
 		const revision = this.state.revisionCycle;
 		const request = { runId: this.state.runId, revision, step: structuredClone(step), task };
 		const startEvents: RuntimeEventDetail[] = [{ type: "StepStarted", step }];
-		const role = expectedStep === "implement" ? "Developer" : expectedStep === "review" ? "Reviewer" : undefined;
+		const role =
+			expectedStep === "implement"
+				? this.state.workflow === "QUICK"
+					? "Executor"
+					: "Developer"
+				: expectedStep === "review"
+					? "Reviewer"
+					: undefined;
 		const onSessionCreated = async (reference: RoleSessionReference): Promise<void> => {
 			if (!sessionRegistrationOpen) throw new Error("Worker session registration is closed");
 			sessionRegistrationOpen = false;
@@ -380,13 +552,97 @@ export class CompanyKernel {
 					type: "AgentSessionCreated",
 					step,
 					role,
-					profile: role === "Developer" ? "coding" : "reasoning",
+					profile: role === "Reviewer" ? "reasoning" : "coding",
 					revision,
 					sessionRef: ref,
 				},
 			]);
 			sessionRef = ref;
 			signal?.throwIfAborted();
+		};
+		const onApprovalRequested = async (
+			proposal: ApprovalProposal,
+			workerSignal?: AbortSignal,
+		): Promise<ApprovalDecision> => {
+			if (
+				!approvalCallbacksOpen ||
+				approvalInFlight ||
+				this.state.status !== "RUNNING" ||
+				this.state.risk !== "R3" ||
+				!this.state.r3Scope ||
+				!this.ports.approval ||
+				role !== "Developer" ||
+				!sessionRef ||
+				expectedStep !== "implement"
+			)
+				throw new Error("Approval is not available for this action/role");
+			const request = validateContract(ApprovalRequestSchema, {
+				...structuredClone(proposal),
+				expiresAt: this.now() + this.approvalTimeoutMs,
+			});
+			if (
+				request.runId !== this.state.runId ||
+				request.path !== this.state.r3Scope.targetPath ||
+				request.step.stepId !== "implement" ||
+				request.step.attempt !== step.attempt ||
+				request.revision !== revision ||
+				this.state.approvals?.some((record) => record.request.actionId === request.actionId)
+			)
+				throw new Error("Approval proposal identity mismatch or replay");
+			approvalInFlight = true;
+			try {
+				await this.persist(
+					{
+						status: "WAITING_APPROVAL",
+						approvals: [...(this.state.approvals ?? []), { request, status: "PENDING" }],
+					},
+					[{ type: "ApprovalRequested", step, actionId: request.actionId }],
+				);
+				const combined =
+					workerSignal && signal ? AbortSignal.any([workerSignal, signal]) : (workerSignal ?? signal);
+				const outcome = await awaitApproval(request, this.ports.approval, combined, this.now);
+				await this.persist(
+					{
+						status: "RUNNING",
+						approvals: this.state.approvals!.map((record) =>
+							record.request.actionId === request.actionId ? { ...record, status: outcome.status } : record,
+						),
+					},
+					[
+						{
+							type: "ApprovalResolved",
+							step,
+							actionId: request.actionId,
+							approved: outcome.decision.approved,
+							outcome: outcome.status,
+						},
+					],
+				);
+				if (!outcome.decision.approved)
+					approvalFailure = `Human approval ${outcome.status.toLowerCase()}; action was not executed`;
+				return outcome.decision;
+			} finally {
+				approvalInFlight = false;
+			}
+		};
+		const onApprovalConsumed = async (actionId: string): Promise<void> => {
+			if (
+				!approvalCallbacksOpen ||
+				this.state.risk !== "R3" ||
+				role !== "Developer" ||
+				!this.state.approvals?.some(
+					(record) => record.request.actionId === actionId && record.status === "APPROVED",
+				)
+			)
+				throw new Error("Approval consumption is invalid or late");
+			await this.persist(
+				{
+					approvals: this.state.approvals.map((record) =>
+						record.request.actionId === actionId ? { ...record, status: "CONSUMED" as const } : record,
+					),
+				},
+				[{ type: "ApprovalConsumed", step, actionId }],
+			);
 		};
 		if (expectedStep === "review") startEvents.push({ type: "ReviewRequested", step });
 		if (role) startEvents.push({ type: "AgentStarted", step, role });
@@ -397,6 +653,12 @@ export class CompanyKernel {
 			await this.persist({ activeAgents: role ? [role] : [] }, startEvents);
 			started = true;
 			signal?.throwIfAborted();
+			if (this.state.quickScope && this.ports.verifier.inspect) {
+				const workspace = await this.ports.verifier.inspect(signal);
+				await this.persist({ workspace }, []);
+				this.assertQuickScope(workspace);
+				signal?.throwIfAborted();
+			}
 			const endEvents: RuntimeEventDetail[] = [];
 			const patch: Partial<Run> = {};
 			switch (expectedStep) {
@@ -404,31 +666,53 @@ export class CompanyKernel {
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
-						role: "Developer",
 						profile: "coding",
 						onSessionCreated,
-						previousReview: structuredClone(this.review),
+						...(this.state.workflow === "QUICK"
+							? { role: "Executor", scope: this.state.quickScope! }
+							: {
+									role: "Developer",
+									previousReview: structuredClone(this.review),
+									...(this.state.risk === "R3" ? { onApprovalRequested, onApprovalConsumed } : {}),
+								}),
 					});
 					signal?.throwIfAborted();
-					if (result.role !== "Developer") throw new Error("Expected Developer result");
-					const handoff = validateContract(HandoffSchema, structuredClone(result.handoff));
+					approvalCallbacksOpen = false;
+					if (result.role === "Reviewer" || result.role !== role)
+						throw new Error("Expected matching implementation role result");
+					const handoff = structuredClone(
+						result.role === "Executor"
+							? validateContract(ExecutorHandoffSchema, result.handoff)
+							: validateContract(HandoffSchema, result.handoff),
+					);
 					assertIdentity(handoff, this.state.runId, revision);
 					requireEvidence(handoff.task === task.id, "Handoff belongs to another task");
+					if (this.state.risk === "R2" || this.state.risk === "R3")
+						requireEvidence(sessionRef?.role === "Developer", "R2 Developer session reference is required");
+					this.developerSession = sessionRef;
+					this.reviewerSession = undefined;
 					this.handoff = handoff;
 					this.review = undefined;
 					this.selfCheck = undefined;
 					this.finalCheck = undefined;
 					patch.review = undefined;
+					if (handoff.role === "Executor") patch.executorResult = handoff;
+					else patch.handoff = handoff;
 					endEvents.push({
 						type: "AgentCompleted",
 						step,
-						role: "Developer",
+						role: result.role,
 						...(sessionRef ? { sessionRef } : {}),
 					});
 					break;
 				}
 				case "self-check":
 				case "test": {
+					if (this.state.risk === "R3")
+						requireEvidence(
+							this.state.approvals?.some((record) => record.status === "CONSUMED") === true,
+							"R3 checks require the approved deletion to have been executed and recorded first",
+						);
 					if (!this.handoff) throw new Error("Missing Developer handoff");
 					const result = structuredClone(
 						await this.ports.verifier.verify({
@@ -461,7 +745,8 @@ export class CompanyKernel {
 					break;
 				}
 				case "review": {
-					if (!this.handoff || !this.selfCheck) throw new Error("Review requires handoff and self-check evidence");
+					if (!this.handoff || this.handoff.role !== "Developer" || !this.selfCheck)
+						throw new Error("Review requires Developer handoff and self-check evidence");
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -473,10 +758,18 @@ export class CompanyKernel {
 					});
 					signal?.throwIfAborted();
 					if (result.role !== "Reviewer") throw new Error("Expected Reviewer result");
+					if (this.state.risk === "R2" || this.state.risk === "R3")
+						requireEvidence(
+							sessionRef?.role === "Reviewer",
+							"R2 independent Reviewer session reference is required",
+						);
+					this.reviewerSession = sessionRef;
 					const review = structuredClone(result.review);
 					assertReview(review, task, this.selfCheck);
 					this.review = review;
 					patch.review = review;
+					const reviewHistory = [...(this.state.reviewHistory ?? []), review];
+					patch.reviewHistory = reviewHistory;
 					const type = {
 						PASS: "ReviewPassed",
 						REVISE: "ReviewRevisionRequested",
@@ -492,6 +785,7 @@ export class CompanyKernel {
 							"BLOCKED",
 							review.result === "BLOCK" ? "Reviewer blocked the task" : "Revision limit reached",
 							endEvents,
+							reviewHistory,
 						);
 						return this.snapshot;
 					}
@@ -499,6 +793,7 @@ export class CompanyKernel {
 						await this.persist(
 							{
 								review,
+								reviewHistory,
 								revisionCycle: revision + 1,
 								phase: "IMPLEMENT",
 								currentStep: { stepId: "implement", attempt: revision + 2 },
@@ -526,6 +821,15 @@ export class CompanyKernel {
 					assertCanComplete({
 						...request,
 						checks: this.checks,
+						workflow: this.state.workflow,
+						risk: this.state.risk,
+						r3Scope: this.state.r3Scope,
+						approvals: this.state.approvals,
+						developerSession: this.developerSession,
+						reviewerSession: this.reviewerSession,
+						quickScope: this.state.quickScope,
+						executorDigest: this.state.executorDigest,
+						workspace: this.state.workspace,
 						handoff: this.handoff,
 						review: this.review,
 						selfCheck: this.selfCheck,
@@ -545,11 +849,16 @@ export class CompanyKernel {
 					return this.snapshot;
 				}
 			}
-			const nextStep = STANDARD_STEP_IDS[STANDARD_STEP_IDS.indexOf(expectedStep) + 1];
+			const steps: readonly StepId[] = this.state.workflow === "QUICK" ? QUICK_STEP_IDS : STANDARD_STEP_IDS;
+			const nextStep = steps[steps.indexOf(expectedStep) + 1];
+			const workspace = this.ports.verifier.inspect ? await this.ports.verifier.inspect(signal) : undefined;
+			if (workspace) this.assertQuickScope(workspace);
+			if (this.state.workflow === "QUICK" && expectedStep === "implement" && workspace)
+				patch.executorDigest = workspace.diffDigest;
 			await this.persist(
 				{
 					...patch,
-					...(this.ports.verifier.inspect ? { workspace: await this.ports.verifier.inspect(signal) } : {}),
+					...(workspace ? { workspace } : {}),
 					phase: STANDARD_STEP_PHASES[nextStep],
 					currentStep: { stepId: nextStep, attempt: revision + 1 },
 					activeAgents: [],
@@ -568,7 +877,9 @@ export class CompanyKernel {
 				}
 			}
 			const cancelled = signal?.aborted === true;
-			const reason = cancelled ? "Run cancelled" : error instanceof Error ? error.message : "Step execution failed";
+			const reason = cancelled
+				? "Run cancelled"
+				: (approvalFailure ?? (error instanceof Error ? error.message : "Step execution failed"));
 			const failures: RuntimeEventDetail[] = [];
 			if (started) {
 				if (role) failures.push({ type: "AgentFailed", step, role, reason, ...(sessionRef ? { sessionRef } : {}) });
@@ -577,13 +888,14 @@ export class CompanyKernel {
 				failures.push({ type: "StepFailed", step, reason });
 			}
 			await this.finish(
-				cancelled ? "CANCELLED" : error instanceof BlockedError ? "BLOCKED" : "FAILED",
+				cancelled ? "CANCELLED" : error instanceof BlockedError || approvalFailure ? "BLOCKED" : "FAILED",
 				reason,
 				failures,
 			);
 			return this.snapshot;
 		} finally {
 			sessionRegistrationOpen = false;
+			approvalCallbacksOpen = false;
 			this.busy = false;
 		}
 	}

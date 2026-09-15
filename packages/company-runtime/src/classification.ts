@@ -15,7 +15,8 @@ const intentRules: Array<{ intent: Classification["intent"]; pattern: RegExp }> 
 	{ intent: "creative", pattern: /brainstorm|creative|ideat|아이디어|창작/i },
 	{
 		intent: "maintenance",
-		pattern: /typo|maintenance|dependency|dependencies|upgrade|오타|유지보수|의존성|업데이트/i,
+		pattern:
+			/^(?:(?:delete|remove) file|파일 삭제) |typo|maintenance|dependency|dependencies|upgrade|small (?:change|setting)|simple (?:change|setting)|오타|유지보수|의존성|업데이트|작은 (?:변경|설정|수정)|한 파일/i,
 	},
 	{ intent: "implementation", pattern: /implement|add|build|구현|추가|만들/i },
 	{ intent: "analysis", pattern: /analy[sz]|inspect|분석|검토/i },
@@ -30,9 +31,13 @@ export function classifyRequest(goal: string, hints: ClassificationHints = {}): 
 	const intent = hints.intent ?? matched?.intent ?? "analysis";
 	const complexity =
 		hints.complexity ??
-		(intent === "architecture" || /large.scale|multiple modules|대규모|다수 모듈/i.test(goal)
+		(intent === "architecture" ||
+		/architecture|system design|large.scale|multiple modules|아키텍처|시스템 설계|대규모|다수 모듈/i.test(goal)
 			? "COMPLEX"
-			: intent === "question" || /typo|오타/i.test(goal)
+			: intent === "question" ||
+					/typo|오타|small (?:change|setting)|simple (?:change|setting)|(?:single|one) file|작은 (?:변경|설정|수정)|한 파일/i.test(
+						goal,
+					)
 				? "QUICK"
 				: "STANDARD");
 	let risk: Classification["risk"] = ["question", "analysis", "research", "architecture"].includes(intent)
@@ -41,7 +46,7 @@ export function classifyRequest(goal: string, hints: ClassificationHints = {}): 
 	if (!matched && !hints.intent) risk = "R1";
 	if (/dependency|dependencies|package structure|의존성|프로젝트 구조|대규모/i.test(goal)) risk = "R2";
 	if (
-		/delet|deploy|production|credential|git\s+(reset|rebase)|force.push|rm\s+-|삭제|배포|프로덕션|자격.?증명|히스토리 변경/i.test(
+		/delet|remove file|deploy|production|credential|git\s+(reset|rebase)|force.push|rm\s+-|삭제|배포|프로덕션|자격.?증명|히스토리 변경/i.test(
 			goal,
 		)
 	)

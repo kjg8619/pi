@@ -83,6 +83,10 @@ export class RegisteredVerifier implements Verifier {
 		return snapshot;
 	}
 	async verify(request: VerificationRequest): Promise<VerificationResult> {
+		if (this.policy.r3Scope && request.runId !== this.policy.r3Scope.runId)
+			throw new Error("R3 verifier run binding mismatch");
+		if (this.policy.r2RunId && request.runId !== this.policy.r2RunId)
+			throw new Error("R2 verifier run binding mismatch");
 		const configured = this.config.verification.checks;
 		if (
 			JSON.stringify(request.checks) !==
@@ -98,6 +102,7 @@ export class RegisteredVerifier implements Verifier {
 				id: check.id,
 				runId: request.runId,
 				revision: request.revision,
+				step: structuredClone(request.step),
 				kind: check.kind,
 				required: check.required,
 				status: "SKIPPED",
@@ -135,7 +140,14 @@ export class RegisteredVerifier implements Verifier {
 			);
 			await this.audit.prepare(decision);
 			if (decision.decision !== "ALLOW") {
-				checks.push({ ...base, status: "UNAVAILABLE", reason: "Check blocked by execution policy" });
+				checks.push({
+					...base,
+					status:
+						request.handoff.role === "Executor" || this.policy.r2RunId || this.policy.r3Scope
+							? "FAIL"
+							: "UNAVAILABLE",
+					reason: "Check blocked by execution policy",
+				});
 				continue;
 			}
 			let intentOpen = true;
@@ -144,7 +156,14 @@ export class RegisteredVerifier implements Verifier {
 				if (!(await this.cwdSafe(action.cwd))) {
 					await this.audit.finish(decision.runId, decision.actionId, "FAILED");
 					intentOpen = false;
-					checks.push({ ...base, status: "UNAVAILABLE", reason: "Check cwd changed after intent persistence" });
+					checks.push({
+						...base,
+						status:
+							request.handoff.role === "Executor" || this.policy.r2RunId || this.policy.r3Scope
+								? "FAIL"
+								: "UNAVAILABLE",
+						reason: "Check cwd changed after intent persistence",
+					});
 					continue;
 				}
 				request.signal?.throwIfAborted();

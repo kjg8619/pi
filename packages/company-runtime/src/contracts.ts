@@ -7,6 +7,12 @@ const texts = Type.Array(text);
 const strict = { additionalProperties: false } as const;
 
 export const STANDARD_STEP_IDS = ["implement", "self-check", "review", "test", "complete"] as const;
+export const QUICK_STEP_IDS = ["implement", "self-check", "test", "complete"] as const;
+export const QuickScopeSchema = Type.Object(
+	{ risk: Type.Enum(["R0", "R1"]), targetPath: Type.Union([text, Type.Null()]) },
+	strict,
+);
+export type QuickScope = Static<typeof QuickScopeSchema>;
 export const StepReferenceSchema = Type.Object(
 	{ stepId: Type.Enum(STANDARD_STEP_IDS), attempt: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) },
 	strict,
@@ -56,6 +62,7 @@ export const CheckResultSchema = Type.Object(
 		runId: text,
 		revision: counter,
 		kind: CheckKindSchema,
+		step: Type.Optional(StepReferenceSchema),
 		status: Type.Enum(["PASS", "FAIL", "SKIPPED", "UNAVAILABLE"]),
 		required: Type.Boolean(),
 		exitCode: Type.Union([Type.Integer(), Type.Null()]),
@@ -116,6 +123,23 @@ export const HandoffSchema = Type.Object(
 	strict,
 );
 
+// Executor supplies a requirement-by-requirement result, not a self-approval or invented check evidence.
+export const ExecutorHandoffSchema = Type.Object(
+	{
+		...HandoffSchema.properties,
+		role: Type.Literal("Executor"),
+		requirements: Type.Array(
+			Type.Object(
+				{ requirement: text, status: Type.Enum(["MET", "UNMET", "UNVERIFIED"]), explanation: text },
+				strict,
+			),
+			{ minItems: 1 },
+		),
+	},
+	strict,
+);
+export type ExecutorHandoff = Static<typeof ExecutorHandoffSchema>;
+
 export const ReviewSchema = Type.Object(
 	{
 		runId: text,
@@ -169,6 +193,49 @@ export const PolicyDecisionSchema = Type.Object(
 export const RoleSessionReferenceSchema = Type.Object({ role: RoleSchema, sessionId: text, sessionFile: text }, strict);
 export type RoleSessionReference = Static<typeof RoleSessionReferenceSchema>;
 
+export const R3ScopeSchema = Type.Object({ runId: text, targetPath: text }, strict);
+export type R3Scope = Static<typeof R3ScopeSchema>;
+export const ApprovalRequestSchema = Type.Object(
+	{
+		runId: text,
+		actionId: text,
+		actionDigest: text,
+		configDigest: text,
+		reason: text,
+		role: Type.Literal("Developer"),
+		operation: Type.Literal("delete-file"),
+		path: text,
+		preconditionDigest: text,
+		bytes: counter,
+		step: StepReferenceSchema,
+		revision: counter,
+		expiresAt: counter,
+	},
+	strict,
+);
+export type ApprovalRequest = Static<typeof ApprovalRequestSchema>;
+export type ApprovalProposal = Omit<ApprovalRequest, "expiresAt">;
+export const ApprovalDecisionSchema = Type.Object(
+	{
+		runId: text,
+		actionId: text,
+		actionDigest: text,
+		configDigest: text,
+		expiresAt: counter,
+		approved: Type.Boolean(),
+	},
+	strict,
+);
+export type ApprovalDecision = Static<typeof ApprovalDecisionSchema>;
+export const ApprovalRecordSchema = Type.Object(
+	{
+		request: ApprovalRequestSchema,
+		status: Type.Enum(["PENDING", "APPROVED", "CONSUMED", "DENIED", "EXPIRED", "CANCELLED", "INTERRUPTED"]),
+	},
+	strict,
+);
+export type ApprovalRecord = Static<typeof ApprovalRecordSchema>;
+
 export const RunSchema = Type.Object(
 	{
 		schemaVersion: Type.Literal(1),
@@ -198,9 +265,26 @@ export const RunSchema = Type.Object(
 		next: texts,
 		roleSessionRefs: Type.Array(RoleSessionReferenceSchema),
 		revisionCycle: counter,
+		maxRevisionCycles: Type.Optional(Type.Integer({ minimum: 0, maximum: 3 })),
+		handoff: Type.Optional(HandoffSchema),
+		reviewHistory: Type.Optional(Type.Array(ReviewSchema)),
 		workspace: Type.Optional(
-			Type.Object({ diffDigest: text, changedFiles: texts, evidenceRefs: texts, safe: Type.Boolean() }, strict),
+			Type.Object(
+				{
+					diffDigest: text,
+					changedFiles: texts,
+					evidenceRefs: texts,
+					safe: Type.Boolean(),
+					changedLines: Type.Optional(counter),
+				},
+				strict,
+			),
 		),
+		r3Scope: Type.Optional(R3ScopeSchema),
+		approvals: Type.Optional(Type.Array(ApprovalRecordSchema)),
+		quickScope: Type.Optional(QuickScopeSchema),
+		executorResult: Type.Optional(ExecutorHandoffSchema),
+		executorDigest: Type.Optional(text),
 		review: Type.Optional(ReviewSchema),
 		verification: Type.Array(CheckResultSchema),
 		lastError: Type.Union([text, Type.Null()]),

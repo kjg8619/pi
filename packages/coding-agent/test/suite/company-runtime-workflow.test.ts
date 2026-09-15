@@ -273,15 +273,15 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 		},
 	);
 	it.each([
-		"Explain this code",
+		"Explain production credentials",
 		"Fix typo",
 		"Design large-scale architecture",
-		"Update dependency",
+		"Update dependency architecture",
 		"Deploy production",
 	])("rejects unsupported goal %s without downgrade", async (goal) => {
 		const result = await create(goal).execute();
 		expect(result.run).toBeUndefined();
-		expect(result.error).toContain("Unsupported");
+		expect(result.error).toMatch(/Unsupported|QUICK R1 requires/);
 		expect(harness.faux.state.callCount).toBe(0);
 	});
 	it.each(["failure", "timeout", "unavailable", "shell", "eval"])(

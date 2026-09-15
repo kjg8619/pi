@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { type Static, Type } from "typebox";
 import { type PolicyDecision, PolicyDecisionSchema, type Run, RunSchema, validateContract } from "./contracts.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEvent, type RuntimeEventSink } from "./events.ts";
+import { readRuntimeFile, writeObservationFiles } from "./observation-files.ts";
 import type { ActionAudit, ActionOutcome } from "./policy.ts";
 import type { StateStore } from "./ports.ts";
 
@@ -31,8 +32,13 @@ type StateFile = "state.json" | "tasks.json";
 export interface FileStateStoreOptions {
 	now?: () => number;
 	events?: RuntimeEventSink;
+	/** Export-only ownership refuses active snapshots and skips recovery/projection repair. */
+	recoverInterrupted?: boolean;
 	/** Deterministic I/O failure injection for tests, not an execution/policy hook. */
-	beforeAtomicStep?: (file: StateFile, step: "write" | "sync" | "rename") => void;
+	beforeAtomicStep?: (
+		file: StateFile | "decisions.md" | "logs/checks.json",
+		step: "write" | "sync" | "rename",
+	) => void;
 }
 export class StateStoreError extends Error {
 	readonly stage: string;
@@ -135,6 +141,58 @@ export class FileStateStore implements StateStore, ActionAudit {
 				failure.cleanupFailed = true;
 			}
 			throw failure;
+		}
+	}
+	/** Reads a point-in-time atomic source snapshot without acquiring/stealing a writer or repairing projections. */
+	static async readSnapshot(
+		projectPath: string,
+	): Promise<{ state?: FileRuntimeState; writerPresent: boolean; tasksCurrent: boolean }> {
+		try {
+			const project = await realpath(projectPath);
+			const text = await readRuntimeFile(project, ".ai/state.json");
+			let tasks: string | undefined;
+			try {
+				tasks = await readRuntimeFile(project, ".ai/tasks.json");
+			} catch {
+				tasks = "[unavailable projection]";
+			}
+			if (text === undefined && tasks !== undefined) throw new Error("Missing state source");
+			const state = text === undefined ? undefined : structuredClone(assertState(JSON.parse(text)));
+			let writerPresent = false;
+			try {
+				await lstat(join(project, ".ai/writer.lock"));
+				writerPresent = true;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			}
+			let tasksCurrent = false;
+			try {
+				tasksCurrent =
+					!!state &&
+					tasks !== undefined &&
+					JSON.stringify(JSON.parse(tasks)) === JSON.stringify(projection(state));
+			} catch {
+				/* Never recover on a read. */
+			}
+			return { state, writerPresent, tasksCurrent };
+		} catch {
+			throw new StateStoreError("read snapshot integrity");
+		}
+	}
+	async exportViews() {
+		if (
+			this.busy ||
+			this.closed ||
+			this.state.revision === 0 ||
+			this.state.runs.some(active) ||
+			this.state.actions.some((action) => action.status === "PREPARED")
+		)
+			throw new Error("Export requires an idle writer and terminal runs; no recovery/resume is performed");
+		this.busy = true;
+		try {
+			return await writeObservationFiles(this, this.snapshot, this.options.beforeAtomicStep);
+		} finally {
+			this.busy = false;
 		}
 	}
 	get snapshot(): FileRuntimeState {
@@ -303,6 +361,11 @@ export class FileStateStore implements StateStore, ActionAudit {
 			return;
 		}
 		const next = structuredClone(this.state);
+		if (
+			this.options.recoverInterrupted === false &&
+			(next.runs.some(active) || next.actions.some((action) => action.status === "PREPARED"))
+		)
+			throw new StateStoreError("active run; recovery disabled");
 		const events: RuntimeEvent[] = [];
 		for (const run of next.runs)
 			if (active(run)) {
@@ -311,6 +374,12 @@ export class FileStateStore implements StateStore, ActionAudit {
 				run.eventSequence++;
 				run.updatedAt = (this.options.now ?? Date.now)();
 				run.activeAgents = [];
+				if (run.approvals)
+					run.approvals = run.approvals.map((record) =>
+						record.status === "PENDING" || record.status === "APPROVED"
+							? { ...record, status: "INTERRUPTED" }
+							: record,
+					);
 				run.next = [];
 				run.lastError = "Previous owner stopped; inspect workspace and start a new run. No automatic resume.";
 				run.tasks = run.tasks.map((task) => (task.status === "completed" ? task : { ...task, status: "blocked" }));
@@ -319,6 +388,7 @@ export class FileStateStore implements StateStore, ActionAudit {
 		for (const action of next.actions) if (action.status === "PREPARED") action.status = "INTERRUPTED";
 		if (JSON.stringify(next) !== JSON.stringify(this.state)) await this.commit(next);
 		else {
+			if (this.options.recoverInterrupted === false) return;
 			let tasks: unknown;
 			try {
 				tasks = await this.readJson("tasks.json");
@@ -360,6 +430,63 @@ export class FileStateStore implements StateStore, ActionAudit {
 			validateContract(RunSchema, run);
 			const index = next.runs.findIndex((item) => item.runId === run.runId);
 			const previous = next.runs[index];
+			if (
+				previous?.risk === "R3" &&
+				previous.r3Scope &&
+				(run.risk !== "R3" ||
+					run.workflow !== "STANDARD" ||
+					JSON.stringify(run.r3Scope) !== JSON.stringify(previous.r3Scope))
+			)
+				throw new Error("R3 scope/approval obligation cannot change");
+			const approvals = run.approvals ?? [];
+			if (
+				approvals.length > 1 ||
+				approvals.some(
+					(record) =>
+						!run.r3Scope || record.request.runId !== run.runId || record.request.path !== run.r3Scope.targetPath,
+				)
+			)
+				throw new Error("Invalid approval ledger");
+			for (const record of approvals) {
+				const old = previous?.approvals?.find((item) => item.request.actionId === record.request.actionId);
+				if (!old && record.status !== "PENDING") throw new Error("Approval must first be persisted pending");
+				if (
+					old &&
+					(JSON.stringify(old.request) !== JSON.stringify(record.request) ||
+						(old.status !== record.status &&
+							!(
+								old.status === "PENDING" &&
+								["APPROVED", "DENIED", "EXPIRED", "CANCELLED", "INTERRUPTED"].includes(record.status)
+							) &&
+							!(old.status === "APPROVED" && ["CONSUMED", "CANCELLED", "INTERRUPTED"].includes(record.status))))
+				)
+					throw new Error("Approval mutation/replay");
+				if (
+					record.status === "CONSUMED" &&
+					!next.actions.some(
+						(action) =>
+							action.status === "SUCCEEDED" &&
+							action.decision.runId === run.runId &&
+							action.decision.actionId === record.request.actionId &&
+							action.decision.actionDigest === record.request.actionDigest &&
+							action.decision.configDigest === record.request.configDigest &&
+							action.decision.risk === "R3",
+					)
+				)
+					throw new Error("Approval consumption requires successful durable action evidence");
+			}
+			if (
+				previous?.approvals?.some(
+					(old) => !approvals.some((record) => record.request.actionId === old.request.actionId),
+				)
+			)
+				throw new Error("Approval history cannot be removed");
+			if (
+				previous?.risk === "R2" &&
+				previous.workflow === "STANDARD" &&
+				(run.risk !== "R2" || run.workflow !== "STANDARD" || run.quickScope !== undefined)
+			)
+				throw new Error("A persisted R2 review obligation cannot be downgraded");
 			if (run.revision !== (previous?.revision ?? 0) + 1 || (previous && !active(previous)))
 				throw new Error("Stale revision or terminal run; resume is unsupported");
 			if (!previous && (run.status !== "CREATED" || next.runs.some(active)))
@@ -384,6 +511,40 @@ export class FileStateStore implements StateStore, ActionAudit {
 				)
 			)
 				throw new Error("Action requires a running owner, a fresh ID and the same frozen configuration");
+			if (decision.decision === "ALLOW" && (decision.risk === "R2" || decision.risk === "R3")) {
+				const run = next.runs.find((run) => run.runId === decision.runId);
+				if (
+					!run ||
+					run.risk !== decision.risk ||
+					run.workflow !== "STANDARD" ||
+					run.quickScope ||
+					run.phase !== "IMPLEMENT" ||
+					run.currentStep?.stepId !== "implement" ||
+					run.currentStep.attempt !== run.revisionCycle + 1 ||
+					decision.role !== "Developer" ||
+					!run.activeAgents.includes("Developer") ||
+					run.roleSessionRefs.at(-1)?.role !== "Developer"
+				)
+					throw new Error("R2 intent requires a persisted STANDARD/R2 Developer session and review obligation");
+			}
+			if (decision.decision === "ALLOW" && decision.risk === "R3") {
+				const run = next.runs.find((run) => run.runId === decision.runId)!;
+				const grant = run.approvals?.find(
+					(record) => record.request.actionId === decision.actionId && record.status === "APPROVED",
+				);
+				if (
+					!grant ||
+					!run.r3Scope ||
+					grant.request.path !== run.r3Scope.targetPath ||
+					grant.request.actionDigest !== decision.actionDigest ||
+					grant.request.configDigest !== decision.configDigest ||
+					grant.request.revision !== run.revisionCycle ||
+					grant.request.step.stepId !== "implement" ||
+					grant.request.step.attempt !== run.currentStep?.attempt ||
+					grant.request.expiresAt <= (this.options.now ?? Date.now)()
+				)
+					throw new Error("R3 intent requires exact unexpired persisted human approval");
+			}
 			next.actions.push({ decision, status: decision.decision === "ALLOW" ? "PREPARED" : "DENIED" });
 		});
 	}

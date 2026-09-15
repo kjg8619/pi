@@ -1,6 +1,11 @@
 import type {
+	ApprovalDecision,
+	ApprovalProposal,
+	ApprovalRequest,
 	CheckRequirement,
+	ExecutorHandoff,
 	Handoff,
+	QuickScope,
 	Review,
 	RoleSessionReference,
 	Run,
@@ -22,18 +27,24 @@ interface StepRequest {
 export type AgentExecutionRequest = StepRequest & {
 	/** Adapter calls once, before prompting. Rejection prevents worker execution. No Pi types cross this boundary. */
 	onSessionCreated?: (reference: RoleSessionReference) => Promise<void>;
+	onApprovalRequested?: (proposal: ApprovalProposal, signal?: AbortSignal) => Promise<ApprovalDecision>;
+	onApprovalConsumed?: (actionId: string) => Promise<void>;
 } & (
 		| { role: "Developer"; profile: "coding"; previousReview?: Review }
+		| { role: "Executor"; profile: "coding"; scope: QuickScope }
 		| { role: "Reviewer"; profile: "reasoning"; handoff: Handoff; verification: VerificationResult }
 	);
-export type AgentExecutionResult = { role: "Developer"; handoff: Handoff } | { role: "Reviewer"; review: Review };
+export type AgentExecutionResult =
+	| { role: "Developer"; handoff: Handoff }
+	| { role: "Executor"; handoff: ExecutorHandoff }
+	| { role: "Reviewer"; review: Review };
 
 export interface AgentExecutor {
 	execute(request: AgentExecutionRequest): Promise<AgentExecutionResult>;
 }
 
 export interface VerificationRequest extends StepRequest {
-	handoff: Handoff;
+	handoff: Handoff | ExecutorHandoff;
 	checks: CheckRequirement[];
 }
 export interface Verifier {
@@ -48,23 +59,9 @@ export interface StateStore {
 	save(run: Run): Promise<void>;
 }
 
-export interface ApprovalRequest {
-	runId: string;
-	actionId: string;
-	actionDigest: string;
-	configDigest: string;
-	reason: string;
-	expiresAt: number;
-}
-export interface ApprovalDecision {
-	runId: string;
-	actionId: string;
-	actionDigest: string;
-	configDigest: string;
-	approved: boolean;
-}
+export type { ApprovalDecision, ApprovalRequest } from "./contracts.ts";
 export interface ApprovalPort {
-	requestApproval(request: ApprovalRequest): Promise<ApprovalDecision>;
+	requestApproval(request: ApprovalRequest, signal?: AbortSignal): Promise<ApprovalDecision>;
 }
 
 export interface KernelPorts {
@@ -72,6 +69,6 @@ export interface KernelPorts {
 	verifier: Verifier;
 	store: StateStore;
 	events?: RuntimeEventSink;
-	/** Reserved for S2/S5 action gates. Injecting this never enables R3 in S1. */
+	/** Human authority for explicitly supported R3 actions, not a general execution permission. */
 	approval?: ApprovalPort;
 }

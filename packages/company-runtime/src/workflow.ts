@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { classifyRequest } from "./classification.ts";
+import { selectR3Scope } from "./approval.ts";
+import { classifyRequest, selectWorkflow } from "./classification.ts";
 import type { RuntimeConfig } from "./config.ts";
-import type { Run } from "./contracts.ts";
+import type { QuickScope, R3Scope, Run } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { CompanyKernel } from "./kernel.ts";
+import { formatRunView, type ObservationState } from "./observations.ts";
 import type { PolicyContext } from "./policy.ts";
-import type { AgentExecutor } from "./ports.ts";
+import type { AgentExecutor, ApprovalPort } from "./ports.ts";
+import { selectQuickScope } from "./quick.ts";
 import { FileStateStore } from "./state-store.ts";
 import { RegisteredVerifier } from "./verification.ts";
 import { GitWorkspace } from "./workspace.ts";
@@ -14,9 +17,16 @@ export interface WorkflowOptions {
 	cwd: string;
 	goal: string;
 	config: RuntimeConfig;
-	createAgents: (store: FileStateStore) => Promise<{ executor: AgentExecutor; policy: PolicyContext }>;
+	createAgents: (
+		store: FileStateStore,
+		quickScope?: QuickScope,
+		r2RunId?: string,
+		r3Scope?: R3Scope,
+	) => Promise<{ executor: AgentExecutor; policy: PolicyContext }>;
 	events?: RuntimeEventSink;
 	signal?: AbortSignal;
+	approval?: ApprovalPort;
+	approvalTimeoutMs?: number;
 }
 export interface WorkflowReport {
 	run?: Run;
@@ -25,11 +35,13 @@ export interface WorkflowReport {
 	changesUnknown: boolean;
 	error?: string;
 	recommendedAction: string;
+	diagnostics?: string[];
 }
 
 /** One awaited owner of the run, worker/check cancellation and project lock. No Pi/UI types. */
 export class StandardWorkflow {
 	private kernel?: CompanyKernel;
+	private store?: FileStateStore;
 	private reportValue: WorkflowReport = {
 		changedFiles: [],
 		partialChanges: false,
@@ -45,8 +57,18 @@ export class StandardWorkflow {
 	get snapshot(): Run | undefined {
 		return this.kernel?.snapshot;
 	}
+	get observationState(): ObservationState | undefined {
+		return this.store?.snapshot;
+	}
 	get report(): WorkflowReport {
-		return structuredClone({ ...this.reportValue, run: this.snapshot });
+		const failures = this.kernel?.deliveryFailures ?? [];
+		return structuredClone({
+			...this.reportValue,
+			run: this.snapshot,
+			diagnostics: failures.length
+				? [`Observer delivery failures: ${failures.length}; execution result was not changed`]
+				: [],
+		});
 	}
 	cancel(): void {
 		this.controller.abort();
@@ -62,29 +84,44 @@ export class StandardWorkflow {
 		let workspace: GitWorkspace | undefined;
 		try {
 			signal.throwIfAborted();
+			const runId = randomUUID();
 			const { classification, requiresConfirmation } = classifyRequest(this.options.goal);
+			const r3Scope = classification.risk === "R3" ? selectR3Scope(this.options.goal, runId) : undefined;
 			if (
 				requiresConfirmation ||
-				classification.complexity !== "STANDARD" ||
-				!["R0", "R1"].includes(classification.risk) ||
-				!["adaptive", "STANDARD"].includes(this.options.config.runtime.workflow)
+				classification.complexity === "COMPLEX" ||
+				(classification.risk === "R3" && (!r3Scope || !this.options.approval)) ||
+				(["R2", "R3"].includes(classification.risk) && this.options.config.runtime.workflow === "QUICK") ||
+				!["adaptive", "STANDARD", "QUICK"].includes(this.options.config.runtime.workflow)
 			)
 				throw new Error(
 					`Unsupported classification/workflow: ${classification.complexity}/${classification.risk}; no downgrade performed`,
 				);
-			if (this.options.config.agents.max_revision_cycles > 1)
-				throw new Error("S4 supports at most one revision cycle");
+			const selection = selectWorkflow(classification, this.options.config.runtime.workflow);
+			const quickScope =
+				selection.workflow === "QUICK" ? selectQuickScope(this.options.goal, classification) : undefined;
+			if (
+				!Number.isInteger(this.options.config.agents.max_revision_cycles) ||
+				this.options.config.agents.max_revision_cycles < 0 ||
+				this.options.config.agents.max_revision_cycles > 3
+			)
+				throw new Error("STANDARD revision limit must be from 0 to 3");
 			if (!this.options.config.verification.checks.some((check) => check.required))
 				throw new Error("Configure at least one trusted required verification check");
+			const r2RunId = classification.risk === "R2" ? runId : undefined;
 			store = await FileStateStore.open(this.options.cwd, { events: this.options.events });
-			const agents = await this.options.createAgents(store);
+			this.store = store;
+			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope);
+			if (JSON.stringify(agents.policy.r3Scope) !== JSON.stringify(r3Scope))
+				throw new Error("R3 execution binding differs from selected scope");
+			if (agents.policy.r2RunId !== r2RunId) throw new Error("R2 execution binding differs from the selected run");
 			signal.throwIfAborted();
 			workspace = await GitWorkspace.open(this.options.cwd, agents.policy, signal);
 			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace);
 			signal.throwIfAborted();
 			this.kernel = await CompanyKernel.create(
 				{
-					runId: randomUUID(),
+					runId,
 					task: {
 						id: randomUUID(),
 						goal: this.options.goal,
@@ -92,15 +129,16 @@ export class StandardWorkflow {
 						status: "pending",
 					},
 					classification,
-					workflow: "STANDARD",
-					maxRevisionCycles: this.options.config.agents.max_revision_cycles,
+					workflow: selection.workflow,
+					maxRevisionCycles: classification.risk === "R3" ? 0 : this.options.config.agents.max_revision_cycles,
+					approvalTimeoutMs: this.options.approvalTimeoutMs,
 					checks: this.options.config.verification.checks.map(({ id, kind, required }) => ({
 						id,
 						kind,
 						required,
 					})),
 				},
-				{ agents: agents.executor, verifier, store, events: this.options.events },
+				{ agents: agents.executor, verifier, store, events: this.options.events, approval: this.options.approval },
 			);
 			await this.kernel.start();
 			while (this.kernel.snapshot.status === "RUNNING") {
@@ -141,24 +179,12 @@ export class StandardWorkflow {
 			run?.status !== "COMPLETED" && (this.reportValue.changedFiles.length > 0 || this.reportValue.changesUnknown);
 		this.reportValue.recommendedAction =
 			run?.status === "COMPLETED" && !this.reportValue.error
-				? "Inspect the reviewed diff and verification results; no commit was made"
+				? `Inspect the ${run.workflow === "QUICK" ? "verified" : "reviewed"} diff and verification results; no commit was made`
 				: "Inspect git status/diff and recorded checks; preserve partial changes, then explicitly start a new run";
 		return this.report;
 	}
 }
 
 export function formatWorkflowReport(report: WorkflowReport): string {
-	const run = report.run;
-	return [
-		`Run: ${run?.runId ?? "not started"}`,
-		`Status: ${run?.status ?? "PREFLIGHT"} | Phase: ${run?.phase ?? "PREFLIGHT"} | Risk: ${run?.risk ?? "unclassified"}`,
-		`Team: ${run?.activeAgents.join(", ") || "idle"} | Revision cycle: ${run?.revisionCycle ?? 0}`,
-		`Goal: ${run?.goal ?? "not started"}`,
-		`Diff: ${run?.workspace?.diffDigest ?? "not collected"} | Review: ${run?.review?.result ?? "not performed"}`,
-		`Changed files: ${report.changedFiles.join(", ") || run?.workspace?.changedFiles.join(", ") || "none recorded"}`,
-		`Partial changes exist: ${run?.status === "RUNNING" ? "possible; active step is not a live diff snapshot" : report.partialChanges ? "yes" : "no"}${report.changesUnknown ? " (collection incomplete)" : ""}`,
-		`Verification: ${run?.verification.map((check) => `${check.id}@${check.revision}: ${check.status} (${check.reason})`).join("; ") || "not performed"}`,
-		`Error: ${report.error ?? "none"}`,
-		`Next: ${run?.status === "RUNNING" ? "Use /workflow status or /workflow cancel; parent Esc does not cancel workers" : report.recommendedAction}`,
-	].join("\n");
+	return formatRunView("state", { run: report.run, report, source: "local Kernel result" });
 }

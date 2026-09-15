@@ -3,9 +3,11 @@ import type { Stats } from "node:fs";
 import { lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Run } from "./contracts.ts";
+import { OBSERVATION_FILES, ownedObservationPaths } from "./observation-files.ts";
 import { evaluatePolicy, isPolicyPath, type PolicyContext } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import { resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
+import { changedLineCount } from "./quick.ts";
 
 type FileImage = { mode: number; hash: string; text: string; binary: boolean };
 export interface DiffEvidence extends NonNullable<Run["workspace"]> {
@@ -45,11 +47,12 @@ export class GitWorkspace {
 		return result.stdout;
 	}
 	private async assertClean(signal?: AbortSignal): Promise<void> {
+		const generated = await ownedObservationPaths(this.cwd);
 		const status = (await this.command(["status", "--porcelain=v1", "-z", "--untracked-files=all"], signal))
 			.split("\0")
 			.filter(Boolean);
 		for (const entry of status)
-			if (!owned.has(entry.slice(3)))
+			if (!owned.has(entry.slice(3)) && !generated.has(entry.slice(3)))
 				throw new Error("Dirty workspace: preserve existing changes; no automatic cleanup was performed");
 	}
 	static async open(cwd: string, policy: PolicyContext, signal?: AbortSignal): Promise<GitWorkspace> {
@@ -59,7 +62,8 @@ export class GitWorkspace {
 		if ((await realpath((await workspace.command(["rev-parse", "--show-toplevel"])).trim())) !== workspace.cwd)
 			throw new Error("Run must start at the Git project root");
 		const tracked = (await workspace.command(["ls-files", "-z"])).split("\0").filter(Boolean);
-		if (tracked.some((path) => owned.has(path)))
+		const generated = await ownedObservationPaths(workspace.cwd);
+		if (tracked.some((path) => owned.has(path) || generated.has(path)))
 			throw new Error("Runtime operating files must not be tracked in Git");
 		await workspace.assertClean(signal);
 		workspace.head = (await workspace.command(["rev-parse", "HEAD"])).trim();
@@ -67,6 +71,27 @@ export class GitWorkspace {
 		if (/(?:^|\0)160000 /.test(workspace.index)) throw new Error("Submodules are unsupported in the first slice");
 		workspace.gitConfig = await workspace.controlHash();
 		workspace.baseline = await workspace.images(signal);
+		if (policy.r3Scope) {
+			const path = policy.r3Scope.targetPath;
+			const image = workspace.baseline.get(path);
+			if (!tracked.includes(path) || !image || image.binary || Buffer.byteLength(image.text) > 262144)
+				throw new Error("R3 deletion requires an existing Git-tracked text file");
+			const decision = evaluatePolicy(
+				{
+					runId: policy.r3Scope.runId,
+					actionId: "preflight",
+					actionDigest: "preflight",
+					role: "Developer",
+					tool: "runtime_delete",
+					risk: "R3",
+					paths: [path],
+				},
+				policy,
+				await paths.inspect([path]),
+			);
+			if (decision.decision !== "APPROVAL_REQUIRED")
+				throw new Error("Unsupported R3 deletion target; protected paths cannot be approved");
+		}
 		await workspace.assertClean(signal);
 		return workspace;
 	}
@@ -81,6 +106,7 @@ export class GitWorkspace {
 				.filter((path) => path && !owned.has(path)),
 		);
 		names.add(".ai/config.yaml");
+		for (const path of OBSERVATION_FILES) names.add(path);
 		// Include ignored files in explicitly allowed roots so worker writes cannot disappear from evidence.
 		const pending = [...this.policy.allowedPaths];
 		let scanned = 0;
@@ -100,6 +126,7 @@ export class GitWorkspace {
 				for (const name of await readdir(join(this.cwd, path))) pending.push(`${path}/${name}`);
 			} else if (!owned.has(path)) names.add(path);
 		}
+		for (const path of await ownedObservationPaths(this.cwd)) names.delete(path);
 		if (names.size > 5000) throw new Error("Workspace evidence file limit");
 		let total = 0;
 		const images = new Map<string, FileImage>();
@@ -140,6 +167,10 @@ export class GitWorkspace {
 					this.baseline.get(path)?.mode !== images.get(path)?.mode,
 			)
 			.sort();
+		const changedLines = changedFiles.reduce(
+			(total, path) => total + changedLineCount(this.baseline.get(path)?.text ?? "", images.get(path)?.text ?? ""),
+			0,
+		);
 		let safe = head === this.head && index === this.index && gitConfig === this.gitConfig;
 		if (head !== this.head || index !== this.index || gitConfig !== this.gitConfig)
 			changedFiles.push(".git (HEAD/index/config changed)");
@@ -151,13 +182,30 @@ export class GitWorkspace {
 			afterMode?: number;
 		}> = [];
 		for (const path of changedFiles) {
+			if (this.policy.r3Scope) {
+				const inspected = await this.paths.inspect([path]);
+				const scopedDeletion =
+					path === this.policy.r3Scope.targetPath &&
+					this.baseline.has(path) &&
+					!images.has(path) &&
+					inspected[0]?.safe &&
+					inspected[0].kind === "missing";
+				if (!scopedDeletion) safe = false;
+				changes.push({
+					path,
+					before: scopedDeletion ? this.baseline.get(path)!.text : "[outside supported deletion]",
+					after: null,
+					beforeMode: this.baseline.get(path)?.mode,
+				});
+				continue;
+			}
 			const decision = evaluatePolicy(
 				{
-					runId: "evidence",
+					runId: this.policy.r2RunId ?? "evidence",
 					actionId: "evidence",
 					role: "Developer",
 					tool: "runtime_edit",
-					risk: "R1",
+					risk: this.policy.r2RunId ? "R2" : "R1",
 					paths: [path],
 					actionDigest: "evidence",
 				},
@@ -187,6 +235,6 @@ export class GitWorkspace {
 				files: [...images].map(([path, image]) => [path, image.mode, image.hash]),
 			}),
 		);
-		return { diffDigest, changedFiles, evidenceRefs: [`diff:${diffDigest}`], safe, diff };
+		return { diffDigest, changedFiles, changedLines, evidenceRefs: [`diff:${diffDigest}`], safe, diff };
 	}
 }

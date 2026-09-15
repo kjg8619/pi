@@ -1,11 +1,27 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, ftruncateSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	ftruncateSync,
+	lstatSync,
+	openSync,
+	readFileSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { RuntimeConfig } from "./config.ts";
-import { type Handoff, HandoffSchema, type Review, ReviewSchema, validateContract } from "./contracts.ts";
-import { type ActionAudit, executePolicyAction, type PolicyContext, type PolicyPathInspector } from "./policy.ts";
+import { parseRuntimeConfig, type RuntimeConfig } from "./config.ts";
+import { ExecutorHandoffSchema, HandoffSchema, type Review, ReviewSchema, validateContract } from "./contracts.ts";
+import {
+	type ActionAudit,
+	evaluatePolicy,
+	executePolicyAction,
+	type PolicyContext,
+	type PolicyPathInspector,
+} from "./policy.ts";
 import type { AgentExecutionRequest, AgentExecutionResult } from "./ports.ts";
 
 const text = Type.String({ minLength: 1, maxLength: 262144 });
@@ -37,6 +53,40 @@ function readText(path: string): string {
 	}
 }
 
+function deletionFingerprint(path: string): { preconditionDigest: string; bytes: number } {
+	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+	try {
+		const stat = fstatSync(fd);
+		const current = lstatSync(path);
+		if (
+			!stat.isFile() ||
+			stat.nlink !== 1 ||
+			stat.size > MAX_BYTES ||
+			current.ino !== stat.ino ||
+			current.dev !== stat.dev ||
+			current.isSymbolicLink()
+		)
+			throw new Error("Unsafe deletion target");
+		const bytes = readFileSync(fd);
+		if (bytes.length > MAX_BYTES || bytes.includes(0) || !Buffer.from(bytes.toString("utf8")).equals(bytes))
+			throw new Error("Deletion supports bounded text files only");
+		return {
+			bytes: bytes.length,
+			preconditionDigest: workerDigest({
+				dev: stat.dev,
+				ino: stat.ino,
+				mode: stat.mode,
+				size: stat.size,
+				mtime: stat.mtimeMs,
+				ctime: stat.ctimeMs,
+				hash: createHash("sha256").update(bytes).digest("hex"),
+			}),
+		};
+	} finally {
+		closeSync(fd);
+	}
+}
+
 function writeText(path: string, content: string, signal: AbortSignal): void {
 	if (Buffer.byteLength(content) > MAX_BYTES) throw new Error("Worker write exceeds size limit");
 	signal.throwIfAborted();
@@ -62,9 +112,14 @@ export function createWorkerTools(options: {
 	audit: ActionAudit;
 	signal: AbortSignal;
 	assertActive: () => void;
-}): { tools: ToolDefinition[]; result: () => AgentExecutionResult | undefined } {
+}): {
+	tools: ToolDefinition[];
+	result: () => AgentExecutionResult | undefined;
+	policyDenial: () => string | undefined;
+} {
 	const { request, signal } = options;
 	let submitted: AgentExecutionResult | undefined;
+	let policyDenial: string | undefined;
 	const assertActive = () => {
 		options.assertActive();
 		signal.throwIfAborted();
@@ -78,7 +133,12 @@ export function createWorkerTools(options: {
 			actionId: randomUUID(),
 			role: request.role,
 			tool,
-			risk: tool === "runtime_write" || tool === "runtime_edit" ? ("R1" as const) : ("R0" as const),
+			risk:
+				tool === "runtime_write" || tool === "runtime_edit"
+					? options.policy.r2RunId
+						? ("R2" as const)
+						: ("R1" as const)
+					: ("R0" as const),
 			paths: frozenPaths,
 			actionDigest: workerDigest({
 				tool,
@@ -101,7 +161,10 @@ export function createWorkerTools(options: {
 			},
 			signal,
 		);
-		if (result.decision.decision !== "ALLOW") throw new Error("Worker action denied by policy");
+		if (result.decision.decision !== "ALLOW") {
+			policyDenial = `Policy ${result.decision.risk}/${result.decision.decision}: ${result.decision.reason}`;
+			throw new Error(policyDenial);
+		}
 		return { content: [{ type: "text" as const, text: result.value ?? "" }], details: { actionId: action.actionId } };
 	};
 	const tools: ToolDefinition[] = [
@@ -137,7 +200,7 @@ export function createWorkerTools(options: {
 				}),
 		}),
 	];
-	if (request.role === "Developer") {
+	if (request.role !== "Reviewer") {
 		tools.push(
 			defineTool({
 				name: "runtime_write",
@@ -179,7 +242,7 @@ export function createWorkerTools(options: {
 				name: "runtime_request_check",
 				label: "Request check",
 				description:
-					"Record a request for a registered check. S3 does not execute checks and produces no PASS evidence.",
+					"Record a request for a registered check. Only Kernel verification stages execute checks; this tool produces no PASS evidence.",
 				executionMode: "sequential",
 				parameters: Type.Object({ id: pathSchema }, strict),
 				execute: async (_id, params) => {
@@ -190,7 +253,7 @@ export function createWorkerTools(options: {
 						content: [
 							{
 								type: "text",
-								text: "UNAVAILABLE: request recorded in Pi session; check execution is not connected in S3. Do not claim PASS.",
+								text: "UNAVAILABLE: request recorded in Pi session; checks run only in Kernel verification stages. Do not claim PASS.",
 							},
 						],
 						details: { id: params.id, status: "UNAVAILABLE" },
@@ -200,20 +263,23 @@ export function createWorkerTools(options: {
 			defineTool({
 				name: "submit_handoff",
 				label: "Submit handoff",
-				description:
-					"Submit the sole structured Developer result. Call alone, with no other tool calls in the same turn.",
+				description: `Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn.`,
 				executionMode: "sequential",
-				parameters: HandoffSchema,
+				parameters: request.role === "Executor" ? ExecutorHandoffSchema : HandoffSchema,
 				execute: async (_id, params) => {
 					assertActive();
-					const handoff: Handoff = structuredClone(validateContract(HandoffSchema, params));
+					const handoff = structuredClone(
+						request.role === "Executor"
+							? validateContract(ExecutorHandoffSchema, params)
+							: validateContract(HandoffSchema, params),
+					);
 					if (
 						handoff.runId !== request.runId ||
 						handoff.revision !== request.revision ||
 						handoff.task !== request.task.id
 					)
 						throw new Error("Handoff identity mismatch");
-					submitted = { role: "Developer", handoff };
+					submitted = handoff.role === "Executor" ? { role: "Executor", handoff } : { role: "Developer", handoff };
 					return {
 						content: [
 							{ type: "text", text: "Handoff submitted for Kernel validation; not a completion approval." },
@@ -252,5 +318,119 @@ export function createWorkerTools(options: {
 			}),
 		);
 	}
-	return { tools, result: () => structuredClone(submitted) };
+	if (options.policy.r3Scope && request.role === "Developer") {
+		const assertConfig = () => {
+			if (
+				workerDigest(parseRuntimeConfig(readText(join(options.cwd, ".ai/config.yaml")))) !==
+				workerDigest(options.config)
+			) {
+				policyDenial = "Runtime configuration changed; approval is stale";
+				throw new Error(policyDenial);
+			}
+		};
+		tools.push(
+			defineTool({
+				name: "runtime_delete",
+				label: "Request file deletion",
+				description:
+					"Delete only the preselected tracked text file after explicit human approval. No directories, globs or other mutations.",
+				executionMode: "sequential",
+				parameters: Type.Object({ path: pathSchema }, strict),
+				execute: async (_id, params) => {
+					assertActive();
+					const action = {
+						runId: request.runId,
+						actionId: randomUUID(),
+						role: "Developer" as const,
+						tool: "runtime_delete",
+						risk: "R3" as const,
+						paths: [params.path],
+						actionDigest: workerDigest({ path: params.path, step: request.step }),
+					};
+					const initial = evaluatePolicy(action, options.policy, await options.paths.inspect(action.paths));
+					if (initial.decision !== "APPROVAL_REQUIRED") {
+						await options.audit.prepare(initial);
+						policyDenial = `Policy ${initial.risk}/${initial.decision}: ${initial.reason}`;
+						throw new Error(policyDenial);
+					}
+					await options.audit.assertWritable();
+					assertConfig();
+					const path = join(options.cwd, params.path);
+					const fingerprint = deletionFingerprint(path);
+					action.actionDigest = workerDigest({
+						operation: "delete-file",
+						path: params.path,
+						...fingerprint,
+						step: request.step,
+						revision: request.revision,
+					});
+					if (!request.onApprovalRequested || !request.onApprovalConsumed)
+						throw new Error("Human approval callbacks unavailable");
+					const grant = await request.onApprovalRequested(
+						{
+							runId: request.runId,
+							actionId: action.actionId,
+							actionDigest: action.actionDigest,
+							configDigest: options.policy.configDigest,
+							role: "Developer",
+							operation: "delete-file",
+							path: params.path,
+							...fingerprint,
+							step: request.step,
+							revision: request.revision,
+							reason: "Delete one preselected Git-tracked workspace text file; no automatic rollback",
+						},
+						signal,
+					);
+					assertActive();
+					if (!grant.approved) {
+						policyDenial = "Human approval refused; deletion was not executed";
+						throw new Error(policyDenial);
+					}
+					const result = await executePolicyAction(
+						action,
+						{ ...options.policy, r3Approval: grant },
+						{
+							paths: options.paths,
+							audit: options.audit,
+							execute: async () => {
+								assertActive();
+								assertConfig();
+								if (
+									deletionFingerprint(path).preconditionDigest !== fingerprint.preconditionDigest ||
+									Date.now() >= grant.expiresAt
+								) {
+									policyDenial = "Deletion target changed or approval expired; action was not executed";
+									throw new Error(policyDenial);
+								}
+								// No JS yield between the final fingerprint/expiry check and unlink. External TOCTOU is not sandboxed.
+								unlinkSync(path);
+								return "Approved file deleted";
+							},
+						},
+						signal,
+					);
+					if (result.decision.decision !== "ALLOW") {
+						policyDenial = "Approval expired or mismatched before execution";
+						throw new Error(policyDenial);
+					}
+					await request.onApprovalConsumed(action.actionId);
+					return {
+						content: [
+							{ type: "text", text: "Approved file deleted; independent review and checks are still required." },
+						],
+						details: { actionId: action.actionId },
+					};
+				},
+			}),
+		);
+	}
+	return {
+		tools:
+			options.policy.r3Scope || (request.role === "Executor" && request.scope.risk === "R0")
+				? tools.filter((tool) => !["runtime_write", "runtime_edit"].includes(tool.name))
+				: tools,
+		result: () => structuredClone(submitted),
+		policyDenial: () => policyDenial,
+	};
 }

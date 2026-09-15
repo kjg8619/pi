@@ -30,6 +30,7 @@ function agentResult(request: AgentExecutionRequest, verdict: Review["result"] =
 				unresolved: [],
 			},
 		};
+	if (request.role !== "Reviewer") throw new Error("STANDARD fixture cannot execute an Executor");
 	return {
 		role: "Reviewer",
 		review: {
@@ -255,7 +256,26 @@ describe("STANDARD pure Kernel", () => {
 		const f = fixture();
 		f.request.classification.risk = "R2";
 		f.request.workflow = "QUICK";
-		const kernel = await f.create();
+		f.agents.execute.mockImplementation(async (request) => {
+			await request.onSessionCreated?.({
+				role: request.role,
+				sessionId: `${request.role}-${request.revision}`,
+				sessionFile: `/sessions/${request.role}-${request.revision}.jsonl`,
+			});
+			return agentResult(request);
+		});
+		const kernel = await CompanyKernel.create(f.request, {
+			...f.ports,
+			verifier: {
+				...f.verifier,
+				inspect: async () => ({
+					safe: true,
+					diffDigest: "diff-0",
+					changedFiles: ["src/login.ts"],
+					evidenceRefs: ["diff-proof"],
+				}),
+			},
+		});
 		expect(kernel.snapshot.workflow).toBe("STANDARD");
 		await drive(kernel);
 		expect(f.agents.execute.mock.calls.map(([request]) => request.role)).toEqual(["Developer", "Reviewer"]);
@@ -266,6 +286,11 @@ describe("STANDARD pure Kernel", () => {
 		const f = fixture();
 		if (value === "R3") f.request.classification.risk = "R3";
 		else f.request.workflow = value;
+		if (value === "QUICK") {
+			// QUICK now requires live inspection; this S1 fake intentionally cannot supply it.
+			f.request.task.goal = "Fix typo in src/login.ts";
+			f.request.classification = classifyRequest(f.request.task.goal).classification;
+		}
 		const kernel = await f.create();
 		expect((await kernel.start()).status).toBe("BLOCKED");
 		expect(f.agents.execute).not.toHaveBeenCalled();

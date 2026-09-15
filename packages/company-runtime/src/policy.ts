@@ -1,9 +1,18 @@
-import { type PolicyDecision, PolicyDecisionSchema, type Risk, type Role, validateContract } from "./contracts.ts";
+import {
+	type ApprovalDecision,
+	type PolicyDecision,
+	PolicyDecisionSchema,
+	type QuickScope,
+	type R3Scope,
+	type Risk,
+	type Role,
+	validateContract,
+} from "./contracts.ts";
 
 /** Trusted adapter metadata, never a worker-supplied tool registration or risk override. */
 export interface RegisteredActionTool {
 	id: string;
-	operation: "read" | "search" | "write" | "edit";
+	operation: "read" | "search" | "write" | "edit" | "delete";
 }
 export interface PolicyContext {
 	tools: readonly RegisteredActionTool[];
@@ -11,6 +20,13 @@ export interface PolicyContext {
 	configDigest: string;
 	/** Additional protected literal workspace-relative paths; cannot relax built-in protection. */
 	protectedPaths?: readonly string[];
+	/** Trusted QUICK scope, frozen by the adapter. Never accepted from a tool argument. */
+	executorScope?: QuickScope;
+	/** Trusted STANDARD/R2 run binding. StateStore must also verify the durable run before execution. */
+	r2RunId?: string;
+	r3Scope?: R3Scope;
+	/** One action-specific human decision; durable audit rejects replay. */
+	r3Approval?: ApprovalDecision;
 }
 export interface PolicyAction {
 	runId: string;
@@ -59,6 +75,7 @@ export function evaluateRegisteredCheck(
 	);
 	const allow =
 		cwdSafe &&
+		(!context.r2RunId || context.r2RunId === identity.runId) &&
 		request.executable.startsWith("/") &&
 		!shell &&
 		!inline &&
@@ -89,6 +106,11 @@ export function isPolicyPath(path: string): boolean {
 		path.split("/").every((part) => part.length > 0 && part !== "." && part !== ".." && part.trim() === part)
 	);
 }
+export function isDependencyPath(path: string): boolean {
+	return /(?:^|\/)(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.(?:toml|lock)|requirements[^/]*\.txt|pyproject\.toml|go\.(?:mod|sum))$/i.test(
+		path,
+	);
+}
 function within(path: string, root: string): boolean {
 	return path === root || path.startsWith(`${root}/`);
 }
@@ -112,27 +134,63 @@ export function evaluatePolicy(
 	action: PolicyAction,
 	context: PolicyContext,
 	inspected: readonly InspectedPath[],
+	now?: number,
 ): PolicyDecision {
 	let risk = action.risk;
 	let decision: PolicyDecision["decision"] = "DENY";
 	let reason = "Action is not authorized";
 	const tool = context.tools.find((item) => item.id === action.tool);
-	const mutation = tool?.operation === "write" || tool?.operation === "edit";
+	const deletion = tool?.operation === "delete";
+	const mutation = tool?.operation === "write" || tool?.operation === "edit" || deletion;
+	if (deletion && ["R0", "R1", "R2"].includes(risk)) risk = "R3";
 	if (mutation && risk === "R0") risk = "R1";
+	if (mutation && context.r2RunId && risk === "R1") risk = "R2";
 	const invalidConfig =
 		!context.configDigest.trim() ||
+		(context.r3Scope !== undefined &&
+			(!context.r3Scope.runId.trim() ||
+				!isPolicyPath(context.r3Scope.targetPath) ||
+				context.executorScope !== undefined ||
+				context.r2RunId !== undefined)) ||
+		(context.r2RunId !== undefined && (!context.r2RunId.trim() || context.executorScope !== undefined)) ||
 		new Set(context.tools.map((item) => item.id)).size !== context.tools.length ||
 		context.allowedPaths.some((path) => !isPolicyPath(path)) ||
 		(context.protectedPaths ?? []).some((path) => !isPolicyPath(path));
 	if (invalidConfig) reason = "Invalid policy configuration";
 	else if (
 		!tool ||
-		!["read", "search", "write", "edit"].includes(tool.operation) ||
+		!["read", "search", "write", "edit", "delete"].includes(tool.operation) ||
 		/^(?:bash|sh|shell|exec)$/i.test(tool.id)
 	)
 		reason = "Unregistered tool or arbitrary execution is unsupported";
 	else if (!["Developer", "Reviewer", "Executor", "Lead"].includes(action.role)) reason = "Unknown role";
+	else if (context.r2RunId && (action.runId !== context.r2RunId || !["Developer", "Reviewer"].includes(action.role)))
+		reason = "R2 run/role binding mismatch";
+	else if (
+		context.r3Scope &&
+		(action.runId !== context.r3Scope.runId || !["Developer", "Reviewer"].includes(action.role))
+	)
+		reason = "R3 run/role binding mismatch";
+	else if (
+		context.r3Scope &&
+		mutation &&
+		(!deletion || action.paths.length !== 1 || action.paths[0] !== context.r3Scope.targetPath)
+	)
+		reason = "R3 permits only its single-file deletion";
+	else if (
+		deletion &&
+		(!context.r3Scope ||
+			action.role !== "Developer" ||
+			action.paths.some((path) => isDependencyPath(path) || path.split("/").includes("node_modules")))
+	)
+		reason = "Unsupported deletion target or scope";
 	else if (mutation && action.role !== "Developer" && action.role !== "Executor") reason = "Role cannot mutate files";
+	else if (
+		mutation &&
+		context.executorScope &&
+		(context.executorScope.risk === "R0" || action.paths.some((path) => path !== context.executorScope?.targetPath))
+	)
+		reason = "QUICK mutation outside its fixed scope; STANDARD required";
 	else if (
 		action.paths.length === 0 ||
 		new Set(action.paths).size !== action.paths.length ||
@@ -149,31 +207,38 @@ export function evaluatePolicy(
 				item.path !== action.paths[index] ||
 				!item.safe ||
 				item.kind === "directory" ||
-				(!mutation && item.kind !== "file"),
+				((!mutation || deletion) && item.kind !== "file"),
 		)
 	)
 		reason = "Unsafe, unresolved or non-file target";
 	else {
 		// Dependency changes cannot be disguised as an ordinary R1 edit.
-		if (
-			mutation &&
-			(risk === "R0" || risk === "R1") &&
-			action.paths.some((path) =>
-				/(?:^|\/)(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.(?:toml|lock)|requirements[^/]*\.txt|pyproject\.toml|go\.(?:mod|sum))$/i.test(
-					path,
-				),
-			)
-		)
-			risk = "R2";
+		if (mutation && (risk === "R0" || risk === "R1") && action.paths.some(isDependencyPath)) risk = "R2";
 		if (risk === "R0" || risk === "R1") {
 			decision = "ALLOW";
 			reason = mutation ? "Registered ordinary file mutation" : "Registered file read/search";
 		} else if (risk === "R2") {
-			decision = "REVIEW_REQUIRED";
-			reason = "R2 execution is disabled in S2";
+			const bound = mutation && action.role === "Developer" && context.r2RunId === action.runId;
+			decision = bound ? "ALLOW" : "REVIEW_REQUIRED";
+			reason = bound
+				? "R2 file mutation bound to mandatory independent STANDARD review"
+				: "R2 requires a new STANDARD/R2 run; no execution-time promotion";
 		} else if (risk === "R3") {
-			decision = "APPROVAL_REQUIRED";
-			reason = "R3 execution is disabled in S2";
+			const grant = context.r3Approval;
+			const approved =
+				deletion &&
+				context.r3Scope &&
+				grant?.approved === true &&
+				now !== undefined &&
+				now < grant.expiresAt &&
+				grant.runId === action.runId &&
+				grant.actionId === action.actionId &&
+				grant.actionDigest === action.actionDigest &&
+				grant.configDigest === context.configDigest;
+			decision = approved ? "ALLOW" : "APPROVAL_REQUIRED";
+			reason = approved
+				? "Exact unexpired human approval for one file deletion"
+				: "R3 requires action-specific human approval; unsupported operations remain disabled";
 		} else reason = "Unknown action risk";
 	}
 	return validateContract(PolicyDecisionSchema, {
@@ -198,13 +263,13 @@ export async function executePolicyAction<T>(
 	action = structuredClone(action);
 	context = structuredClone(context);
 	signal?.throwIfAborted();
-	const decision = evaluatePolicy(action, context, await ports.paths.inspect(action.paths));
+	const decision = evaluatePolicy(action, context, await ports.paths.inspect(action.paths), Date.now());
 	await ports.audit.prepare(structuredClone(decision));
 	if (decision.decision !== "ALLOW") return { decision };
 	let value: T;
 	try {
 		// Persistence can yield to other code. Reinspect after the intent is durable, immediately before execution.
-		const fresh = evaluatePolicy(action, context, await ports.paths.inspect(action.paths));
+		const fresh = evaluatePolicy(action, context, await ports.paths.inspect(action.paths), Date.now());
 		if (fresh.decision !== "ALLOW") throw new Error("Target changed after policy evaluation");
 		await ports.audit.assertWritable();
 		signal?.throwIfAborted();

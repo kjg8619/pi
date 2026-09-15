@@ -1,4 +1,4 @@
-import type { Review, RoleSessionReference, Run, StepReference } from "./contracts.ts";
+import type { ApprovalRecord, Review, RoleSessionReference, Run, StepReference } from "./contracts.ts";
 
 interface EventIdentity {
 	schemaVersion: 1;
@@ -18,20 +18,20 @@ export type RuntimeEventDetail =
 	| {
 			type: "AgentStarted" | "AgentCompleted";
 			step: StepReference;
-			role: "Developer" | "Reviewer";
+			role: "Developer" | "Reviewer" | "Executor";
 			sessionRef?: RoleSessionReference;
 	  }
 	| {
 			type: "AgentFailed";
 			step: StepReference;
-			role: "Developer" | "Reviewer";
+			role: "Developer" | "Reviewer" | "Executor";
 			reason: string;
 			sessionRef?: RoleSessionReference;
 	  }
 	| {
 			type: "AgentSessionCreated";
 			step: StepReference;
-			role: "Developer" | "Reviewer";
+			role: "Developer" | "Reviewer" | "Executor";
 			profile: "coding" | "reasoning";
 			revision: number;
 			sessionRef: RoleSessionReference;
@@ -41,9 +41,15 @@ export type RuntimeEventDetail =
 	| { type: "VerificationStarted"; step: StepReference }
 	| { type: "VerificationCompleted"; step: StepReference; diffDigest: string; checkIds: string[] }
 	| { type: "VerificationFailed"; step: StepReference; reason: string }
-	// Reserved for the action approval adapter; S1 never approves R3 execution.
 	| { type: "ApprovalRequested"; step: StepReference; actionId: string }
-	| { type: "ApprovalResolved"; step: StepReference; actionId: string; approved: boolean };
+	| {
+			type: "ApprovalResolved";
+			step: StepReference;
+			actionId: string;
+			approved: boolean;
+			outcome?: ApprovalRecord["status"];
+	  }
+	| { type: "ApprovalConsumed"; step: StepReference; actionId: string };
 
 export type RuntimeEvent = EventIdentity & RuntimeEventDetail;
 

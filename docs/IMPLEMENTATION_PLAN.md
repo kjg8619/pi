@@ -2,7 +2,7 @@
 
 ## 1. 현재 상태와 목표
 
-Phase 0과 S0~S4를 완료했다. S4는 실제 Git evidence·등록 check·독립 Developer/Reviewer SDK session·명령/lifecycle을 STANDARD 순차 Kernel에 연결했다. faux provider와 임시 Git 프로젝트로 자동 검증 및 실제 Pi interactive 성공·취소·reload를 확인했다. Kernel의 Host 독립 경계는 유지하며 전체 V0.1 확장은 S5 범위다.
+Phase 0과 S0~S5D를 완료했다. STANDARD/QUICK/R2/한정 R3 실행을 유지하면서 읽기 전용 상태·이력·check/review/decision 조회와 명시적 observation export를 연결했다. STANDARD는 기존 설정의 재작업 0~3회(기본 1)를 사용하고 QUICK/R3는 0회다. 상태·승인·검증의 원본은 계속 Kernel/StateStore이며 조회·export로 완료를 만들지 않는다. 다음은 S6 hardening이고 전체 V0.1 완료는 아니다.
 
 기준: [MASTER_SPEC](MASTER_SPEC_PI_PERSONAL_AI_RUNTIME.md), [아키텍처](ARCHITECTURE.md), [결정 기록](DECISIONS.md).
 
@@ -151,6 +151,52 @@ PASS 직행 경로도 별도로 검증한다. REVISE 한도 초과, BLOCK, check
 
 **완료 기준:** 아래 V0.1 추적표의 필수 항목을 만족한다. 미지원 COMPLEX 실행과 sandbox 범위를 문서·출력에 명시한다.
 
+#### S5A — QUICK Workflow (완료)
+
+- 조직만 Executor 1개로 줄이고 Policy·StateStore·Git baseline/diff·SELF_CHECK/TEST·RuntimeEvent·취소·부분 변경 보고를 공유한다. Step은 `implement → self-check → test → complete`, attempt는 1이다.
+- `adaptive`에서 question/typo/명시적 작은 변경 후보를 QUICK으로 선택한다. R2/R3·아키텍처/다수 모듈/대규모 변경은 실행하지 않으며 refactor QUICK도 거부한다. R1은 goal에 정확히 한 literal 상대 파일 경로를 요구한다. 모호하면 STANDARD 재실행을 안내한다.
+- Executor는 기존 PiAgentExecutor·Developer 도구 구성을 재사용하고 `coding` profile을 사용한다. `fast` 자동 선택·fallback은 없다. STANDARD는 두 profile auth를 계속 검사하며 QUICK은 coding만 검사한다. config schema의 reasoning mapping 필수 조건 자체는 유지한다.
+- R0는 worker mutation 도구를 제거하고 Policy에서도 mutation을 거부한다. R1은 고정 targetPath만 변경한다. 실제 diff가 한 파일/보수적 변경 구간 합계 100행 한도를 넘으면 BLOCKED다. 기존 config/credential/dependency 보호를 완화하지 않는다.
+- ExecutorHandoff의 정확한 요구사항 목록·MET·비어 있지 않은 설명, 실제 changed_files 일치, 미해결/known_risks 없음, 필수 두 검증 단계 PASS를 Kernel에서 확인한다. Executor 결과를 구현 직후 digest에 결합하고 SELF_CHECK/TEST/COMPLETE까지 유지해야 한다. QUICK의 check autofix도 stale로 차단한다.
+- 기존 Verification evidence만 사용하며 `workspace.changedLines`, `quickScope`, `executorResult`, `executorDigest` metadata만 보완한다. 별도 evidence 엔진·event bus·revision loop·hot-switch는 없다.
+- `/workflow`, `/team`, `/state`, `/risk`에 QUICK/Executor/Reviewer not required/risk와 구조화 결과를 표시한다. 기존 `runtime.workflow: STANDARD` 설정으로 처음부터 STANDARD 선택은 가능하지만 새 mode UI는 없다.
+- 테스트는 기존 S0~S4와 새로운 pure scope/guard 및 suite harness/faux QUICK 통합을 함께 수행한다. 실제 Pi smoke는 QUICK/R0·R1 COMPLETE, 네 명령, live cancel과 reload 후 저장 상태를 확인했다. 결과·제한은 [WORK_LOG](WORK_LOG.md) LOG-008, API는 [패키지 README](../packages/company-runtime/README.md)를 따른다.
+
+#### S5B — R2 Review Enforcement (완료)
+
+- preflight R2는 STANDARD로 선택한다. `adaptive`에서 Complexity QUICK/Risk R2도 실행 전에 Developer/Reviewer 조직을 고른다. 명시적 `runtime.workflow: QUICK`, COMPLEX/R3는 계속 거부한다. 실행 중 R1/QUICK의 R2 action은 차단하고 새 STANDARD/R2 run을 안내한다. hot-switch·자동 risk promotion은 없다.
+- 허용 범위는 기존 `write/edit` 도구로 처리하는 허용 경로의 파일 변경이다. dependency manifest/lockfile도 같은 경로 검사·보호 파일 규칙을 통과해야 한다. 설치·삭제·이동·mkdir·배포·shell 도구는 추가하지 않는다.
+- Host는 새 run ID를 먼저 정하고 PiAgentExecutor/PolicyContext에 `r2RunId`를 고정한다. R2 허가는 해당 run의 Developer mutation에만 적용한다. QUICK binding과의 혼합·다른 run/role·R3/UNKNOWN은 허용하지 않는다. 기존 무결합 R2 Policy는 REVIEW_REQUIRED로 남는다.
+- StateStore는 R2 intent 전에 durable STANDARD/R2·IMPLEMENT·현재 attempt·active Developer·저장된 Developer session을 검사한다. 저장한 R2 obligation을 R1/QUICK으로 바꾸지 못한다. binding 하나만 전달해 R1 run의 R2 실행을 열 수 없다.
+- Kernel은 필수 checks/live inspection과 현재 회차의 서로 다른 Developer/Reviewer session ID·파일을 요구한다. 기존 handoff/requirement·PASS·diff/SELF_CHECK/TEST guard도 유지한다. REVISE 뒤 이전 Reviewer 참조·누락/재사용 세션·자연어 PASS·stale diff·저장 실패는 COMPLETE가 아니다.
+- R2에 별도 Workflow/Evidence/StateStore/Event Bus를 만들지 않는다. 기존 STANDARD Step/attempt/sequence와 회차 제한 1회를 유지한다. `/risk` 등은 R2 분류 근거와 mandatory independent review를 표시한다.
+- faux/임시 Git으로 manifest+lockfile 실제 변경·검증 및 독립 review를 테스트했고 Pi interactive에서 PASS, REVISE→PASS, BLOCK, live Reviewer cancel·reload 후 상태 조회를 확인했다. 실제 dependency 설치·네트워크 추론은 실행하지 않았다. 상세 결과·제한은 [WORK_LOG](WORK_LOG.md) LOG-009와 [패키지 README](../packages/company-runtime/README.md)에 기록한다.
+
+#### S5C — R3 Human Approval (완료)
+
+- 지원 action은 `Delete file <상대 경로>` / `Remove file <상대 경로>` / `파일 삭제 <상대 경로>`의 한 파일 삭제뿐이다. clean Git baseline에서 추적 중인 256 KiB 이하 일반 UTF-8 파일을 요구하며 허용 경로·기존 보호 규칙을 통과해야 한다.
+- `.git`/Runtime 설정·알려진 credential/dependency manifest, node_modules, symlink/hardlink/특수 파일, 디렉터리·대량 삭제·배포·임의 shell은 승인받아도 실행하지 않는다. R3 Developer에는 일반 write/edit를 제공하지 않는다.
+- 기존 ApprovalPort를 실제로 연결한다. Kernel은 run/action/role/step/revision·path·파일 fingerprint·action/config digest·만료를 고정한 PENDING 기록을 저장하고 WAITING_APPROVAL로 진입한다. 인간 UI의 기본 선택은 Deny이며 프로젝트 trust/일반 실행 확인으로 R3 승인을 대신하지 않는다.
+- 거절·UI 오류/부재·취소·만료·잘못된 응답·늦은 응답은 미실행이다. 기본 TTL 30초, Host composition의 approvalTimeoutMs는 1~60,000ms이며 YAML 권한 완화 옵션은 없다. worker 전체 실행 예산도 별도로 적용된다.
+- 승인 후 Policy·StateStore가 정확한 승인과 만료·현재 Developer/run을 다시 검사한다. 실제 unlink 직전 파일 identity/bytes fingerprint·정규화 config·signal·expiry를 재검사한다. action ID는 1회 사용이며 실행 결과의 durable SUCCEEDED 없이는 CONSUMED를 저장하지 못한다.
+- 승인 ledger metadata는 불변이고 상태 전이만 허용한다. 재시작은 미완료 grant를 INTERRUPTED로 남기고 재사용/재승인/실행을 자동으로 하지 않는다. effect와 다중 상태 파일의 transaction/rollback을 제공하지 않는다.
+- 소비된 승인과 실제 단일 삭제 evidence 뒤에만 SELF_CHECK → 독립 REVIEW → TEST → COMPLETE를 진행한다. R3는 재작업 0회이며 REVISE/BLOCK은 중단한다. 승인만으로 완료하거나 이전 Reviewer PASS를 재사용하지 않는다.
+- ApprovalRequested/Resolved/Consumed를 기존 RuntimeEvent에 연결하고 Step/attempt/sequence를 유지한다. SDK callback·ApprovalPort에는 Pi 구체 타입을 추가하지 않았다. UI 승인 대화상자가 열려 있을 때는 선택/Esc로 응답하며, Host cancellation/lifecycle은 signal로 대화상자와 worker 정리를 연결한다.
+- faux/temporary Git 자동 검증과 실제 Pi 80×24 tmux에서 명시적 승인·기본 거절·Esc·만료·reload 후 상태 조회를 확인했다. 삭제는 새 테스트 fixture 안에서만 실행했다. 상세 결과는 [WORK_LOG](WORK_LOG.md) LOG-010, 보안 한계/API는 [패키지 README](../packages/company-runtime/README.md)를 따른다.
+
+#### S5D — Commands / State / Decision polish (완료)
+
+- `/workflow status [runId]`, `history [page]`, `config`; `/state [runId]`, `checks [runId] [page]`, `check <number> [runId]`, `review [runId]`, `decisions [runId] [page]`; `/team [runId]`, `/risk [runId]`를 제공한다. 생략/latest는 최신 run이며 unknown ID는 오류다. 기존 run/cancel/승인 UI는 유지한다.
+- FileStateStore.readSnapshot은 lock 획득·mkdir·복구·tasks repair 없이 원본 state를 조회한다. 다른 writer 존재와 tasks projection 불일치는 진단만 표시하고, 저장된 active 상태를 실제 생존 worker라고 단정하지 않는다. 조회에 config/model/auth가 필요하지 않다.
+- 현재 local 실패와 durable snapshot이 다를 수 있음을 표시하고, 손상된 state를 이전 캐시의 성공으로 숨기지 않는다. 저장된 PASS/COMPLETED는 당시 snapshot에 대한 기록이지 현재 filesystem/check 재검증이 아니다.
+- Run에 effective maxRevisionCycles, 구조화 Developer handoff와 회차별 reviewHistory를 보관하고 실제 CheckResult에 step/attempt를 명시한다. STANDARD의 기존 0~3 설정을 실행에 연결했으며 기본 1은 유지한다. QUICK/R3의 0회와 모든 completion/approval guard는 유지한다.
+- `/state export`는 idle/terminal 상태에서 owned writer로 `.ai/decisions.md`, `.ai/logs/checks.json`을 생성한다. state.json은 변경하지 않고 export-only open은 recovery/repair하지 않는다. 자동 export/자동 gitignore/자동 commit은 없다.
+- export는 운영 결정·검증 자료의 파생본이다. marker/checksum이 없는 수동 파일이나 수정된 생성 파일은 덮어쓰지 않는다. 소스 revision/hash와 안정적 결정 ID를 표시하며 반복 export는 idempotent다. 파일별 원자 교체이며 한 쌍 전체의 transaction은 아니다.
+- Git evidence에서 정확한 두 경로의 검증된 generated view만 조건부 제외한다. tracked generated view는 거부하고, 수동 내용/깨진 checksum은 일반 파일로 다시 수집한다. `.ai/logs` 전체를 제외하지 않으며 수동 변경을 숨기지 않는다.
+- 출력은 pagination/크기 제한과 terminal/bidi/Markdown escaping을 적용한다. 관찰용 파일을 승인/복구/완료의 입력으로 사용하지 않으며 transcript·reasoning·usage를 복제하지 않는다. 기술 ADR 자동 생성이 아니라 기존 구조화 운영 결정의 조회/export다.
+- faux 및 temporary Git에서 회귀·snapshot/ownership/partial export·configured revision을 검증하고 실제 Pi 80×24 tmux에서 조회·export·수동 파일 보존·reload를 확인했다. 상세 결과는 [WORK_LOG](WORK_LOG.md) LOG-011, 명령/API/한계는 [README](../packages/company-runtime/README.md)를 따른다.
+- DAG renderer·RPC/Web·별도 서버·SQLite migration·auto resume·권한 확대는 추가하지 않았다.
+
 ### S6 — V0.1 hardening
 
 - 모델 오류·timeout·출력 누락·한도 초과·부분 변경·디스크 실패를 테스트한다.
@@ -175,7 +221,7 @@ PASS 직행 경로도 별도로 검증한다. REVISE 한도 초과, BLOCK, check
 | Lifecycle integration | 실행 중 중복 run, 부모 mutation, switch/reload/종료, 늦은 결과 무시, lock 해제 |
 | Interactive smoke | 명령 등록·출력, 상태 갱신, 승인 취소, `/workflow cancel` |
 
-새 `AgentSession`/Runtime 통합 테스트는 [suite harness](../packages/coding-agent/test/suite/harness.ts)와 faux provider를 사용한다. 실제 Provider API·키·유료 토큰은 사용하지 않는다. Policy의 위험 작업은 fake executor로 승인 여부와 실행 횟수만 확인하고 실제 삭제·배포를 하지 않는다.
+새 `AgentSession`/Runtime 통합 테스트는 [suite harness](../packages/coding-agent/test/suite/harness.ts)와 faux provider를 사용한다. 실제 Provider API·키·유료 토큰은 사용하지 않는다. Policy unit은 fake executor로 승인·실행 횟수를 검사한다. S5C SDK/interactive 통합의 승인된 단일 삭제는 테스트가 새로 만든 temporary Git fixture에서만 실제 실행한다. 사용자 파일 삭제·실제 배포·유료 추론은 검증 명령으로 수행하지 않는다.
 
 ### 명령 규칙
 
@@ -220,4 +266,4 @@ Phase 0 문서 작성에서는 위 명령을 실행하지 않았다. S0~S4에서
 4. `.ai`의 Git 추적 정책. config/장기 decisions와 개인 상태/logs의 구분을 권장하되 자동 `.gitignore` 수정은 하지 않는다.
 5. 단일 프로젝트 run, dirty tree 거부, 자동 resume 없음이라는 초기 제한 수용 여부.
 
-S0~S4는 완료했다. 다음 작업은 **S5 범위 확장**이며 사용자 승인 후 진행한다. 첫 Slice는 STANDARD/R0~R1, 재작업 최대 1회, 등록 check·clean Git 프로젝트로 제한한다. QUICK/R2/R3·결정 기록 조회 등은 별도 작은 작업으로 검증하고, DAG·병렬화·자동 resume는 추가하지 않는다. macOS 외 process cleanup, 탈출 daemon·외부 TOCTOU, 실제 Provider 품질/인증/네트워크는 완료 범위로 주장하지 않는다.
+**S0~S5D는 완료했다. 다음은 S6 hardening**이며 사용자 승인 후 진행한다. 기존 STANDARD/QUICK/R2/한정 R3 회귀가 최우선이다. 저장·관찰·실행 결과가 부분 실패에서 어떻게 구분되는지, 플랫폼/중단/lifecycle 경계와 기존 Pi 회귀를 추가 검증한다. R2 binding, R3 인간 승인, Reviewer PASS, generated observations는 서로 대체하지 않는다. 범용 destructive 실행·DAG·병렬화·자동 resume나 OS sandbox를 완료했다고 주장하지 않는다.
