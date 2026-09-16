@@ -23,6 +23,13 @@ export async function resolveExecutable(executable: string, path: string): Promi
 	throw new Error("Registered executable is unavailable");
 }
 
+/** The owner must retain its writer lease when a process may still be alive. */
+export class ProcessCleanupError extends Error {
+	constructor() {
+		super("Process cleanup unconfirmed; retain project lock for manual inspection");
+	}
+}
+
 export interface ProcessRequest {
 	executable: string;
 	argv: readonly string[];
@@ -38,7 +45,7 @@ export interface ProcessResult {
 	stderr: string;
 	startedAt: number;
 	finishedAt: number;
-	reason: "exited" | "unavailable" | "cancelled" | "timeout" | "output-limit" | "background-process";
+	reason: "exited" | "unavailable" | "cancelled" | "timeout" | "output-limit" | "background-process" | "stream-error";
 	cleanupConfirmed: boolean;
 }
 
@@ -89,6 +96,8 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 		};
 		child.stdout.on("data", (chunk: Buffer) => collect(chunk, "stdout"));
 		child.stderr.on("data", (chunk: Buffer) => collect(chunk, "stderr"));
+		child.stdout.on("error", () => stop("stream-error"));
+		child.stderr.on("error", () => stop("stream-error"));
 		child.on("error", () => {
 			reason = "unavailable";
 		});
@@ -119,6 +128,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 					}
 					await new Promise((done) => setTimeout(done, 25));
 				}
+			if (request.signal?.aborted && reason === "exited") reason = "cancelled";
 			resolve({
 				exitCode: reason === "unavailable" ? null : exitCode,
 				stdout: stdout.toString("utf8"),

@@ -24,9 +24,9 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | S5B | 완료 | bound STANDARD/R2 파일 실행·독립 리뷰 강제, 자동 522개 및 R2 Pi faux smoke 통과 |
 | S5C | 완료 | 단일 tracked 텍스트 파일 삭제의 1회 Human Approval, 자동 608개 및 실제 승인/거절/Esc/만료 smoke 통과 |
 | S5D | 완료 | 읽기 전용 관찰·명시적 결정/check export·revision 설정 연결, 자동 655개 및 실제 명령 smoke 통과 |
-| S6 | 미착수 | 사용자 승인 후 hardening 진행 |
+| S6 | 완료 | cleanup/lease·race/crash/freshness 실패 경계 보강, targeted 740개 + 기존 Pi 59개 및 interactive 실패 smoke 통과 |
 
-현재 완료 범위는 S5D까지다. STANDARD/QUICK/R2/한정 R3 실행은 유지하며, 조회와 export를 실행·승인·완료의 권한과 분리했다. S6, 범용 R3 실행, 전체 V0.1, 실제 dependency 설치·유료 Provider 품질/네트워크·OS sandbox 완료를 뜻하지 않는다.
+현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 실제 GPT/DeepSeek/다른 플랫폼·전체 저장소 검증은 별도 RC 단계이며 release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
 
 ---
 
@@ -784,6 +784,90 @@ git diff --check
 **S6 진입 가능**하다. 사용자 승인 후 실패·복구·플랫폼/lifecycle 경계와 전체 V0.1 DoD 추적을 hardening한다. S5D 완료를 전체 V0.1 완료나 전체 저장소 회귀 없음으로 확대 해석하지 않는다.
 
 **이번 S5D 커밋·푸시: 하지 않음.** 기존 S5A~S5C 변경과 함께 작업 트리에 보존했다.
+
+---
+
+## LOG-012 — S6: V0.1 실패 경계 Hardening
+
+- **기록일:** 2026-09-16 09:28 (KST)
+- **상태:** 완료 — 신규 제품 기능/권한 확대 없이 기존 기능의 실패 경계를 보강했다. V0.1 release 선언 아님.
+- **목적:** Provider/process/storage/approval/freshness/lifecycle 실패에서 완료를 위조하거나 자원 종료 전에 writer lease를 해제하지 않도록 검증한다.
+- **시작 상태:** devlop clean, HEAD/origin `fa83746a170c26074f460eb42afa16b42197fe9c`. 앞선 S5A~S5D 변경은 사용자 요청으로 커밋/푸시된 상태다. 이전 LOG의 커밋 미실행 표시는 각 작업 당시 기록으로 유지한다.
+- **환경:** Darwin arm64, Node v26.7.0, 로컬 Git/파일 시스템/POSIX process group. 다른 OS나 실제 Provider를 테스트한 결과로 확대하지 않는다.
+
+### 발견 문제와 수정
+
+1. **저장 실패의 조기 unlock:** Store.fail이 tool result 저장 실패에서도 즉시 lock을 지워 SDK cleanup 이전에 다른 writer가 들어올 수 있었다. 실패 시 mutation만 닫고, 실행 소유자가 자원 종료 후 close하도록 변경했다. open 실패처럼 worker가 아직 없는 경로는 기존 자체 정리를 유지한다. 동시 close도 같은 promise로 합쳐 두 번째 해제가 새 writer의 lock과 경합하지 않게 했다.
+2. **정산과 종료 확인 혼동:** SDK abort/dispose 실패 또는 process runner 예외에서도 호출 promise가 끝났다는 이유로 unlock될 수 있었다. 작은 safeToRelease 상태와 ProcessCleanupError로 미확인을 owner까지 전달한다. 불확실하면 다음 역할/COMPLETE·추가 Git 수집을 막고 lock을 유지하며 changedFiles 수집 불완전을 표시한다.
+3. **Git process 예외 누락:** preflight에서 GitWorkspace 객체 반환 전 cleanup 오류도 lease 보존 대상이 되게 했다. COMPLETE 뒤에는 별도 Git process를 다시 시작하지 않고 완료 직전 검증한 snapshot을 보고한다.
+4. **check/cancel 및 partial persistence:** check settlement 전 취소는 PASS가 아니며, audit finish 실패를 두 번째 finish로 재시도해 원래 partial commit 오류를 덮지 않게 했다. pipe error도 종료 요청 사유로 처리한다.
+5. **이전 attempt 참조:** session ID가 달라도 이전 sessionFile을 재사용하면 Kernel이 거부한다.
+6. **FIFO/config 파일 경계:** no-follow descriptor에 POSIX nonblocking을 추가하고 regular-file 검사를 유지해 FIFO open 대기를 피한다. config directory/file identity·크기도 검사한다. Windows owner 실행은 lock 획득 전에 명시적으로 거부하며 Windows 구현을 추가하지 않았다.
+
+정상 정리는 `cancel signal → SDK/process 종료 확인 → terminal state 저장 → lock release`다. cleanup 미확인 또는 state 저장 불가에서는 failure 진단/기존 PREPARED 기록과 lock이 남을 수 있으며, 이를 성공이나 미실행으로 추정하지 않는다. 확인 가능한 SDK 작업/원래 process group 밖의 daemon·악성 Node I/O를 격리하지는 않는다.
+
+### 변경 파일
+
+- `packages/company-runtime/src/{state-store,ports,agent-runner,verification,workflow,workspace,kernel,process-runner}.ts`: mutation 차단과 lease 수명 분리, cleanup 확인/전파, cancel/finish 경계, 참조 재사용 guard.
+- `src/{agent-tools,observation-files,config}.ts`: no-follow/nonblocking descriptor와 config identity/size 검사. 도구 종류·R3 승인 scope·config schema는 넓히지 않았다.
+- `test/state-store.test.ts`: 실패 시 lease가 owner close까지 유지되는 강화된 계약에 맞춰 assertions를 갱신했다. invalid/partial state 거부·복구 검증은 유지한다.
+- 신규 `test/hardening.test.ts`, `test/kernel-hardening.test.ts`, `packages/coding-agent/test/suite/company-runtime-hardening.test.ts`.
+- 문서 `docs/V0.1_READINESS.md` 신규, `docs/IMPLEMENTATION_PLAN.md`, `docs/WORK_LOG.md`, `packages/company-runtime/README.md` 갱신.
+- MASTER_SPEC/ARCHITECTURE/DECISIONS, Pi Core, dependencies/lockfile, 제품명/패키지명, SDK/Host 경계와 순차 Workflow는 유지했다. 신규 DAG/RPC/Web/Lead/Planner/COMPLEX/parallel/generic R3/resume/fallback/SQLite/OS sandbox를 추가하지 않았다.
+
+### 이번 작업의 자동 검증
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent: Runtime + 기존 prompt
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+
+# packages/coding-agent: 추가 기존 Pi 회귀 (Company Extension 미등록)
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- 최종 실행(09:36 KST): Runtime **17개 파일·453개**, 관련 coding-agent **8개 파일·287개**, 합계 **25개 파일·740개 통과**. S6 신규 unit/process/crash23개 + kernel11개 + SDK/lifecycle51개 = **85개**이며 기존655개를 이번에 다시 실행했다. 09:16의 최초 전체 통과 뒤 동시 close 검증 1개를 추가하고 모두 재실행한 수치다.
+- 추가 기존 Pi runtime/model-extension/retry-events/queue **4개 파일·59개 통과**. 최종 targeted 합계 **29개 파일·799개 통과**, 전체 저장소 suite 수가 아니다.
+- Provider 연결/자연어/malformed/stream-aborted 결과를 Developer/Reviewer/Executor에 적용하고 late mutation·SDK cleanup 중 cancel·Reviewer model/auth 실패를 확인했다. 기존 S3 timeout/pre-abort/turn limit/resource isolation 테스트도 다시 실행했다.
+- 실제 Node check의 signal exit·stdout/stderr limit·공백 경로·TERM 무시→KILL·group 확인 실패, check settlement/cancel 및 finish 실패 race, 초기 Git cleanup 미확인을 검증했다. SDK abort/dispose 예외와 R1/R3 actual effect 후 실제 rename 실패 중 지연 cleanup에서 lock이 유지됐다.
+- 실제 별도 Node 프로세스를 state 저장/tasks 교체 사이 또는 effect/결과 저장 사이에서 종료시켰다. stale lock의 새 writer 획득 거부, 테스트 child 종료 확인 뒤 수동 정리한 owned recovery의 INTERRUPTED, 효과를 SUCCEEDED로 추정하지 않음을 확인했다. 실제 제품에는 자동 stale-lock 삭제를 넣지 않았다.
+- approval의 정확한 expiry 경계·same-turn approve/cancel, 기존 target/config/symlink/late/replay/restart/소비 evidence, 실제 chmod 기반 effect 실패와 부분 저장을 검증했다. 이번 권한 오류 테스트는 비특권 macOS 사용자에서 실행됐고 root 환경에서는 명시적 skip 대상이다.
+- 이전 Review/check revision·sessionFile·diff, stale QUICK executorDigest, check attempt 위조, terminal commit 전/후 cancel 경계를 검증했다. commit 시작 뒤 늦은 cancel은 이미 수락한 terminal 저장을 rollback하지 않는 것으로 명시했다. observer 오류는 delivery diagnostic이며 rollback으로 위장하지 않는다.
+- Developer/Reviewer/check/approval 각각에 cancel/switch/fork/tree/reload/quit를 적용한 **24개 Host-handler lifecycle matrix**에서 cancel→resource 종료→terminal state→unlock 순서를 확인했다.
+- root check 최종(09:39 KST) 통과, Biome 자동 수정 없음. 초기 Biome noUnsafeFinally 지적은 cleanup 오류를 finally 밖에서 보고하는 방식으로 수정했으며 suppress/검사 우회는 하지 않았다. 기존 state-store 실패 assertions는 안전한 지연 unlock으로 강화했다.
+- 최종 `git diff --check`, 문서 상대 링크/fence/공백·LOG-001~012 고유 ID·readiness의 네 판정 상태 검사 통과. 신규 untracked S6 테스트 공백도 검사했고 임시 checker는 제거했다.
+- build·전체 npm test/Vitest suite·실제 GPT/DeepSeek/API·package install/deploy·다른 OS는 미실행이다. 실제 Provider 검증은 별도 RC 단계로 남긴다.
+
+### 실제 Pi interactive faux smoke
+
+- interactive-testing skill의 80×24 tmux, 저장소 `pi-test.sh`, 명시적 `-e` wrapper, 기존 suite harness/faux ModelRuntime을 사용했다. 별도 HOME/agentDir·빈 자격 환경·offline·새 temporary Git fixture 5개였다.
+- 성공: STANDARD COMPLETED, SELF_CHECK/TEST PASS와 lock 없음.
+- active Developer `/workflow cancel`: IMPLEMENT/CANCELLED, 기존 fixed 부분 변경 유지, Provider의 late write 미실행, lock 없음.
+- active Reviewer `/reload`: REVIEW/CANCELLED 저장 후 reload, status에서 늦은 PASS 미사용·부분 변경 확인.
+- active verification `/reload`: SELF_CHECK/CANCELLED, check FAIL·lock 없음. 기록한 child process group이 ESRCH이고 5초 지연 write가 없음을 확인했다.
+- active R3 approval modal Esc: DENIED/BLOCKED, 삭제 대상 원본 유지. reload 후 `/risk`에서도 DENIED를 확인했다.
+- 실제 TUI switch/fork/tree 조작은 이번 smoke에서 하지 않았으며 자동 Host matrix 및 기존 Pi runtime 전환 tests로 구분해 검증했다. approval modal에서는 slash command 입력보다 dialog 응답이 우선한다.
+- 각 fixture의 state/file/check/group/lock을 확인한 뒤 tmux·임시 fixture/script를 제거했다. 실제 작업 저장소 `.ai`는 만들지 않았고 실제 Provider 자격/유료 token은 사용하지 않았다.
+
+### DoD / readiness와 남은 제한
+
+- `docs/V0.1_READINESS.md`에 MASTER_SPEC §34를 PASS/PARTIAL/UNSUPPORTED/NOT VERIFIED로 대조했다. 분류 가능과 COMPLEX 실행 미지원, R0~R3 heuristic과 한정 실행, 운영 decisions projection과 기술 ADR 작성, 선택한 Pi 회귀와 전체 suite를 분리했다.
+- macOS/Darwin arm64·Node26.7·로컬 POSIX 검증이다. Linux/최소 Node/Bun/다른 파일 시스템·전원 장애는 미검증이며 Windows 실행은 미지원이다. negative PID group, mode/access, no-follow/nonblocking FD, O_EXCL/inode와 atomic rename 가정을 문서화했다.
+- Provider/auth/event sink/파일 I/O가 비협조적이면 timeout/cancel 이후에도 정리를 오래 기다릴 수 있다. 종료를 추정해 lease를 해제하지 않는다. 예상 밖 생성/cleanup 예외는 실제 자원이 없어도 보수적으로 lock을 남길 수 있다.
+- cleanup 확인은 관리하는 SDK 작업과 원래 POSIX group에 한정된다. 다른 group으로 탈출한 daemon, 같은-process 악성 Host/등록 프로그램 내부 I/O·외부 TOCTOU는 sandbox하지 않는다. lock 유지 오류에서는 실제 resource/owner 확인 전 추가 workspace 작업을 하지 않아야 한다.
+- partial state/tasks/효과 저장, terminal commit이 시작된 뒤의 late cancel, snapshot/liveness 구분과 observer best-effort 전달을 명시했다. 자동 rollback/resume/replay나 whole-repo·실제 Provider 안전성은 주장하지 않는다.
+
+### 다음 단계와 커밋
+
+**제한된 V0.1 RC 검증 진입은 조건부 가능**하다. 별도 사용자 승인 후 disposable 프로젝트의 실제 GPT/DeepSeek smoke, 지원 OS/Node 범위, 실제 프로젝트 checks와 설치/취약점/배포 검증 범위를 결정한다. S6 완료만으로 V0.1 release를 선언하지 않는다.
+
+**이번 S6 커밋·푸시: 하지 않음.**
 
 ---
 

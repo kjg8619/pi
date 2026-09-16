@@ -1,4 +1,4 @@
-# Company Runtime — S0~S5D
+# Company Runtime — S0~S6
 
 Host 독립 Kernel, StateStore·Policy, 독립 Pi SDK 역할에 실제 Git evidence·등록 check·명령/lifecycle을 연결했다. **STANDARD/R0~R2와 QUICK/R0~R1**을 지원한다. R2는 제한된 파일 변경과 독립 리뷰를 결합한 경로다. R3는 명시적 인간 승인을 받은 단일 tracked 텍스트 파일 삭제만 지원한다. COMPLEX/범용 R3 실행, 자동 resume/rollback/commit, 병렬 조직과 전체 V0.1은 지원하지 않는다.
 
@@ -134,7 +134,7 @@ AgentExecutor에는 역할·profile·task·handoff·증거를, Verifier에는 ch
 - `prepare/finish`: `(runId, actionId)`를 중복 방지 ID로 사용한다. decision/digest와 PREPARED → SUCCEEDED/FAILED/INTERRUPTED 또는 DENIED만 저장한다. 입력 내용·출력·대화·tool history를 복제하지 않는다. `.ai/decisions.md`, 별도 logs/check 증거의 사용자용 출력은 S4/S5에 남겨둔다. config는 S0의 사용자 관리 파일을 유지한다.
 - `close()`: 자신이 소유한 lock만 해제한다. `withFileStateStore(path, async store => …)`는 정상 반환·취소·예외에서 `finally`로 닫는다. 호출자는 **worker 종료를 기다린 뒤** scope를 끝내야 한다. 장기 실행 Host lifecycle 연결은 S3/S4 범위다.
 
-저장은 같은 디렉터리의 무작위 temp 생성 → write → file sync → close → rename 순서다. state를 먼저 교체하고 tasks를 교체한다. `StateStoreError.stage/stateCommitted/cleanupFailed`로 부분 저장과 정리 실패를 구분한다. 어떤 저장 오류든 해당 인스턴스의 추가 변경을 차단하고 소유 lock 정리를 시도한다. 성공 상태의 state 교체 뒤 tasks 저장이 실패해도 호출 결과는 실패다. 디렉터리 fsync에 의한 전원 장애 내구성이나 여러 파일의 transaction은 보장하지 않는다. 파일당 16 MiB를 넘으면 거부하며 자동 보관·분할은 없다.
+저장은 같은 디렉터리의 무작위 temp 생성 → write → file sync → close → rename 순서다. state를 먼저 교체하고 tasks를 교체한다. `StateStoreError.stage/stateCommitted/cleanupFailed`로 부분 저장과 정리 실패를 구분한다. 저장 오류는 해당 인스턴스의 추가 변경을 차단하지만 lock을 즉시 해제하지 않는다. 실행 소유자가 worker/process 종료를 확인한 뒤 명시적으로 close해야 한다. 초기 open 실패처럼 worker가 아직 없는 경로만 자체 lock을 정리한다. 성공 상태의 state 교체 뒤 tasks 저장이 실패해도 호출 결과는 실패다. 디렉터리 fsync에 의한 전원 장애 내구성이나 여러 파일의 transaction은 보장하지 않는다. 파일당 16 MiB를 넘으면 거부하며 자동 보관·분할은 없다.
 
 다음 소유자가 열면 CREATED/RUNNING/WAITING_APPROVAL은 INTERRUPTED로 바꾸고 activeAgents/next를 비운다. PREPARED action도 실행 여부를 추정하지 않고 INTERRUPTED로 남긴다. 저장 후 기존 `RunInterrupted` 이벤트를 발행하며 sink 실패는 `deliveryFailures`에만 기록한다. 기존 Step ID/attempt는 유지한다. 자동 resume/retry, 승인·PASS 재사용, 이벤트 재생은 없다. crash가 남긴 lock은 소유 프로세스 종료를 사용자가 확인하고 수동으로 정리해야 한다. 불명확하면 열지 않는다.
 
@@ -372,14 +372,25 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 - Git baseline은 `.ai/decisions.md`와 `.ai/logs/checks.json`의 **온전한 generated 내용만** 조건부 제외한다. generated 파일을 Git 추적하면 실행을 거부한다. 수동 파일·깨진 checksum은 일반 evidence 대상이며 Git ignored인 checks.json의 수동 변경도 검사한다. `.ai`나 `.ai/logs` 전체를 제외하지 않는다. `.gitignore`는 사용자가 직접 관리하며 Runtime이 자동 수정하지 않는다.
 - 기존 OS sandbox/외부 TOCTOU/파일당 크기/단일 writer 한계를 유지한다. 큰 state/export는 파일당 16 MiB 한도이며 자동 archive/분할은 없다. technical decision authoring, 전체 이벤트 replay, 별도 TUI/DAG/Web/RPC/SQLite 시스템은 추가하지 않았다.
 
+## S6 실패 경계
+
+- AgentExecutor/Verifier의 `safeToRelease`는 promise 정산과 자원 종료 확인을 구분한다. 실제 Pi/파일 adapter는 worker·check·Git process가 살아 있거나 cleanup이 불확실하면 false를 제공한다. custom Port도 정산 전 cleanup을 보장하거나 미확인을 명시해야 한다.
+- 저장 실패 시 Store는 쓰기만 닫고 lease를 유지한다. 정상 종료는 `cancel → SDK/process 종료 확인 → terminal state 저장 → close/unlock` 순서다. SDK abort/dispose나 process runner/그룹 cleanup 확인이 실패하면 다음 역할·COMPLETE를 막고 lock을 남긴다. 실패 중 state 저장 자체가 불가능하면 기존 PREPARED/active 기록이 남을 수 있다.
+- cleanup 불확실 상태에서 추가 Git evidence process를 시작하지 않으며 변경 수집은 incomplete로 보고한다. 완료 commit 뒤에는 새 Git 수집을 하지 않고 COMPLETE 직전 확인한 snapshot을 보고한다. lock retained 오류가 있으면 다른 작업을 시작하지 말고 OS process와 owner를 수동 확인해야 한다. 자동 unlock/lock stealing은 없다.
+- check settlement 전 취소는 PASS가 아니다. audit 결과 저장 실패를 두 번째 finish로 덮지 않는다. 이전 attempt의 session ID뿐 아니라 sessionFile 재사용도 거부한다.
+- state/config/lock/worker descriptor는 no-follow/nonblocking + regular-file 검사를 사용해 FIFO open trap을 피한다. config의 symlink/비일반 파일·unsafe directory도 거부한다. Windows 실행은 writer 획득 전에 명시적으로 거부하며 Windows 지원을 추가하지 않았다.
+- 완료 guard를 통과해 terminal save가 **시작되기 전** cancel은 수락한다. 이미 시작된 completion commit 뒤의 늦은 cancel은 이를 rollback하지 않는다. 저장 실패에서는 RunCompleted를 발행하지 않지만, 파일별 partial persistence로 durable source와 caller 결과가 다를 수 있다.
+- 확인 범위는 관리하는 SDK 세션과 원래 POSIX process group이다. 탈출 daemon·악성 동일-process 코드·등록 프로그램 내부 I/O는 sandbox하지 않는다. 비협조 Provider/auth/event sink/파일 I/O는 종료를 오래 지연시킬 수 있으며 timeout을 절대 정리 기한으로 주장하지 않는다.
+- DoD의 PASS/PARTIAL/UNSUPPORTED/NOT VERIFIED 및 실제 Provider/플랫폼 미검증은 [V0.1_READINESS](../../docs/V0.1_READINESS.md)를 따른다. S6 완료는 release 선언이 아니다.
+
 ## 검증
 
 ```sh
 # packages/company-runtime에서
-node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
-node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/agent-session-prompt.test.ts
 
 # 저장소 루트에서
 npm run check
@@ -389,4 +400,4 @@ npm run check
 
 Root workspace glob, TypeScript 및 Biome 설정은 이 패키지를 이미 포함한다. `test`/`clean` scripts를 제공하고 공개 배포는 하지 않는다. S0에는 Core 변경, 자동 `.pi`/`.ai` 설정 생성, Git 변경 명령, 세션 history 추가가 없다.
 
-S1 테스트는 fake AgentExecutor/Verifier와 메모리 StateStore를 사용하므로 Pi AgentSession이나 실제 Provider 없이 실행된다. `host-boundary.test.ts`가 Kernel과 Policy import graph에 Pi/Host I/O 의존성이 없는지도 검사한다. S2는 임시 파일 시스템, 실제 lock 경합, 저장 장애 주입과 fake executor로 검증한다. S4는 임시 Git fixture·등록 Node check·faux 세션으로 전체 성공/실패/lifecycle을 검증한다. S5A는 같은 테스트 기반에서 QUICK을 검증한다. S5B는 bound R2 실행·독립 리뷰와 회귀를 추가 검증한다. S5C는 exact/expired/denied/replayed approval과 실제 단일 삭제·리뷰·취소를 추가 검증한다. S5D는 읽기 전용 조회/명시적 export와 configured revision을 검증한다. 다음 단계는 [구현 계획의 S6](../../docs/IMPLEMENTATION_PLAN.md)이며 전체 V0.1 완료는 아니다.
+S1 테스트는 fake AgentExecutor/Verifier와 메모리 StateStore를 사용하므로 Pi AgentSession이나 실제 Provider 없이 실행된다. `host-boundary.test.ts`가 Kernel과 Policy import graph에 Pi/Host I/O 의존성이 없는지도 검사한다. S2는 임시 파일 시스템, 실제 lock 경합, 저장 장애 주입과 fake executor로 검증한다. S4는 임시 Git fixture·등록 Node check·faux 세션으로 전체 성공/실패/lifecycle을 검증한다. S5A는 같은 테스트 기반에서 QUICK을 검증한다. S5B는 bound R2 실행·독립 리뷰와 회귀를 추가 검증한다. S5C는 exact/expired/denied/replayed approval과 실제 단일 삭제·리뷰·취소를 추가 검증한다. S5D는 읽기 전용 조회/명시적 export와 configured revision을 검증한다. S6는 실패/경합/crash/lifecycle과 기존 Pi 회귀를 보강했다. 다음은 별도 승인된 V0.1 RC 검증이며 실제 GPT/DeepSeek·추가 플랫폼은 아직 검증하지 않았다. 상세 판정은 [readiness](../../docs/V0.1_READINESS.md)에 기록한다.

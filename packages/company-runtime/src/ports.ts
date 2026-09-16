@@ -40,6 +40,8 @@ export type AgentExecutionResult =
 	| { role: "Reviewer"; review: Review };
 
 export interface AgentExecutor {
+	/** False while resources are live or cleanup is unconfirmed. A settled call alone is not termination proof. */
+	readonly safeToRelease?: boolean;
 	execute(request: AgentExecutionRequest): Promise<AgentExecutionResult>;
 }
 
@@ -48,6 +50,7 @@ export interface VerificationRequest extends StepRequest {
 	checks: CheckRequirement[];
 }
 export interface Verifier {
+	readonly safeToRelease?: boolean;
 	verify(request: VerificationRequest): Promise<VerificationResult>;
 	/** Live workspace evidence, without executing checks. Required by the S4 adapter, optional for pure fakes. */
 	inspect?(signal?: AbortSignal): Promise<NonNullable<Run["workspace"]>>;

@@ -26,7 +26,7 @@ export async function readRuntimeFile(project: string, file: RuntimeReadFile): P
 	}
 	let handle: FileHandle;
 	try {
-		handle = await open(join(project, file), constants.O_RDONLY | constants.O_NOFOLLOW);
+		handle = await open(join(project, file), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 		throw error;

@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { resolve, win32 } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
+import { dirname, resolve, win32 } from "node:path";
 import { type Static, Type } from "typebox";
 import { Check } from "typebox/value";
 import { parseDocument } from "yaml";
@@ -173,7 +174,25 @@ export async function loadRuntimeConfig(cwd: string): Promise<LoadedConfig> {
 	const path = resolve(cwd, ".ai", "config.yaml");
 	let source: string;
 	try {
-		source = await readFile(path, "utf8");
+		const directory = await lstat(dirname(path));
+		if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("Unsafe config directory");
+		const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		try {
+			const stat = await handle.stat();
+			if (!stat.isFile() || stat.nlink !== 1 || stat.size > 65_536)
+				throw new Error("Unsafe or oversized config file");
+			source = await handle.readFile("utf8");
+			const current = await lstat(dirname(path));
+			if (
+				!current.isDirectory() ||
+				current.isSymbolicLink() ||
+				current.dev !== directory.dev ||
+				current.ino !== directory.ino
+			)
+				throw new Error("Config directory changed");
+		} finally {
+			await handle.close();
+		}
 	} catch (error) {
 		if (error instanceof Error && "code" in error && error.code === "ENOENT") return { status: "missing", path };
 		throw new Error("Unable to read .ai/config.yaml");

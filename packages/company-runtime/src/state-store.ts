@@ -99,6 +99,7 @@ export class FileStateStore implements StateStore, ActionAudit {
 	private directoryIdentity?: { dev: number; ino: number };
 	private state: FileRuntimeState = { schemaVersion: 1, revision: 0, runs: [], actions: [] };
 	private closed = false;
+	private closing?: Promise<void>;
 	private busy = false;
 	private readonly eventFailures: EventDeliveryFailure[] = [];
 
@@ -216,7 +217,7 @@ export class FileStateStore implements StateStore, ActionAudit {
 	private async checkOwnership(): Promise<void> {
 		if (this.closed) throw new StateStoreError("closed");
 		await this.assertDirectory();
-		const handle = await open(this.lockPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+		const handle = await open(this.lockPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 		try {
 			const stat = await handle.stat();
 			if (
@@ -258,8 +259,16 @@ export class FileStateStore implements StateStore, ActionAudit {
 		)
 			throw new StateStoreError("lock replacement; manual inspection required");
 		// Never remove another owner's lock, even if the inode was modified in place.
-		const handle = await open(this.lockPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+		const handle = await open(this.lockPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 		try {
+			const opened = await handle.stat();
+			if (
+				!opened.isFile() ||
+				opened.nlink !== 1 ||
+				opened.dev !== this.lockIdentity.dev ||
+				opened.ino !== this.lockIdentity.ino
+			)
+				throw new StateStoreError("lock replacement; manual inspection required");
 			const content = await handle.readFile("utf8");
 			if (content) {
 				const owner: unknown = JSON.parse(content);
@@ -274,24 +283,33 @@ export class FileStateStore implements StateStore, ActionAudit {
 	}
 	async close(): Promise<void> {
 		if (this.busy) throw new Error("Storage operation still in flight");
+		if (this.closing) return this.closing;
 		this.closed = true;
-		await this.releaseLock();
+		this.closing = this.releaseLock()
+			.catch((error: unknown) => {
+				const failure = error instanceof StateStoreError ? error : new StateStoreError("lock cleanup");
+				failure.cleanupFailed = true;
+				throw failure;
+			})
+			.finally(() => {
+				this.closing = undefined;
+			});
+		return this.closing;
 	}
 	private async fail(error: unknown): Promise<never> {
 		this.closed = true;
-		const failure = error instanceof StateStoreError ? error : new StateStoreError("I/O or invalid state");
-		try {
-			await this.releaseLock();
-		} catch {
-			failure.cleanupFailed = true;
-		}
-		throw failure;
+		// A failed save can occur inside a live SDK tool. Only the execution owner knows when
+		// workers/processes have stopped. Disable mutations now, but defer lease release to close().
+		throw error instanceof StateStoreError ? error : new StateStoreError("I/O or invalid state");
 	}
 	private async readJson(file: StateFile): Promise<unknown | undefined> {
 		await this.checkOwnership();
 		let handle: FileHandle;
 		try {
-			handle = await open(join(this.directory, file), constants.O_RDONLY | constants.O_NOFOLLOW);
+			handle = await open(
+				join(this.directory, file),
+				constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+			);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 			throw error;

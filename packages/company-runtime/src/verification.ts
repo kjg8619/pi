@@ -7,12 +7,15 @@ import type { CheckResult, VerificationResult } from "./contracts.ts";
 import { type ActionAudit, evaluateRegisteredCheck, type PolicyContext, type RegisteredCheck } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { VerificationRequest, Verifier } from "./ports.ts";
-import { resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
+import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
 import type { DiffEvidence, GitWorkspace } from "./workspace.ts";
 
 export class RegisteredVerifier implements Verifier {
 	readonly workspace: GitWorkspace;
-	safeToRelease = true;
+	private processCleanupConfirmed = true;
+	get safeToRelease(): boolean {
+		return this.processCleanupConfirmed && this.workspace.safeToRelease;
+	}
 	private readonly config: RuntimeConfig;
 	private readonly policy: PolicyContext;
 	private readonly audit: ActionAudit;
@@ -83,6 +86,7 @@ export class RegisteredVerifier implements Verifier {
 		return snapshot;
 	}
 	async verify(request: VerificationRequest): Promise<VerificationResult> {
+		if (!this.safeToRelease) throw new ProcessCleanupError();
 		if (this.policy.r3Scope && request.runId !== this.policy.r3Scope.runId)
 			throw new Error("R3 verifier run binding mismatch");
 		if (this.policy.r2RunId && request.runId !== this.policy.r2RunId)
@@ -154,8 +158,8 @@ export class RegisteredVerifier implements Verifier {
 			try {
 				await this.audit.assertWritable();
 				if (!(await this.cwdSafe(action.cwd))) {
-					await this.audit.finish(decision.runId, decision.actionId, "FAILED");
 					intentOpen = false;
+					await this.audit.finish(decision.runId, decision.actionId, "FAILED");
 					checks.push({
 						...base,
 						status:
@@ -167,6 +171,7 @@ export class RegisteredVerifier implements Verifier {
 					continue;
 				}
 				request.signal?.throwIfAborted();
+				this.processCleanupConfirmed = false;
 				const result = await runProcess({
 					executable: action.executable,
 					argv: action.argv,
@@ -175,13 +180,14 @@ export class RegisteredVerifier implements Verifier {
 					timeoutMs: action.timeoutMs,
 					signal: request.signal,
 				});
-				this.safeToRelease &&= result.cleanupConfirmed;
+				this.processCleanupConfirmed = result.cleanupConfirmed;
 				if (!this.safeToRelease) {
-					await this.audit.finish(decision.runId, decision.actionId, "INTERRUPTED");
 					intentOpen = false;
-					throw new Error("Check cleanup unconfirmed; retain project lock");
+					await this.audit.finish(decision.runId, decision.actionId, "INTERRUPTED");
+					throw new ProcessCleanupError();
 				}
 				await this.audit.assertWritable();
+				intentOpen = false;
 				await this.audit.finish(
 					decision.runId,
 					decision.actionId,
@@ -191,11 +197,11 @@ export class RegisteredVerifier implements Verifier {
 							? "SUCCEEDED"
 							: "FAILED",
 				);
-				intentOpen = false;
 				let current: DiffEvidence;
 				try {
 					current = await this.workspace.inspect();
 				} catch {
+					if (!this.workspace.safeToRelease) throw new ProcessCleanupError();
 					current = { ...before, safe: false };
 				}
 				checks.push({
@@ -203,11 +209,11 @@ export class RegisteredVerifier implements Verifier {
 					status:
 						result.reason === "unavailable"
 							? "UNAVAILABLE"
-							: result.reason === "exited" && result.exitCode === 0 && current.safe
+							: result.reason === "exited" && result.exitCode === 0 && current.safe && !request.signal?.aborted
 								? "PASS"
 								: "FAIL",
 					exitCode: result.exitCode,
-					reason: `Check ${result.reason}${current.safe ? "" : "; unsupported mutation"}`,
+					reason: `Check ${request.signal?.aborted ? "cancelled" : result.reason}${current.safe ? "" : "; unsupported mutation"}`,
 					startedAt: result.startedAt,
 					finishedAt: result.finishedAt,
 					stdout: result.stdout,
@@ -216,7 +222,8 @@ export class RegisteredVerifier implements Verifier {
 				});
 			} catch (error) {
 				// An intent may remain PREPARED on storage failure; S2 recovery marks it INTERRUPTED, never replays.
-				if (request.signal?.aborted && intentOpen) {
+				if (!this.safeToRelease) throw new ProcessCleanupError();
+				if (request.signal?.aborted && intentOpen && error === request.signal.reason) {
 					await this.audit.finish(decision.runId, decision.actionId, "INTERRUPTED");
 					checks.push({ ...base, reason: "Cancelled before process start" });
 				} else throw error;
@@ -226,12 +233,18 @@ export class RegisteredVerifier implements Verifier {
 		try {
 			final = await this.workspace.inspect();
 		} catch {
+			if (!this.workspace.safeToRelease) throw new ProcessCleanupError();
 			final = { ...before, safe: false };
 		}
 		for (const check of checks)
-			if (check.status === "PASS" && (!final.safe || check.diffDigest !== final.diffDigest)) {
+			if (
+				check.status === "PASS" &&
+				(request.signal?.aborted || !final.safe || check.diffDigest !== final.diffDigest)
+			) {
 				check.status = "FAIL";
-				check.reason = "Workspace changed or evidence unavailable; check evidence is stale";
+				check.reason = request.signal?.aborted
+					? "Verification cancelled before result settlement"
+					: "Workspace changed or evidence unavailable; check evidence is stale";
 			}
 		return {
 			runId: request.runId,

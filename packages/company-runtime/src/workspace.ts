@@ -6,7 +6,7 @@ import type { Run } from "./contracts.ts";
 import { OBSERVATION_FILES, ownedObservationPaths } from "./observation-files.ts";
 import { evaluatePolicy, isPolicyPath, type PolicyContext } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
-import { resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
+import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
 import { changedLineCount } from "./quick.ts";
 
 type FileImage = { mode: number; hash: string; text: string; binary: boolean };
@@ -26,6 +26,11 @@ export class GitWorkspace {
 	private head = "";
 	private index = "";
 	private gitConfig = "";
+	private activeCommands = 0;
+	private cleanupUncertain = false;
+	get safeToRelease(): boolean {
+		return this.activeCommands === 0 && !this.cleanupUncertain;
+	}
 	private constructor(cwd: string, git: string, policy: PolicyContext, paths: FilePolicyPathInspector) {
 		this.cwd = cwd;
 		this.git = git;
@@ -33,18 +38,31 @@ export class GitWorkspace {
 		this.paths = paths;
 	}
 	private async command(argv: string[], signal?: AbortSignal): Promise<string> {
-		const result = await runProcess({
-			executable: this.git,
-			argv: ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", ...argv],
-			cwd: this.cwd,
-			env: verificationEnvironment(),
-			timeoutMs: 10000,
-			signal,
-			maxOutputBytes: 2 * 1024 * 1024,
-		});
-		if (result.reason !== "exited" || result.exitCode !== 0 || !result.cleanupConfirmed)
-			throw new Error("Git evidence collection failed");
-		return result.stdout;
+		signal?.throwIfAborted();
+		if (this.cleanupUncertain) throw new ProcessCleanupError();
+		this.activeCommands++;
+		try {
+			const result = await runProcess({
+				executable: this.git,
+				argv: ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", ...argv],
+				cwd: this.cwd,
+				env: verificationEnvironment(),
+				timeoutMs: 10000,
+				signal,
+				maxOutputBytes: 2 * 1024 * 1024,
+			}).catch(() => {
+				this.cleanupUncertain = true;
+				throw new ProcessCleanupError();
+			});
+			if (!result.cleanupConfirmed) {
+				this.cleanupUncertain = true;
+				throw new ProcessCleanupError();
+			}
+			if (result.reason !== "exited" || result.exitCode !== 0) throw new Error("Git evidence collection failed");
+			return result.stdout;
+		} finally {
+			this.activeCommands--;
+		}
 	}
 	private async assertClean(signal?: AbortSignal): Promise<void> {
 		const generated = await ownedObservationPaths(this.cwd);

@@ -228,7 +228,8 @@ describe("file StateStore", () => {
 		const store = await openStore();
 		const run = await kernel(store);
 		await writeFile(join(root, ".ai/writer.lock"), JSON.stringify({ token: "other-owner" }));
-		await expect(store.assertWritable()).rejects.toMatchObject({ cleanupFailed: true });
+		await expect(store.assertWritable()).rejects.toMatchObject({ stage: "lock lost" });
+		await expect(store.close()).rejects.toMatchObject({ cleanupFailed: true });
 		await expect(store.save({ ...run.snapshot, revision: 2 })).rejects.toThrow();
 		expect(await json("writer.lock")).toEqual({ token: "other-owner" });
 	});
@@ -266,12 +267,14 @@ describe("file StateStore", () => {
 			fail = true;
 			await expect(run.start()).rejects.toMatchObject({ stage: "state.json", stateCommitted: false });
 			expect(await readFile(join(root, ".ai/state.json"), "utf8")).toBe(before);
-			expect((await readdir(join(root, ".ai"))).sort()).toEqual(["state.json", "tasks.json"]);
+			expect((await readdir(join(root, ".ai"))).sort()).toEqual(["state.json", "tasks.json", "writer.lock"]);
+			await expect(FileStateStore.open(root)).rejects.toThrow();
+			await store.close(); // No worker in this fixture; the execution owner now confirms cleanup.
 			await expect(store.save({ ...run.snapshot, revision: 3 })).rejects.toThrow();
 		},
 	);
 
-	it("reports projection partial commit, closes writer and repairs on next open", async () => {
+	it("reports projection partial commit, disables writes and repairs only after explicit owner close", async () => {
 		let fail = false;
 		const store = await openStore({
 			beforeAtomicStep: (file, step) => {
@@ -283,6 +286,8 @@ describe("file StateStore", () => {
 		await expect(run.start()).rejects.toMatchObject({ stateCommitted: true, stage: "tasks.json" });
 		expect((await json("state.json")).revision).toBe(2);
 		expect((await json("tasks.json")).revision).toBe(1);
+		await expect(FileStateStore.open(root)).rejects.toThrow();
+		await store.close();
 		await openStore();
 		expect((await json("state.json")).runs[0].status).toBe("INTERRUPTED");
 		expect((await json("tasks.json")).revision).toBe((await json("state.json")).revision);

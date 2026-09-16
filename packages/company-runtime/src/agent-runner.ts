@@ -147,6 +147,10 @@ export class PiAgentExecutor implements AgentExecutor {
 	private readonly timeoutMs: number;
 	private readonly maxTurns: number;
 	private busy = false;
+	private cleanupConfirmed = true;
+	get safeToRelease(): boolean {
+		return !this.busy && this.cleanupConfirmed;
+	}
 	private readonly stoppedRuns = new Set<string>();
 	private constructor(options: PiAgentExecutorOptions, paths: FilePolicyPathInspector, policy: PolicyContext) {
 		this.options = options;
@@ -263,7 +267,8 @@ export class PiAgentExecutor implements AgentExecutor {
 	}
 
 	async execute(input: AgentExecutionRequest): Promise<AgentExecutionResult> {
-		if (this.busy || this.stoppedRuns.has(input.runId)) throw new Error("Worker already active or run stopped");
+		if (this.busy || !this.cleanupConfirmed || this.stoppedRuns.has(input.runId))
+			throw new Error("Worker already active or run stopped");
 		const { signal: parentSignal, onSessionCreated, onApprovalRequested, onApprovalConsumed, ...data } = input;
 		const request: AgentExecutionRequest = {
 			...structuredClone(data),
@@ -296,8 +301,10 @@ export class PiAgentExecutor implements AgentExecutor {
 		const cancellation = new AbortController();
 		const signal = parentSignal ? AbortSignal.any([parentSignal, cancellation.signal]) : cancellation.signal;
 		let session: AgentSession | undefined;
+		let creationAttempted = false;
 		let unsubscribe: (() => void) | undefined;
 		let failure: string | undefined;
+		let executionError: Error | undefined;
 		let result: AgentExecutionResult | undefined;
 		let active = true;
 		let stage = "preflight";
@@ -353,6 +360,8 @@ export class PiAgentExecutor implements AgentExecutor {
 				throw new Error("Worker transcript must remain outside workspace");
 			assertActive();
 			const sessionManager = SessionManager.create(this.options.cwd, sessionDirectory);
+			creationAttempted = true;
+			this.cleanupConfirmed = false;
 			const created = await createAgentSession({
 				cwd: this.options.cwd,
 				agentDir: this.options.agentDir,
@@ -446,23 +455,40 @@ export class PiAgentExecutor implements AgentExecutor {
 			}
 		} catch {
 			this.stoppedRuns.add(request.runId);
-			throw new Error(failure ?? (signal.aborted ? "Worker aborted" : `Worker execution failed (${stage})`));
+			executionError = new Error(
+				failure ?? (signal.aborted ? "Worker aborted" : `Worker execution failed (${stage})`),
+			);
 		} finally {
 			active = false;
 			clearTimeout(timeout);
 			try {
-				await session?.abort();
+				try {
+					await session?.abort();
+				} finally {
+					try {
+						unsubscribe?.();
+					} finally {
+						session?.dispose();
+					}
+				}
+				this.cleanupConfirmed = session !== undefined || !creationAttempted;
+			} catch {
+				this.cleanupConfirmed = false;
 			} finally {
-				unsubscribe?.();
-				session?.dispose();
 				signal.removeEventListener("abort", abort);
 				this.busy = false;
 			}
 		}
+		if (!this.cleanupConfirmed) {
+			this.stoppedRuns.add(request.runId);
+			throw new Error(`Worker cleanup unconfirmed (${stage}); retain project lock`);
+		}
+		if (executionError) throw executionError;
 		if (signal.aborted) {
 			this.stoppedRuns.add(request.runId);
 			throw new Error("Worker aborted during cleanup");
 		}
+		if (!result) throw new Error("Worker result unavailable");
 		return result;
 	}
 }

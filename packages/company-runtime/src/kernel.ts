@@ -544,7 +544,9 @@ export class CompanyKernel {
 				!role ||
 				ref.role !== role ||
 				sessionRef ||
-				this.state.roleSessionRefs.some((item) => item.sessionId === ref.sessionId)
+				this.state.roleSessionRefs.some(
+					(item) => item.sessionId === ref.sessionId || item.sessionFile === ref.sessionFile,
+				)
 			)
 				throw new Error("Invalid or reused worker session reference");
 			await this.persist({ roleSessionRefs: [...this.state.roleSessionRefs, ref] }, [
@@ -677,6 +679,7 @@ export class CompanyKernel {
 								}),
 					});
 					signal?.throwIfAborted();
+					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					approvalCallbacksOpen = false;
 					if (result.role === "Reviewer" || result.role !== role)
 						throw new Error("Expected matching implementation role result");
@@ -722,6 +725,7 @@ export class CompanyKernel {
 							checks: structuredClone(this.checks),
 						}),
 					);
+					requireEvidence(this.ports.verifier.safeToRelease !== false, "Verification cleanup is unconfirmed");
 					// Persist actual outcomes even when cancellation or later diff collection fails.
 					validateContract(VerificationResultSchema, result);
 					assertIdentity(result, this.state.runId, revision);
@@ -757,6 +761,7 @@ export class CompanyKernel {
 						verification: structuredClone(this.selfCheck),
 					});
 					signal?.throwIfAborted();
+					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					if (result.role !== "Reviewer") throw new Error("Expected Reviewer result");
 					if (this.state.risk === "R2" || this.state.risk === "R3")
 						requireEvidence(
@@ -809,6 +814,10 @@ export class CompanyKernel {
 					break;
 				}
 				case "complete": {
+					requireEvidence(
+						this.ports.agents.safeToRelease !== false && this.ports.verifier.safeToRelease !== false,
+						"Completion requires confirmed resource cleanup",
+					);
 					if (this.ports.verifier.inspect) {
 						const workspace = await this.ports.verifier.inspect(signal);
 						await this.persist({ workspace }, []);
@@ -869,7 +878,11 @@ export class CompanyKernel {
 			return this.snapshot;
 		} catch (error) {
 			if (this.storageFailed) throw error;
-			if (this.ports.verifier.inspect) {
+			if (
+				this.ports.verifier.inspect &&
+				this.ports.agents.safeToRelease !== false &&
+				this.ports.verifier.safeToRelease !== false
+			) {
 				try {
 					await this.persist({ workspace: await this.ports.verifier.inspect() }, []);
 				} catch {

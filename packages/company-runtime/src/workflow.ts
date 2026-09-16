@@ -8,6 +8,7 @@ import { CompanyKernel } from "./kernel.ts";
 import { formatRunView, type ObservationState } from "./observations.ts";
 import type { PolicyContext } from "./policy.ts";
 import type { AgentExecutor, ApprovalPort } from "./ports.ts";
+import { ProcessCleanupError } from "./process-runner.ts";
 import { selectQuickScope } from "./quick.ts";
 import { FileStateStore } from "./state-store.ts";
 import { RegisteredVerifier } from "./verification.ts";
@@ -82,8 +83,12 @@ export class StandardWorkflow {
 		let store: FileStateStore | undefined;
 		let verifier: RegisteredVerifier | undefined;
 		let workspace: GitWorkspace | undefined;
+		let executor: AgentExecutor | undefined;
+		let cleanupUncertain = false;
 		try {
 			signal.throwIfAborted();
+			if (process.platform === "win32")
+				throw new Error("Company Runtime requires POSIX process supervision; Windows execution is unsupported");
 			const runId = randomUUID();
 			const { classification, requiresConfirmation } = classifyRequest(this.options.goal);
 			const r3Scope = classification.risk === "R3" ? selectR3Scope(this.options.goal, runId) : undefined;
@@ -112,6 +117,7 @@ export class StandardWorkflow {
 			store = await FileStateStore.open(this.options.cwd, { events: this.options.events });
 			this.store = store;
 			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope);
+			executor = agents.executor;
 			if (JSON.stringify(agents.policy.r3Scope) !== JSON.stringify(r3Scope))
 				throw new Error("R3 execution binding differs from selected scope");
 			if (agents.policy.r2RunId !== r2RunId) throw new Error("R2 execution binding differs from the selected run");
@@ -151,27 +157,46 @@ export class StandardWorkflow {
 				await this.kernel.advance(step.stepId, signal);
 			}
 		} catch (error) {
+			cleanupUncertain ||= error instanceof ProcessCleanupError;
 			this.reportValue.error = signal.aborted
 				? "Workflow cancelled during preflight or storage failure"
 				: error instanceof Error
 					? error.message
 					: "Workflow failed";
 		} finally {
-			if (workspace) {
+			cleanupUncertain ||=
+				executor?.safeToRelease === false ||
+				verifier?.safeToRelease === false ||
+				workspace?.safeToRelease === false;
+			if (this.snapshot?.status === "COMPLETED" && !cleanupUncertain) {
+				// Completion already captured live evidence after all workers/checks stopped.
+				// Do not start another Git process after committing the terminal outcome.
+				this.reportValue.changedFiles = this.snapshot.workspace?.changedFiles ?? [];
+			} else if (workspace && !cleanupUncertain) {
 				try {
 					const current = await workspace.inspect();
 					this.reportValue.changedFiles = current.changedFiles;
-				} catch {
+				} catch (error) {
 					this.reportValue.changesUnknown = true;
+					cleanupUncertain ||= error instanceof ProcessCleanupError || !workspace.safeToRelease;
 				}
 			}
-			if (!verifier || verifier.safeToRelease) {
+			if (!cleanupUncertain) {
 				try {
 					await store?.close();
 				} catch {
 					this.reportValue.error = "Lock cleanup failed; inspect owner before another run";
 				}
-			} else this.reportValue.error = "Check cleanup unconfirmed; project lock retained for manual inspection";
+			} else {
+				this.reportValue.changesUnknown = true;
+				this.reportValue.changedFiles = this.snapshot?.workspace?.changedFiles ?? [];
+				this.reportValue.error = [
+					this.reportValue.error ?? this.snapshot?.lastError,
+					"Resource cleanup unconfirmed; project lock retained for manual inspection",
+				]
+					.filter(Boolean)
+					.join("; ");
+			}
 		}
 		const run = this.snapshot;
 		this.reportValue.error ??= run?.lastError ?? undefined;

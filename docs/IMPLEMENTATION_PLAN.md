@@ -2,7 +2,7 @@
 
 ## 1. 현재 상태와 목표
 
-Phase 0과 S0~S5D를 완료했다. STANDARD/QUICK/R2/한정 R3 실행을 유지하면서 읽기 전용 상태·이력·check/review/decision 조회와 명시적 observation export를 연결했다. STANDARD는 기존 설정의 재작업 0~3회(기본 1)를 사용하고 QUICK/R3는 0회다. 상태·승인·검증의 원본은 계속 Kernel/StateStore이며 조회·export로 완료를 만들지 않는다. 다음은 S6 hardening이고 전체 V0.1 완료는 아니다.
+Phase 0과 S0~S6를 완료했다. S6는 기능을 늘리지 않고 실패 시 lease/cleanup 순서, stale evidence, cancellation 및 crash 경계를 강화했다. STANDARD/QUICK/R2/한정 R3와 observations/export의 범위는 유지한다. 다음은 별도 승인된 V0.1 RC 검증이며 S6 완료가 release나 모든 MASTER_SPEC 요구의 무제한 지원을 뜻하지 않는다. 실제 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
 
 기준: [MASTER_SPEC](MASTER_SPEC_PI_PERSONAL_AI_RUNTIME.md), [아키텍처](ARCHITECTURE.md), [결정 기록](DECISIONS.md).
 
@@ -197,7 +197,7 @@ PASS 직행 경로도 별도로 검증한다. REVISE 한도 초과, BLOCK, check
 - faux 및 temporary Git에서 회귀·snapshot/ownership/partial export·configured revision을 검증하고 실제 Pi 80×24 tmux에서 조회·export·수동 파일 보존·reload를 확인했다. 상세 결과는 [WORK_LOG](WORK_LOG.md) LOG-011, 명령/API/한계는 [README](../packages/company-runtime/README.md)를 따른다.
 - DAG renderer·RPC/Web·별도 서버·SQLite migration·auto resume·권한 확대는 추가하지 않았다.
 
-### S6 — V0.1 hardening
+### S6 — V0.1 hardening (완료)
 
 - 모델 오류·timeout·출력 누락·한도 초과·부분 변경·디스크 실패를 테스트한다.
 - 취소 직후 늦게 도착한 결과가 COMPLETE를 기록하지 못하게 한다.
@@ -205,7 +205,9 @@ PASS 직행 경로도 별도로 검증한다. REVISE 한도 초과, BLOCK, check
 - check 프로세스의 종료·출력 제한·환경 필터를 검증한다.
 - Extension 비활성/활성 양쪽에서 기존 Pi 회귀 테스트를 실행한다.
 
-**완료 기준:** 실패는 FAILED/BLOCKED/CANCELLED/INTERRUPTED로 남고 성공으로 위장하지 않는다. 자동 resume와 fallback은 여전히 제외한다.
+**완료 기준:** 실패는 FAILED/BLOCKED/CANCELLED/INTERRUPTED 또는 불확실한 기존 durable intent로 남고 성공으로 추정하지 않는다. 자동 resume와 fallback은 여전히 제외한다.
+
+**S6 결과:** 저장 실패가 SDK cleanup 전에 lock을 해제하던 경로를 수정했고, SDK/Verifier/Git의 cleanup 미확인을 별도로 전달해 lease를 유지한다. cancel/check 정산 race와 audit finish 재시도, sessionFile 재사용, FIFO open trap을 보완했다. 정상 lifecycle 순서를 24개 Host-handler 사례와 실제 Pi cancel/reload/approval 중단으로 확인했다. 기존 S0~S5D와 S6 targeted 25개 파일·740개 및 추가 기존 Pi 4개 파일·59개(총799개)가 통과했다. 전체 build/suite·유료 Provider·다른 플랫폼은 실행하지 않았다. 상세 범위·테스트·commit/cancel 경계와 RC 조건은 [readiness](V0.1_READINESS.md), 실제 작업 기록은 [WORK_LOG](WORK_LOG.md) LOG-012에 둔다.
 
 ## 4. 검증 전략
 
@@ -266,4 +268,4 @@ Phase 0 문서 작성에서는 위 명령을 실행하지 않았다. S0~S4에서
 4. `.ai`의 Git 추적 정책. config/장기 decisions와 개인 상태/logs의 구분을 권장하되 자동 `.gitignore` 수정은 하지 않는다.
 5. 단일 프로젝트 run, dirty tree 거부, 자동 resume 없음이라는 초기 제한 수용 여부.
 
-**S0~S5D는 완료했다. 다음은 S6 hardening**이며 사용자 승인 후 진행한다. 기존 STANDARD/QUICK/R2/한정 R3 회귀가 최우선이다. 저장·관찰·실행 결과가 부분 실패에서 어떻게 구분되는지, 플랫폼/중단/lifecycle 경계와 기존 Pi 회귀를 추가 검증한다. R2 binding, R3 인간 승인, Reviewer PASS, generated observations는 서로 대체하지 않는다. 범용 destructive 실행·DAG·병렬화·자동 resume나 OS sandbox를 완료했다고 주장하지 않는다.
+**S0~S6 완료 후 V0.1 RC 검증에 조건부 진입 가능**하다. 실제 GPT/DeepSeek smoke는 별도 사용자 승인·자격·모델/profile·disposable 프로젝트를 확정한 뒤 진행한다. 추가 OS/최소 Node·전체 회귀·보안/설치 검증 범위도 RC에서 결정한다. R2 binding, R3 인간 승인, Reviewer PASS, generated observations는 서로 대체하지 않는다. COMPLEX 실행·범용 destructive 권한·DAG·병렬화·자동 resume·OS sandbox를 지원하거나 V0.1 release를 완료했다고 주장하지 않는다.

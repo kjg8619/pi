@@ -41,7 +41,7 @@ export function workerDigest(value: unknown): string {
 }
 
 function readText(path: string): string {
-	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 	try {
 		const stat = fstatSync(fd);
 		if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_BYTES) throw new Error("Unsupported worker file");
@@ -54,7 +54,7 @@ function readText(path: string): string {
 }
 
 function deletionFingerprint(path: string): { preconditionDigest: string; bytes: number } {
-	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+	const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 	try {
 		const stat = fstatSync(fd);
 		const current = lstatSync(path);
@@ -90,7 +90,11 @@ function deletionFingerprint(path: string): { preconditionDigest: string; bytes:
 function writeText(path: string, content: string, signal: AbortSignal): void {
 	if (Buffer.byteLength(content) > MAX_BYTES) throw new Error("Worker write exceeds size limit");
 	signal.throwIfAborted();
-	const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+	const fd = openSync(
+		path,
+		constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		0o600,
+	);
 	try {
 		const stat = fstatSync(fd);
 		if (!stat.isFile() || stat.nlink !== 1) throw new Error("Unsupported worker target");
