@@ -19,32 +19,36 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 
 ## Installation
 
-현재는 checkout을 유지하는 개발/개인 설치다. Node.js `>=22.19.0`, npm, Git, Bash와 **별도로 설치된 `pi` executable**이 필요하다. 실제 Runtime 검증 환경은 macOS/POSIX, Node `26.7.0`이다. 다른 OS/Node 조합은 NOT VERIFIED이며 Windows는 지원하지 않는다.
+현재는 checkout을 유지하는 개발/개인 설치다. Node.js `>=22.19.0`, npm, Git, Bash와 **이 checkout에서 빌드한 coding-agent CLI**가 필요하다. global Pi 설치는 필요 없다. 실제 Runtime 검증 환경은 macOS/POSIX, Node `26.7.0`이다. 다른 OS/Node 조합은 NOT VERIFIED이며 Windows는 지원하지 않는다.
 
 ```sh
 git clone https://github.com/kjg8619/pi.git weavra
 cd weavra
 npm install --ignore-scripts
-# 현재 설치된 Pi를 재사용한다. 아직 없다면:
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.85.1
-pi --version
+npm run build  # workspace 의존성과 fork-local Pi CLI 빌드
 npm link --workspace packages/company-runtime --ignore-scripts
 
 cd /absolute/path/to/my-project
 weavra
 ```
 
-`npm link`는 npm global prefix의 `bin/weavra`를 checkout에 연결한다. 해당 `bin` 디렉터리가 PATH에 있어야 한다. Pi 설정·인증을 재사용하며 launcher가 trust/approval을 자동 허용하지 않는다. checkout 이동/삭제 후에는 다시 link해야 한다. 이 흐름에는 build나 publish가 필요 없다.
+위의 workspace 한정 `npm link`는 npm global prefix에 **`weavra`만** 연결한다. 해당 `bin` 디렉터리가 PATH에 있어야 한다. `packages/coding-agent`를 global link하거나 기존 `pi`를 덮어쓰지 않는다. checkout 이동/삭제 후에는 다시 link해야 한다. publish는 필요 없다.
 
 ```text
-weavra <args>
-  → PATH에서 기존 pi 선택
-  → exec pi -e <checkout의 절대경로>/packages/company-runtime/src/extension.ts <args>
+pi               → 사용자가 기존에 설치한 Pi (변경 없음)
+weavra <args>    → exec <checkout>/packages/coding-agent/dist/bundle/cli.js
+                       -e <checkout>/packages/company-runtime/src/extension.ts <args>
 ```
 
-cwd, 환경, 인수 경계를 유지하며 shell alias나 별도 fork CLI가 아니다. `weavra --help`는 **Pi 도움말**, `weavra --version`은 **Pi 버전**을 그대로 출력한다. Weavra 버전/기능 도움말은 시작 알림과 `/workflow help`에서 확인한다. `weavra --model ...`은 부모 Pi 모델을 선택하며 worker profile은 `.ai/config.yaml`이 결정한다. `--no-extensions`는 자동 탐색을 끄지만 명시적 `-e`의 Weavra는 로드된다.
+두 명령을 같은 시스템에서 함께 사용할 수 있다. launcher 자신의 symlink/npm-link 실제 위치에서 checkout을 찾고 두 경로를 절대경로로 전달한다. PATH의 `pi`는 검색하거나 fallback으로 실행하지 않으므로 global Pi의 업데이트/버전 차이가 Weavra의 CLI 선택에 영향을 주지 않는다.
 
-Pi가 없으면 PATH/설치 오류, checkout이 불완전하면 Extension 경로 오류를 표시한다. checkout의 소스 테스트에는 모델 데이터가 없는 경우 `npm run hydrate:model-data`가 별도로 필요하다(공개 카탈로그 다운로드, 추론 아님).
+cwd·환경·인수·stdio·exit code·signal을 유지한다. `weavra --help`는 **fork-local Pi 도움말**, `weavra --version`은 **fork-local Pi 버전**을 그대로 출력한다. Weavra 버전/기능 도움말은 시작 알림과 `/workflow help`에서 확인한다. `weavra --model ...`은 부모 Pi 모델을 선택하며 worker profile은 `.ai/config.yaml`이 결정한다. `--no-extensions`는 자동 탐색을 끄지만 명시적 `-e`의 Weavra는 로드된다.
+
+local CLI build가 없거나 실행할 수 없으면 checkout 경로와 `npm install --ignore-scripts && npm run build` 안내를 출력하고 즉시 실패한다. `--help`/`--version`도 예외가 아니며 global Pi로 대체하지 않는다. Extension이 없으면 checkout/link 복구 안내를 표시한다.
+
+CLI와 Extension은 같은 checkout에서 관리한다. **checkout/Pi 소스·의존성 갱신 후에는 다시 build해야 한다.** launcher는 자동 build/update나 build freshness 검사를 하지 않는다. 기존 모델 데이터가 준비되어 있으면 `npm run build:offline`을 사용할 수 있다. 데이터가 없는 경우 `npm run hydrate:model-data`로 공개 모델 카탈로그를 준비할 수 있으며 추론 요청은 보내지 않는다.
+
+**설정·인증·session 디렉터리는 아직 분리하지 않는다.** 기본 `~/.pi`와 기존 `PI_CODING_AGENT_DIR` 등 환경변수를 그대로 사용한다. 실행 파일은 독립적이지만 기본 설정/리소스는 공유하며 launcher가 trust/approval을 자동 허용하지 않는다. Weavra 전용 설정/session 경로는 별도 설계 항목이다.
 
 ## Quick Start
 

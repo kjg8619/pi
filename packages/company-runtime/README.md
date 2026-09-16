@@ -8,28 +8,33 @@ Host 독립 Kernel, StateStore·Policy, 독립 Pi SDK 역할에 실제 Git evide
 
 ## 로딩
 
-저장소 루트에서 의존성을 설치하고 launcher를 link한다. 기존 `pi` executable이 PATH에 있어야 한다.
+저장소 루트에서 의존성과 fork-local Pi CLI를 빌드하고 **Weavra workspace만** link한다. global Pi 설치는 필요 없다.
 
 ```sh
 npm install --ignore-scripts
+npm run build
 npm link --workspace packages/company-runtime --ignore-scripts
 cd /absolute/path/to/my-project
 weavra
-weavra --help     # Pi 도움말 (그대로 전달)
-weavra --version  # Pi 버전; Weavra 버전은 /workflow help
+weavra --help     # fork-local Pi 도움말
+weavra --version  # fork-local Pi 버전; Weavra 버전은 /workflow help
 ```
 
-Bash wrapper가 npm link symlink를 해석하여 checkout의 Extension 절대경로를 계산하고 `exec pi -e <extension> <args>`로 실행한다. cwd·환경·인수·종료 코드/시그널을 유지한다. checkout을 보존해야 하며 Windows는 지원하지 않는다. Pi Core/bin/설정·인증은 수정하지 않는다.
+Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/coding-agent/dist/bundle/cli.js`와 Extension 절대경로를 구하고 `exec <local-cli> -e <extension> <args>`로 실행한다. cwd·환경·인수·stdio·종료 코드/시그널을 유지한다. PATH의 `pi`를 조회하거나 fallback으로 실행하지 않는다. local build가 없거나 실행 불가하면 checkout의 install/build 명령을 안내하고 실패한다. checkout/Pi 소스·의존성 갱신 후에는 재빌드해야 하며 자동 freshness 검사·자동 build는 없다.
 
-기존 명시적 로딩도 가능하다(아래는 저장소 루트 기준).
+`pi`는 사용자가 기존에 설치한 executable/symlink 그대로이고 `weavra`만 fork-local CLI를 사용하므로 서로 다른 Pi 버전과 공존할 수 있다. 위 workspace 한정 link는 `weavra`만 제공하며 **coding-agent 패키지 자체를 global link하지 않는다.** Pi Core/bin·Status Projection·Runtime 의미는 바꾸지 않는다. Windows는 지원하지 않는다.
+
+설정/인증/session 디렉터리는 아직 공유한다. 기본 `~/.pi` 및 `PI_CODING_AGENT_DIR` 등 환경변수를 그대로 전달하며 Weavra 전용 디렉터리 분리는 별도 설계 항목이다.
+
+같은 local CLI에 명시적으로 로드할 수도 있다(아래는 저장소 루트 기준).
 
 ```sh
-pi -e ./packages/company-runtime/src/extension.ts
+./packages/coding-agent/dist/bundle/cli.js -e ./packages/company-runtime/src/extension.ts
 # package.json의 pi.extensions 진입점을 사용하는 경우
-pi -e ./packages/company-runtime
+./packages/coding-agent/dist/bundle/cli.js -e ./packages/company-runtime
 ```
 
-소스 TypeScript를 Pi가 로드하므로 이 패키지의 별도 build는 없다. 자동 로딩 설정은 추가하지 않는다. 체크아웃 개발 환경은 root `npm install --ignore-scripts`를 사용한다. 모델 데이터가 없는 체크아웃에서 Pi 소스 로딩 테스트를 하려면 `npm run hydrate:model-data`도 필요하다. 이 명령은 공개 모델 카탈로그를 가져오며 추론 요청을 보내지 않는다.
+Weavra Extension의 소스 TypeScript는 local Pi가 로드하므로 **company-runtime 자체**의 별도 build는 없다. 위 coding-agent 및 workspace 의존성 build는 필요하다. 모델 데이터가 이미 준비되어 있으면 root `npm run build:offline`도 가능하다. 자동 로딩 설정은 추가하지 않는다. 체크아웃 개발 환경은 root `npm install --ignore-scripts`를 사용한다. 모델 데이터가 없는 체크아웃에서 Pi 소스 로딩 테스트를 하려면 `npm run hydrate:model-data`도 필요하다. 이 명령은 공개 모델 카탈로그를 가져오며 추론 요청을 보내지 않는다.
 
 명령은 알림을 지원하는 TUI/RPC에서 출력한다. Print/JSON에서는 명시적 오류를 반환한다. 전체 Runtime의 RPC 실행 지원을 뜻하지 않는다.
 
