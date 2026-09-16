@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import {
 	discoverAndLoadExtensions,
 	type ExtensionCommandContext,
+	type ExtensionContext,
 	type RegisteredCommand,
+	type SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCompanyRuntime } from "../src/extension.ts";
@@ -63,6 +65,7 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		const host = commands();
 		expect([...host.registered.keys()]).toEqual(["team", "state", "workflow", "risk"]);
 		expect(host.on.mock.calls.map(([name]) => name)).toEqual([
+			"session_start",
 			"input",
 			"tool_call",
 			"user_bash",
@@ -85,9 +88,48 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		const extension = result.extensions[0];
 		expect([...extension.commands.keys()]).toEqual(["team", "state", "workflow", "risk"]);
 		expect(extension.tools.size).toBe(0);
-		expect(extension.handlers.size).toBe(7);
+		expect(extension.handlers.size).toBe(8);
 		expect(result.runtime.pendingProviderRegistrations).toEqual([]);
 		expect(result.runtime.pendingNativeProviderRegistrations).toEqual([]);
+		expect(await readdir(cwd)).toEqual([]);
+	});
+	it.each(["tui", "rpc", "print", "json"] as const)("startup branding is TUI-only: %s", async (mode) => {
+		const host = commands();
+		const start = host.on.mock.calls.find(([name]) => name === "session_start")![1] as (
+			event: SessionStartEvent,
+			ctx: ExtensionContext,
+		) => void;
+		start({ type: "session_start", reason: "startup" }, { ...context(), mode });
+		if (mode === "tui") {
+			expect(notify).toHaveBeenCalledTimes(1);
+			expect(notify).toHaveBeenCalledWith(expect.stringContaining("Weavra Runtime loaded — v0.1 RC1"), "info");
+		} else expect(notify).not.toHaveBeenCalled();
+		expect(host.models).not.toHaveBeenCalled();
+		expect(await readdir(cwd)).toEqual([]);
+	});
+	it.each(["workflow", "state", "team", "risk"])("provides Weavra help without config or state: %s", async (name) => {
+		const host = commands();
+		await host.call(name, "help");
+		const text = notify.mock.calls.at(-1)![0] as string;
+		expect(text).toContain("Weavra v0.1 RC1");
+		expect(text).toContain(`/${name}`);
+		expect(text).not.toMatch(/Company runtime|Personal AI Runtime/);
+		if (name === "workflow") {
+			for (const term of [
+				"QUICK",
+				"STANDARD",
+				"R0",
+				"R1",
+				"R2",
+				"scoped R3",
+				"independent Reviewer",
+				"Human Approval",
+				"No automatic commit/rollback",
+			])
+				expect(text).toContain(term);
+		}
+		expect(host.registered.get(name)!.description).toContain("Weavra");
+		expect(host.models).not.toHaveBeenCalled();
 		expect(await readdir(cwd)).toEqual([]);
 	});
 	it("does not auto-discover the package", async () => {

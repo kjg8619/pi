@@ -88,7 +88,7 @@ export class StandardWorkflow {
 		try {
 			signal.throwIfAborted();
 			if (process.platform === "win32")
-				throw new Error("Company Runtime requires POSIX process supervision; Windows execution is unsupported");
+				throw new Error("Weavra Runtime requires POSIX process supervision; Windows execution is unsupported");
 			const runId = randomUUID();
 			const { classification, requiresConfirmation } = classifyRequest(this.options.goal);
 			const r3Scope = classification.risk === "R3" ? selectR3Scope(this.options.goal, runId) : undefined;

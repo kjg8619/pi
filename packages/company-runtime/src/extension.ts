@@ -85,24 +85,49 @@ export function registerCompanyRuntime(
 		};
 	};
 	const usage = {
-		workflow: "/workflow [run <goal>|status [runId]|history [page]|config|cancel]",
+		workflow: "/workflow [help|run <goal>|status [runId]|history [page]|config|cancel]",
 		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state export",
 		team: "/team [runId]",
 		risk: "/risk [runId]",
 	};
 	for (const name of ["team", "state", "workflow", "risk"] as const) {
 		pi.registerCommand(name, {
-			description: `Company runtime ${name} (QUICK R0/R1, STANDARD R0/R1/R2, scoped R3)`,
+			description: `Weavra ${name} (QUICK R0/R1, STANDARD R0/R1/R2, scoped R3); /${name} help`,
 			handler: async (args, ctx) => {
-				if (!ctx.hasUI) throw new Error("Company runtime commands require a notification-capable UI");
+				if (!ctx.hasUI) throw new Error("Weavra commands require a notification-capable UI");
 				if (!ctx.isProjectTrusted()) {
-					ctx.ui.notify("Company runtime: project is not trusted; no configuration or state was read.", "warning");
+					ctx.ui.notify("Weavra: project is not trusted; no configuration or state was read.", "warning");
 					return;
 				}
 				const argument = args.trim();
 				try {
 					if (argument === "help") {
-						ctx.ui.notify(usage[name], "info");
+						ctx.ui.notify(
+							[
+								"Weavra v0.1 RC1 (development)",
+								usage[name],
+								...(name === "workflow"
+									? [
+											"QUICK: Executor only; R0 read-only, R1 one-file small change (up to 100 changed lines).",
+											"STANDARD: Developer -> SELF_CHECK -> independent Reviewer -> TEST -> COMPLETE; R0/R1/R2 and scoped R3.",
+											"R2 file changes require STANDARD and independent Reviewer PASS; no install/shell tools.",
+											"Scoped R3: one tracked text-file deletion, separate one-time Human Approval (default Deny), then independent Reviewer and checks.",
+											"Both workflows require trusted config, clean Git, required checks and fresh evidence. Approval is not completion.",
+											"No automatic commit/rollback or resume. Cancel with /workflow cancel, not parent Esc.",
+											usage.state,
+											usage.team,
+											usage.risk,
+										]
+									: [
+											"Read-only snapshots: omitted runId/latest selects the latest run; stored PASS is not a live check.",
+											...(name === "state"
+												? ["Only /state export writes derived views; it does not resume a run."]
+												: []),
+											"Workflow, Reviewer and Human Approval requirements: /workflow help",
+										]),
+							].join("\n"),
+							"info",
+						);
 						return;
 					}
 					if (name === "workflow" && argument === "config") {
@@ -110,14 +135,14 @@ export function registerCompanyRuntime(
 						ctx.ui.notify(
 							loaded.status === "configured"
 								? formatConfiguration(loaded.config)
-								: "Company runtime: .ai/config.yaml is missing",
+								: "Weavra: .ai/config.yaml is missing",
 							loaded.status === "configured" ? "info" : "warning",
 						);
 						return;
 					}
 					if (name === "state" && argument === "export") {
 						if (pending || exporting || !ctx.isIdle()) {
-							ctx.ui.notify("Export requires an idle parent and no active Company operation.", "warning");
+							ctx.ui.notify("Export requires an idle parent and no active Weavra operation.", "warning");
 							return;
 						}
 						exporting = (async () => {
@@ -158,18 +183,18 @@ export function registerCompanyRuntime(
 					if (name === "workflow" && argument === "cancel") {
 						await cancel();
 						ctx.ui.notify(
-							`${last ? formatWorkflowReport(last) : "Company runtime: no active run."}\nNo rollback performed.`,
+							`${last ? formatWorkflowReport(last) : "Weavra: no active run."}\nNo rollback performed.`,
 							last?.error ? "warning" : "info",
 						);
 						return;
 					}
 					if (name === "workflow" && argument.startsWith("run ")) {
 						if (pending || exporting) {
-							ctx.ui.notify("Company runtime: a run is already active.", "warning");
+							ctx.ui.notify("Weavra: a run is already active.", "warning");
 							return;
 						}
 						if (!ctx.isIdle()) {
-							ctx.ui.notify("Company runtime: wait for the parent agent to become idle.", "warning");
+							ctx.ui.notify("Weavra: wait for the parent agent to become idle.", "warning");
 							return;
 						}
 						const goal = argument.slice(4).trim();
@@ -184,7 +209,7 @@ export function registerCompanyRuntime(
 							if (loaded.status !== "configured") throw new Error(".ai/config.yaml is missing");
 							const { config } = loaded;
 							const approved = await ctx.ui.confirm(
-								"Run trusted QUICK/STANDARD workflow?",
+								"Weavra: run trusted QUICK/STANDARD workflow?",
 								`Allowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);
@@ -268,7 +293,7 @@ export function registerCompanyRuntime(
 							.finally(() => {
 								pending = undefined;
 							});
-						ctx.ui.notify("Company runtime: preflight started. Status/cancel remain available.", "info");
+						ctx.ui.notify("Weavra: preflight started. Status/cancel remain available.", "info");
 						return;
 					}
 					const parts = argument ? argument.split(/\s+/) : [];
@@ -276,9 +301,7 @@ export function registerCompanyRuntime(
 						if (parts.length > 2) throw new ObservationInputError(usage.workflow);
 						const view = await inspect(ctx);
 						ctx.ui.notify(
-							view.state
-								? formatHistory(view.state, pageNumber(parts[1]))
-								: "Company runtime: state missing; no history",
+							view.state ? formatHistory(view.state, pageNumber(parts[1])) : "Weavra: state missing; no history",
 							view.state ? "info" : "warning",
 						);
 						return;
@@ -306,7 +329,7 @@ export function registerCompanyRuntime(
 						id = parts[0];
 					}
 					if (pending && project === ctx.cwd && !workflow?.snapshot && !id) {
-						ctx.ui.notify("Company runtime: preflight in progress; /workflow cancel is available.", "info");
+						ctx.ui.notify("Weavra: preflight in progress; /workflow cancel is available.", "info");
 						return;
 					}
 					const view = await inspect(ctx, id);
@@ -317,24 +340,31 @@ export function registerCompanyRuntime(
 						return;
 					}
 					ctx.ui.notify(
-						"Company runtime command failed; check configuration, state integrity and writer ownership.",
+						"Weavra command failed; check configuration, state integrity and writer ownership.",
 						"error",
 					);
 				}
 			},
 		});
 	}
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.mode === "tui" && ctx.hasUI)
+			ctx.ui.notify(
+				"Weavra Runtime loaded — v0.1 RC1 (development)\nQUICK / STANDARD · R0–R2 / scoped R3\n/workflow · /state · /team · /risk — /workflow help",
+				"info",
+			);
+	});
 	pi.on("input", () => (pending || exporting ? { action: "handled" } : { action: "continue" }));
 	pi.on("tool_call", () =>
 		pending || exporting
-			? { block: true, reason: "Company workflow owns workspace; use /workflow cancel", terminate: true }
+			? { block: true, reason: "Weavra workflow owns workspace; use /workflow cancel", terminate: true }
 			: undefined,
 	);
 	pi.on("user_bash", () =>
 		pending || exporting
 			? {
 					result: {
-						output: "Company workflow owns workspace; user bash blocked",
+						output: "Weavra workflow owns workspace; user bash blocked",
 						exitCode: 1,
 						cancelled: false,
 						truncated: false,

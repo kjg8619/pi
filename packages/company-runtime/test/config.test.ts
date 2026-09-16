@@ -16,6 +16,18 @@ afterEach(async () => {
 });
 
 describe("runtime config", () => {
+	it("keeps shipped and README YAML examples aligned with the actual schema", async () => {
+		const example = parseRuntimeConfig(await readFile(new URL("../examples/config.yaml", import.meta.url), "utf8"));
+		for (const path of ["../../../README.md", "../README.md"]) {
+			const document = await readFile(new URL(path, import.meta.url), "utf8");
+			const blocks = [...document.matchAll(/```yaml\n([\s\S]*?)\n```/g)];
+			expect(blocks.length).toBeGreaterThan(0);
+			for (const block of blocks) expect(parseRuntimeConfig(block[1])).toEqual(example);
+		}
+		expect(example.models.profiles.coding.provider).toBe("your-provider");
+		expect(example.verification.checks[0].required).toBe(true);
+		expect(example.agents.worker_timeout_ms).toBe(180_000);
+	});
 	it("uses conservative defaults without hardcoded provider models", () => {
 		const config = parseRuntimeConfig(JSON.stringify(minimal));
 		expect(config.models).toEqual(minimal.models);

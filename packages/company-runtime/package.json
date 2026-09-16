@@ -2,8 +2,11 @@
 	"name": "@earendil-works/pi-company-runtime",
 	"version": "0.85.1",
 	"private": true,
-	"description": "Extension-first personal AI runtime (S0 skeleton)",
+	"description": "Weavra — Adaptive Agent Workflow Runtime (v0.1 RC1 development)",
 	"type": "module",
+	"bin": {
+		"weavra": "bin/weavra"
+	},
 	"pi": {
 		"extensions": ["./src/extension.ts"]
 	},

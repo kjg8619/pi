@@ -30,9 +30,10 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | RC-04 timeout 후속 수정 | 완료 / 실제 설정·지연 미수집 | 공통 worker timeout 설정과 취소/lease 보호, 이후 GPT RC-04 정상 완료. 특정 예산의 충분성은 별도; 당시 targeted 876개 |
 | RC-04 handoff 후속 수정 | 완료 / 실제 GPT 최종 PASS | unresolved 없음·독립 review·checks·COMPLETED, 기존 Kernel guard 유지; 당시 targeted 901개 |
 | RC-05 R3 prompt 수정 | 완료 / 실제 GPT 최종 PASS | 승인 UI·Deny/Expire 무삭제·Approve once 단일 삭제 확인; 당시 targeted 909개 |
-| GPT Real-Provider RC / V0.1 Closure | 완료 / 소스 RC 태그 준비 가능 | 실제 GPT RC-01~08 PASS, 최종 HEAD `dc6d3df65ad4d9217f2f82e81cd56f07511163b6`에서 이번 targeted 30개 파일·909개 및 root check PASS |
+| GPT Real-Provider RC / V0.1 Closure | 완료 / 소스 RC 기준점 유지 | 실제 GPT RC-01~08 PASS. LOG-020 당시 HEAD `dc6d3df65`의 targeted 30개 파일·909개 및 root check PASS |
+| Weavra Branding + Launcher UX | 완료 / 게시 승인·검증 완료 | 실제 Pi 재사용 launcher·TUI 안내·도움말·README/config 예제. 이번 31개 파일·931개 및 root check PASS; RC 태그 불변 |
 
-S0~S6 및 제한된 GPT Real-Provider RC-01~08 Closure를 완료했다. 최종 실제 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence에 따른다. 이전 실패와 수정 당시의 재실행 대기 기록은 역사로 보존하며 현재 상태로 읽지 않는다. 이번에는 Runtime/Policy를 바꾸지 않고 현재 HEAD의 자동 회귀와 root check를 다시 통과했다. `weavra-v0.1-rc1` 소스 RC 태그 후보로 적합하나 Closure 문서 커밋·태그 생성·푸시는 별도 승인 대상이며 이번에는 실행하지 않았다. DeepSeek·다른 Provider/OS·다른 Node 조합, 전체 suite/e2e/build·배포물 설치·취약점 재평가는 NOT VERIFIED로 남긴다. 정식 release를 선언하지 않으며 상세 판정과 수동 evidence의 한계는 [V0.1_READINESS](V0.1_READINESS.md)와 LOG-020을 따른다.
+S0~S6와 제한된 GPT Real-Provider RC-01~08 Closure 이후 Weavra Branding + Launcher UX를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence이며 이번에 유료 Provider를 재호출하지 않았다. 이전 실패·재실행 대기 기록은 역사로 보존한다. 현재 안정 태그 `weavra-v0.1-rc1`은 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`를 가리키며 이번에 수정·이동하지 않았다. 태그 이후 branding/launcher 변경은 사용자 승인에 따라 커밋·푸시 준비 검증을 완료했다(LOG-022). Runtime/Policy/Risk/Approval/Workflow semantics와 worker prompt는 유지했고 이번 자동 회귀 931개·root check 및 저장소 밖 npm-link/TUI 명령 smoke를 통과했다. DeepSeek·다른 Provider/OS·다른 Node 조합, 전체 suite/e2e/build·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 evidence 한계는 [V0.1_READINESS](V0.1_READINESS.md)와 LOG-020, 이번 작업은 LOG-021을 따른다.
 
 ---
 
@@ -1277,6 +1278,81 @@ git ls-remote --tags origin 'refs/tags/weavra-v0.1-rc1' 'refs/tags/weavra-v0.1-r
 - **최종 HEAD:** `dc6d3df65ad4d9217f2f82e81cd56f07511163b6`.
 - **다음 작업:** 사용자 승인 후 이번 Closure 문서 두 개를 커밋하고 최종 커밋 SHA·문서 전용 diff·작업 트리를 확인한 뒤 RC 태그를 생성/푸시할 수 있다. 그 사이 코드가 바뀌면 관련 검증을 다시 수행한다. 태그 설명에도 위 evidence 한계와 NOT VERIFIED 범위를 공개한다.
 - **커밋·푸시·태그:** 이번 작업에서는 모두 하지 않음. 기능/Policy 불변이며 문서 두 개만 미커밋으로 남긴다.
+
+---
+
+## LOG-021 — Weavra Branding + Launcher UX
+
+- **기록일:** 2026-09-16 16:03 (KST)
+- **상태:** 완료 / 미커밋
+- **목적:** RC-01~08의 실행 의미를 바꾸지 않고 검증된 Runtime을 Weavra launcher·UI·문서로 제공한다.
+- **시작 상태:** `devlop` clean, HEAD `183f85de1897d8b9f4fadb368a54e2b1390e5a84`. 기존 annotated tag `weavra-v0.1-rc1` object `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c`, peeled commit은 HEAD와 동일했다. LOG-020 이후 커밋/태그 상태는 현재 조회 결과이며 이번 생성 작업이 아니다.
+
+### 구조와 변경 파일
+
+- `packages/company-runtime/bin/weavra` 신규: 기존 package/bin 방식의 실행 가능한 Bash wrapper. npm link의 상대/연쇄 symlink를 따라 자신의 위치를 구하고 Extension 절대경로를 계산한다. PATH의 `pi`를 `exec "$PI" -e "$EXTENSION" "$@"`로 실행한다. cwd·환경·argv 경계·exit code/시그널을 유지하고 추가 proxy 프로세스나 shell 재해석을 만들지 않는다. Pi 부재/비실행 경로·불완전 checkout에 Weavra 오류를 표시한다.
+- `packages/company-runtime/package.json`: private 내부 패키지 이름/버전은 유지하고 `bin.weavra` 및 제품 설명만 추가/갱신했다. `package-lock.json`은 요구된 `npm install --package-lock-only --ignore-scripts`로 갱신했으며 bin metadata 3줄뿐이다. 새 dependency·버전 교체·shrinkwrap 변경은 없다.
+- `packages/company-runtime/src/extension.ts`: 기존 Company runtime/workflow·operation UI 문자열을 Weavra로 바꾸고 TUI에만 짧은 `session_start` 알림을 등록한다. 기존 Pi 헤더·footer·trust/lifecycle/승인 흐름을 교체하지 않는다. `/workflow help`에 QUICK/STANDARD, R0/R1/R2/scoped R3, 독립 Reviewer, Human Approval, 필수 checks/freshness와 자동 commit/rollback/resume 부재를 명시했다. 나머지 세 help도 Weavra·조회 문법을 안내한다.
+- `src/observations.ts`: state 없음 메시지 이름 한 곳만 변경. `src/workflow.ts`: Windows 미지원 오류 이름 한 곳만 변경. 조건·전이·자료 구조는 그대로다.
+- `packages/company-runtime/test/launcher.test.ts` 신규: cwd/환경·정확한 argv·공백/빈 인수/shell 문자·help/version·symlink·오류·exit code/시그널·public loader의 네 명령 등록 13개.
+- `test/extension.test.ts`: TUI-only startup 4개, help 4개 추가 및 handler 수 갱신. 모델 호출/config/state 생성이 없음을 검증한다. `test/config.test.ts`: root/package README YAML과 새 예제 파일을 실제 parser로 정규화하여 동일한지 비교하는 1개 추가.
+- `README.md`: Weavra 사용자 문서를 상단에 추가하고 upstream Pi 문서는 별도 영역으로 보존했다. 요청된 10개 섹션, 설치/Quick Start/명령/안전 경계/현실적 한계/읽기 전용 DAG Projection 후보를 설명한다. Pi `--help`/`--version` passthrough와 worker profile/부모 모델 구분을 명시한다.
+- `packages/company-runtime/README.md`: 제품명·launcher·도움말·현재 GPT validation 링크와 과거 단계 설명의 오래된 미검증 표현을 정리했다. 상세 API/schema 설명은 보존한다.
+- `packages/company-runtime/examples/config.yaml` 신규: 실제 schema 1의 최소 실행 예제. provider/model은 명시적 placeholder이며 check script도 사용자가 작성·검토해야 한다. schema에 없는 필드는 추가하지 않았다.
+- `docs/WORK_LOG.md`: 현재 요약과 본 항목. 과거 LOG-001~020 본문은 보존한다.
+
+### 유지한 경계
+
+`CompanyKernel`, `CompanyExtensionOptions`, `registerCompanyRuntime`, private package 이름·0.85.1 workspace 버전, `packages/company-runtime` 및 Pi session 경로를 유지했다. worker의 `Company Runtime` prompt는 모델 행동 불변을 위해 의도적으로 보존했고 사용자 문서에 구분했다. Kernel/Policy/Approval/StateStore/classifier/schema/Agent 도구·prompt, Pi Core/bin/version/config는 변경하지 않았다. COMPLEX/Planner/Lead/병렬 실행/DAG scheduler/T3Code는 구현하지 않았다. Weavra 표시는 `v0.1 RC1 (development)`이며 Pi `0.85.1`과 별개다.
+
+### 이번 검증 명령과 실제 결과
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run test/launcher.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+git rev-parse HEAD weavra-v0.1-rc1 'weavra-v0.1-rc1^{}'
+```
+
+- 최종 targeted(16:02 KST): Runtime **18개 파일·519개 PASS**, 관련 coding-agent **13개 파일·412개 PASS**, 합계 **31개 파일·931개 PASS**, 실패/skip 0. 기존 909개를 이번에 다시 실행했고 branding/launcher/config 22개를 추가했다. GPT 수동 RC 8개나 과거 자동 결과를 합산하지 않는다.
+- `npm run check`: PASS. Biome format 후 TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 모두 통과했다. 최종 포맷 이후 전체 targeted를 실행했다.
+- `git diff --check`: PASS. HEAD/tag object/peeled SHA가 시작과 같음을 확인했다.
+- 문서 갱신 후 최종 `npm run check`도 자동 수정 없이 PASS했다. `bash -n packages/company-runtime/bin/weavra` PASS. 임시 Python 검사로 다른 Runtime core/prompt/schema의 byte 불변, workflow/observation의 문자열 치환만 존재, lock의 bin metadata 외 불변, 과거 LOG 본문 보존, 문서 상대 링크/fence와 RC 태그를 확인했다(PASS). 임시 checker는 삭제했다.
+- 초기 launcher argv test 5개와 첫 check의 TypeScript는 Vitest `it.each` 배열이 callback 인수로 펼쳐지는 테스트 작성 오류로 실패했다. 행을 `{args: [...]}`로 수정하고 launcher/extension/config **86개 PASS** 및 전체 931개를 확인했다. launcher를 오류에 맞춰 약화하지 않았다.
+- lock 갱신 시 npm이 **moderate 3건**을 보고했다. 이번 작업은 dependency를 바꾸지 않았으며 일괄 `audit fix`를 하지 않았다. 해소/보안 PASS로 기록하지 않는다.
+
+### 실제 설치·TUI smoke
+
+- 임시 prefix에서 `npm_config_prefix=<tmp>/prefix npm link --workspace packages/company-runtime --ignore-scripts`를 실행했다. package 1개 link 성공, 생성된 `bin/weavra` symlink로 기존 설치된 Pi `0.85.1`을 호출했다. 사용자 global prefix·설정·인증은 변경하지 않았다.
+- linked `weavra --version`은 `0.85.1`. 저장소 밖 임시 프로젝트에서 `pi --help`와 `weavra --help` 출력을 `cmp`하여 동일함을 확인했다.
+- interactive-testing skill의 tmux 80×24, 별도 HOME/agentDir·`env -i`·offline·credential 없는 환경에서 실제 linked `weavra`를 실행했다. Pi 헤더와 별도로 Weavra 시작 3줄, 프로젝트 cwd 유지, 자동 Extension 로딩(`--no-extensions`와 병행), `/workflow help`, `/workflow`, `/state`, `/team`, `/risk` 출력을 확인했다. `/reload`와 `/quit`도 정상 종료했다.
+- 초기 fixture에 모델/인증 및 fd가 없으므로 Pi의 no-model/offline-fd 경고는 예상된 결과다. 모델 prompt·workflow run을 보내지 않았고 유료 API를 호출하지 않았다. startup/명령 smoke이지 새 real-provider RC나 release smoke 통과가 아니다. 프로젝트에는 `.ai`/파일이 생성되지 않았다. 확인 후 tmux·임시 prefix/link·HOME/agentDir·fixture/script/help 비교 파일을 모두 제거했다.
+
+### 한계·다음 작업·커밋
+
+- source checkout과 별도 설치된 Pi/PATH에 의존하는 개인 설치다. 정식 publish/standalone 배포물·Windows·Linux·최소 Node 버전은 검증하지 않았다. 사용자의 실제 global prefix에 설치하지 않고 격리 prefix에서 같은 link 구조를 검증했다.
+- Runtime semantics가 바뀌지 않아 GPT RC-01~08을 다시 실행하지 않았다. DeepSeek는 NOT VERIFIED다. 전체 upstream suite/e2e/build 및 새 vulnerability audit는 실행하지 않았다.
+- **다음 단계:** 기존 state/event를 읽는 **DAG Projection 설계·구현에 진입 가능**하다. 읽기 전용 관찰과 실행 authority를 분리하는 조건이며 DAG scheduler/병렬화/COMPLEX 진입을 의미하지 않는다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음. 안정 태그 `weavra-v0.1-rc1`을 그대로 유지한다.
+
+---
+
+## LOG-022 — Weavra Branding + Launcher 커밋·푸시 준비
+
+- **기록일:** 2026-09-16 16:13 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-021의 변경을 커밋하고 `origin/devlop`에 게시하기 위한 검증 완료.
+- **변경 파일:** LOG-021의 launcher·UI·테스트·README/config·작업 이력 및 `package-lock.json` 총 13개 파일. lockfile은 `bin.weavra` metadata 3줄뿐이며 dependency 변경은 없다. 이번 준비에서는 작업 이력만 추가했다.
+- **이번 검증:** `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check` PASS. `git status --short --branch`와 staged diff로 다른 변경/기존 staged 파일이 없음을 확인했다. HEAD와 RC tag object/peeled commit이 LOG-021 시작과 같음을 확인했다.
+- **과거 검증과 구분:** 31개 파일·931개 PASS 및 실제 npm-link/TUI smoke는 LOG-021의 구현 검증 결과다. 이번 커밋 준비에서는 테스트·실제 Provider를 다시 실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 사용자 승인된 launcher 등록에 필요한 lockfile만 `PI_ALLOW_LOCKFILE_CHANGE=1`로 명시적으로 포함하며 일반 pre-commit 검사는 유지한다.
+- **남은 제한·다음 작업:** 기존 플랫폼/DeepSeek/배포물 미검증과 Runtime semantics 불변을 유지한다. 명시적 13개 경로만 stage·commit 후 일반 push하고 원격 HEAD 일치·clean·안정 태그 불변을 확인한다. 다음 제품 단계는 읽기 전용 DAG Projection이다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add Weavra branding and launcher UX`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. RC 태그는 수정·이동·재생성하지 않는다.
 
 ---
 

@@ -167,7 +167,7 @@ export function formatRunView(
 ): string {
 	const run = view.run;
 	if (!run)
-		return `Company runtime: state missing or no run recorded.\nSource: ${displayText(view.source)}\n${view.report?.error ? `Error: ${displayText(view.report.error)}` : "Use /workflow config or /workflow run <goal>."}`;
+		return `Weavra: state missing or no run recorded.\nSource: ${displayText(view.source)}\n${view.report?.error ? `Error: ${displayText(view.report.error)}` : "Use /workflow config or /workflow run <goal>."}`;
 	const active = ["CREATED", "RUNNING", "WAITING_APPROVAL"].includes(run.status);
 	const local = view.source.startsWith("live Kernel");
 	const actions = view.state?.actions.filter((action) => action.decision.runId === run.runId) ?? [];

@@ -1,10 +1,27 @@
-# Company Runtime — S0~S6
+# Weavra Runtime
 
-Host 독립 Kernel, StateStore·Policy, 독립 Pi SDK 역할에 실제 Git evidence·등록 check·명령/lifecycle을 연결했다. **STANDARD/R0~R2와 QUICK/R0~R1**을 지원한다. R2는 제한된 파일 변경과 독립 리뷰를 결합한 경로다. R3는 명시적 인간 승인을 받은 단일 tracked 텍스트 파일 삭제만 지원한다. COMPLEX/범용 R3 실행, 자동 resume/rollback/commit, 병렬 조직과 전체 V0.1은 지원하지 않는다.
+Adaptive Agent Workflow Runtime — **Weavra v0.1 RC1 기반 development build**.
+
+사용자 설치·Quick Start·기능 범위는 [Weavra README](../../README.md)를 참고한다. 이 문서는 S0~S6 및 RC 수정의 구현 참조다. 내부 `company-runtime`/`CompanyKernel` 명칭과 Pi workspace package 버전 `0.85.1`은 유지하며 Weavra 제품 버전과 구분한다.
+
+Host 독립 Kernel, StateStore·Policy, 독립 Pi SDK 역할에 실제 Git evidence·등록 check·명령/lifecycle을 연결했다. **STANDARD/R0~R2와 QUICK/R0~R1**을 지원한다. R2는 제한된 파일 변경과 독립 리뷰를 결합한 경로다. R3는 명시적 인간 승인을 받은 단일 tracked 텍스트 파일 삭제만 지원한다. COMPLEX/범용 R3 실행, 자동 resume/rollback/commit, 병렬 조직은 지원하지 않는다. [GPT RC-01~08 validation](../../docs/GPT_RC_VALIDATION_2026-09-16.md)의 한정된 실제 검증을 통과했으며 정식 V0.1 release 선언은 아니다. DeepSeek는 NOT VERIFIED다.
 
 ## 로딩
 
-저장소 루트에서 설치된 Pi에 명시적으로 로드한다.
+저장소 루트에서 의존성을 설치하고 launcher를 link한다. 기존 `pi` executable이 PATH에 있어야 한다.
+
+```sh
+npm install --ignore-scripts
+npm link --workspace packages/company-runtime --ignore-scripts
+cd /absolute/path/to/my-project
+weavra
+weavra --help     # Pi 도움말 (그대로 전달)
+weavra --version  # Pi 버전; Weavra 버전은 /workflow help
+```
+
+Bash wrapper가 npm link symlink를 해석하여 checkout의 Extension 절대경로를 계산하고 `exec pi -e <extension> <args>`로 실행한다. cwd·환경·인수·종료 코드/시그널을 유지한다. checkout을 보존해야 하며 Windows는 지원하지 않는다. Pi Core/bin/설정·인증은 수정하지 않는다.
+
+기존 명시적 로딩도 가능하다(아래는 저장소 루트 기준).
 
 ```sh
 pi -e ./packages/company-runtime/src/extension.ts
@@ -18,6 +35,7 @@ pi -e ./packages/company-runtime
 
 | 명령 | 동작 |
 |---|---|
+| `/workflow help`, `/state help`, `/team help`, `/risk help` | Weavra 사용법; workflow help에 risk/Reviewer/Approval·commit/rollback 제한 안내 |
 | `/workflow run <goal>` | 신뢰 확인 후 비동기 preflight·분류에 따른 QUICK/STANDARD 실행 시작 |
 | `/workflow`, `/workflow status [runId]` | live Kernel 또는 저장된 run의 출처·시각·상태·변경 요약 |
 | `/workflow history [page]`, `/workflow config` | 저장 run 이력 / 현재 설정과 effective revision 안내 |
@@ -28,11 +46,11 @@ pi -e ./packages/company-runtime
 | `/team [runId]`, `/risk [runId]` | 역할/profile/session 참조 / 분류·Policy·Approval 상태 |
 | `/state export` | idle/terminal 상태의 운영 결정·check projection을 명시적으로 생성 |
 
-Factory는 네 명령과 lifecycle/input 보호 훅만 등록하고 startup I/O·Agent 실행은 하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
+Factory는 네 명령과 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
 
 ## 설정 schema 1
 
-아래는 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
+최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
 
 ```yaml
 schemaVersion: 1
@@ -222,7 +240,7 @@ Kernel의 AbortSignal과 timeout을 결합하고 tool gate·실제 파일 실행
 
 이벤트 발행자는 계속 Kernel 하나다. 기존 AgentStarted는 Adapter 호출 시작, 새 **AgentSessionCreated**는 세션 참조 저장 성공, AgentCompleted/Failed는 호출 결과를 의미한다. 새 이벤트에는 step/role/profile/code revision/sessionRef가 있으며 Completed/Failed에도 가능한 sessionRef를 포함한다. 기존 sequence/stateRevision/저장 후 발행 규칙을 유지한다. 토큰 스트림·reasoning·전체 대화를 RuntimeEvent로 복제하지 않는다. 직접 Adapter만 호출하는 Host는 콜백 저장을 구현해야 하며 별도 이벤트 버스는 없다.
 
-S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결했다. R3 승인 UI·DAG·병렬화는 추가하지 않았다.
+S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결했다. R3 승인 UI는 이후 S5C에서 추가했으며 DAG·병렬화는 미지원이다.
 
 ## S4 STANDARD 실행
 
@@ -297,7 +315,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 ```
 
 - `files.allowed_paths`에 명시된 파일만 기존 write/edit로 처리한다. manifest/lockfile을 다룰 때도 `.ai`/credential/.git/Runtime·등록 script 보호, symlink/hardlink·size 제한은 그대로다. 새로운 설치·삭제·이동·mkdir·배포·shell 도구는 없다.
-- 기존 classifier가 초기 R2로 판정하면 `adaptive`는 STANDARD를 고른다. Complexity QUICK/Risk R2도 Executor를 생성하지 않는다. 명시적 `runtime.workflow: QUICK`은 R2를 거부한다. COMPLEX/R3는 미지원이다. R1/QUICK 실행 중 dependency action이 나타나면 REVIEW_REQUIRED로 차단하고 사용자가 새 STANDARD/R2 run을 시작해야 한다.
+- 기존 classifier가 초기 R2로 판정하면 `adaptive`는 STANDARD를 고른다. Complexity QUICK/Risk R2도 Executor를 생성하지 않는다. 명시적 `runtime.workflow: QUICK`은 R2를 거부한다. COMPLEX/범용 R3는 미지원이며 한정 R3는 아래 S5C를 따른다. R1/QUICK 실행 중 dependency action이 나타나면 REVIEW_REQUIRED로 차단하고 사용자가 새 STANDARD/R2 run을 시작해야 한다.
 - Host composition callback은 `createAgents(store, quickScope?, r2RunId?)`를 받는다. PiAgentExecutor.create와 PolicyContext의 `r2RunId`는 Host가 preflight에서 고정하며 모델 도구 입력으로 받지 않는다. 다른 run/Executor/QUICK scope와 혼용할 수 없고 configDigest에도 포함된다.
 - Policy는 bound run의 Developer 파일 mutation을 R2 하한으로 평가한다. 그 결과의 ALLOW는 **독립 리뷰를 생략할 허가나 이미 받은 PASS가 아니다.** 해당 run은 이후 Reviewer PASS 없이는 완료하지 못한다.
 - R2 ALLOW intent를 저장할 때 StateStore는 실제 저장된 STANDARD/R2·RUNNING·IMPLEMENT·attempt·active Developer와 마지막 세션 참조를 검사한다. R2 risk/workflow obligation을 낮춰 저장할 수 없다. 순수 Policy에 binding을 꾸며 넣어도 durable R1 run에서 실행하지 못한다.
@@ -342,7 +360,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 - 승인은 파일 삭제 1회를 허용할 뿐 작업 완료나 Reviewer PASS가 아니다. 소비 기록 없이 check로 넘어가지 않는다. 정확한 단일 삭제 diff, 구조화 handoff/requirements, 현재 회차의 독립 Reviewer PASS, 필수 두 검증 단계와 최신 digest가 필요하다.
 - R3 재작업은 0회다. Reviewer REVISE/BLOCK, check 실패/stale diff, Provider/저장 실패는 성공이 아니며 이미 삭제한 파일은 partial changes로 보고한다. 자동 rollback/복원은 하지 않는다.
 - 파일 삭제와 state/tasks 여러 파일을 하나의 transaction으로 묶지 않는다. unlink 후 저장 실패는 실제 effect가 남을 수 있으며 audit/state를 확인해야 한다. OS sandbox·전원 장애 내구성·강제 daemon 종료는 제공하지 않는다.
-- 등록된 verifier 프로그램은 여전히 trusted code다. 승인 gate는 Runtime의 delete 도구를 보호하며 검증 프로그램 내부의 임의 I/O/네트워크까지 가로채지 않는다. 사용자 check는 간접 실행하는 프로젝트 코드까지 검토해야 한다. actual R3 검증은 테스트가 생성한 임시 파일만 삭제했고 사용자 프로젝트 파일·유료 Provider에는 적용하지 않았다.
+- 등록된 verifier 프로그램은 여전히 trusted code다. 승인 gate는 Runtime의 delete 도구를 보호하며 검증 프로그램 내부의 임의 I/O/네트워크까지 가로채지 않는다. 사용자 check는 간접 실행하는 프로젝트 코드까지 검토해야 한다. S5C 자동 검증은 테스트가 생성한 임시 파일만 삭제했다. 후속 실제 GPT RC-05의 승인 UI·유지/삭제 증거와 한계는 [validation](../../docs/GPT_RC_VALIDATION_2026-09-16.md#7-rc-05--scoped-r3-human-approval)을 따른다.
 
 ## S5D 읽기 전용 관찰과 명시적 export
 
@@ -411,4 +429,4 @@ npm run check
 
 Root workspace glob, TypeScript 및 Biome 설정은 이 패키지를 이미 포함한다. `test`/`clean` scripts를 제공하고 공개 배포는 하지 않는다. S0에는 Core 변경, 자동 `.pi`/`.ai` 설정 생성, Git 변경 명령, 세션 history 추가가 없다.
 
-S1 테스트는 fake AgentExecutor/Verifier와 메모리 StateStore를 사용하므로 Pi AgentSession이나 실제 Provider 없이 실행된다. `host-boundary.test.ts`가 Kernel과 Policy import graph에 Pi/Host I/O 의존성이 없는지도 검사한다. S2는 임시 파일 시스템, 실제 lock 경합, 저장 장애 주입과 fake executor로 검증한다. S4는 임시 Git fixture·등록 Node check·faux 세션으로 전체 성공/실패/lifecycle을 검증한다. S5A는 같은 테스트 기반에서 QUICK을 검증한다. S5B는 bound R2 실행·독립 리뷰와 회귀를 추가 검증한다. S5C는 exact/expired/denied/replayed approval과 실제 단일 삭제·리뷰·취소를 추가 검증한다. S5D는 읽기 전용 조회/명시적 export와 configured revision을 검증한다. S6는 실패/경합/crash/lifecycle과 기존 Pi 회귀를 보강했다. 다음은 별도 승인된 V0.1 RC 검증이며 실제 GPT/DeepSeek·추가 플랫폼은 아직 검증하지 않았다. 상세 판정은 [readiness](../../docs/V0.1_READINESS.md)에 기록한다.
+S1 테스트는 fake AgentExecutor/Verifier와 메모리 StateStore를 사용하므로 Pi AgentSession이나 실제 Provider 없이 실행된다. `host-boundary.test.ts`가 Kernel과 Policy import graph에 Pi/Host I/O 의존성이 없는지도 검사한다. S2는 임시 파일 시스템, 실제 lock 경합, 저장 장애 주입과 fake executor로 검증한다. S4는 임시 Git fixture·등록 Node check·faux 세션으로 전체 성공/실패/lifecycle을 검증한다. S5A는 같은 테스트 기반에서 QUICK을 검증한다. S5B는 bound R2 실행·독립 리뷰와 회귀를 추가 검증한다. S5C는 exact/expired/denied/replayed approval과 실제 단일 삭제·리뷰·취소를 추가 검증한다. S5D는 읽기 전용 조회/명시적 export와 configured revision을 검증한다. S6는 실패/경합/crash/lifecycle과 기존 Pi 회귀를 보강했다. 후속 실제 GPT RC-01~08은 [validation](../../docs/GPT_RC_VALIDATION_2026-09-16.md)에 기록된 범위에서 PASS다. DeepSeek·추가 플랫폼은 NOT VERIFIED다. 상세 판정은 [readiness](../../docs/V0.1_READINESS.md)에 기록한다.

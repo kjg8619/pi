@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve npm-link symlinks without changing the caller's working directory.
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIRECTORY="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" = /* ]] || SOURCE="$DIRECTORY/$SOURCE"
+done
+DIRECTORY="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+EXTENSION="$DIRECTORY/../src/extension.ts"
+if [[ ! -f "$EXTENSION" || ! -r "$EXTENSION" ]]; then
+  printf '%s\n' "Weavra: extension not found or unreadable at $EXTENSION. Keep the repository checkout intact and run npm link --workspace packages/company-runtime --ignore-scripts again." >&2
+  exit 1
+fi
+EXTENSION="$(cd -P "$DIRECTORY/../src" && pwd)/extension.ts"
+if ! PI="$(command -v pi)"; then
+  printf '%s\n' 'Weavra: pi executable not found on PATH. Install Pi CLI first, then retry weavra (see README Installation).' >&2
+  exit 127
+fi
+if [[ ! -x "$PI" || -d "$PI" ]]; then
+  printf '%s\n' "Weavra: Pi executable is not executable: $PI. Check your Pi installation and PATH." >&2
+  exit 126
+fi
+
+# No shell re-parsing, cwd/env changes, extra process, or intercepted Pi flags.
+exec "$PI" -e "$EXTENSION" "$@"
