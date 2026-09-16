@@ -25,13 +25,14 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | S5C | 완료 | 단일 tracked 텍스트 파일 삭제의 1회 Human Approval, 자동 608개 및 실제 승인/거절/Esc/만료 smoke 통과 |
 | S5D | 완료 | 읽기 전용 관찰·명시적 결정/check export·revision 설정 연결, 자동 655개 및 실제 명령 smoke 통과 |
 | S6 | 완료 | cleanup/lease·race/crash/freshness 실패 경계 보강, targeted 740개 + 기존 Pi 59개 및 interactive 실패 smoke 통과 |
-| RC-01 후속 수정 | 완료 / 실제 Provider 재실행 대기 | GPT R0 설명의 known-risk 완료 차단 문제 수정, S0~S6 및 추가 Pi targeted 829개 통과 |
-| RC-04 후속 수정 | 완료 / 실제 Reviewer PASS 사용자 보고 | Reviewer trusted ref 안내·제출 검증·동일 세션 재제출, 당시 targeted 847개 통과; timeout 후의 최신 run은 Reviewer PASS·TEST까지 성공, 전체 COMPLETE는 실패 |
-| RC-04 timeout 후속 수정 | 완료 / 실제 설정·지연 미보고 | 공통 worker timeout 설정(기본180초, 10~600초), 취소·cleanup/lease 유지, 당시 targeted 876개 통과 |
-| RC-04 handoff 후속 수정 | 완료 / 실제 Provider 재실행 대기 | Developer unresolved 의미 안내·알려진 obligation 제출 거부/재제출, Kernel guard 유지, S0~S6/RC 및 추가 Pi targeted 901개 통과 |
-| RC-05 R3 prompt 수정 | 완료 / 실제 Provider 재실행 대기 | 승인 요청과 승인 권한의 구분, runtime_delete 진입 안내, guard 유지, S0~S6/RC 및 추가 Pi targeted 909개 통과 |
+| RC-01 후속 수정 | 완료 / 실제 GPT 최종 PASS | R0 finding 보존·무변경 COMPLETE. 당시 targeted 829개 결과는 아래 이력에 보존 |
+| RC-04 후속 수정 | 완료 / 실제 GPT 최종 PASS | R2 mandatory Reviewer·두 checks·COMPLETED. 실제 ref 오류 후 재제출의 개별 trace는 미수집; 당시 targeted 847개 |
+| RC-04 timeout 후속 수정 | 완료 / 실제 설정·지연 미수집 | 공통 worker timeout 설정과 취소/lease 보호, 이후 GPT RC-04 정상 완료. 특정 예산의 충분성은 별도; 당시 targeted 876개 |
+| RC-04 handoff 후속 수정 | 완료 / 실제 GPT 최종 PASS | unresolved 없음·독립 review·checks·COMPLETED, 기존 Kernel guard 유지; 당시 targeted 901개 |
+| RC-05 R3 prompt 수정 | 완료 / 실제 GPT 최종 PASS | 승인 UI·Deny/Expire 무삭제·Approve once 단일 삭제 확인; 당시 targeted 909개 |
+| GPT Real-Provider RC / V0.1 Closure | 완료 / 소스 RC 태그 준비 가능 | 실제 GPT RC-01~08 PASS, 최종 HEAD `dc6d3df65ad4d9217f2f82e81cd56f07511163b6`에서 이번 targeted 30개 파일·909개 및 root check PASS |
 
-현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 사용자 GPT RC-01의 completion semantics와 RC-04의 evidence 참조·timeout·handoff unresolved 의미 문제를 수정했다. 최신 사용자 실제 GPT 보고에서는 Developer·SELF_CHECK·Reviewer PASS·final TEST까지 성공했으나 immutable handoff에 기록된 후속 review 의무 때문에 COMPLETE가 BLOCKED됐다. 별도 RC-05 R3 run에서는 승인 UI 없이 BLOCKED됐다는 보고에 따라 승인 요청을 시작하는 runtime_delete의 prompt/tool 의미 충돌을 수정했다. handoff 수정 후 실제 COMPLETE, R3 수정 후 실제 승인 UI, ref 오류 후 재제출 경로, timeout 설정값/지연, DeepSeek/다른 플랫폼·전체 저장소 검증은 별도로 남아 있다. release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
+S0~S6 및 제한된 GPT Real-Provider RC-01~08 Closure를 완료했다. 최종 실제 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence에 따른다. 이전 실패와 수정 당시의 재실행 대기 기록은 역사로 보존하며 현재 상태로 읽지 않는다. 이번에는 Runtime/Policy를 바꾸지 않고 현재 HEAD의 자동 회귀와 root check를 다시 통과했다. `weavra-v0.1-rc1` 소스 RC 태그 후보로 적합하나 Closure 문서 커밋·태그 생성·푸시는 별도 승인 대상이며 이번에는 실행하지 않았다. DeepSeek·다른 Provider/OS·다른 Node 조합, 전체 suite/e2e/build·배포물 설치·취약점 재평가는 NOT VERIFIED로 남긴다. 정식 release를 선언하지 않으며 상세 판정과 수동 evidence의 한계는 [V0.1_READINESS](V0.1_READINESS.md)와 LOG-020을 따른다.
 
 ---
 
@@ -1185,6 +1186,97 @@ git diff --check
 - **문제·해결:** 추가 문제 없음. Kernel/Policy/Approval/StateStore의 완료·승인 guard를 바꾸지 않은 누적 수정 범위를 유지한다. 과거 로그의 당시 미커밋 상태는 그대로 보존한다.
 - **남은 제한·다음 작업:** 실제 GPT RC-04 수정 후 COMPLETE와 RC-05 승인 UI 재검증은 여전히 미완료다. 명시적 14개 경로를 스테이징해 커밋한 뒤 `origin/devlop`에 푸시하고 로컬/원격 HEAD 일치 및 작업 트리를 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 예정 메시지는 `fix(coding-agent): clarify runtime worker limits and approval semantics`이며 실제 커밋 ID·푸시 결과는 Git 이력과 최종 응답으로 보고한다.
+
+---
+
+## LOG-020 — Weavra V0.1 RC Closure: GPT Real-Provider RC-01~08 완료
+
+- **기록일:** 2026-09-16 (KST), 이번 자동 targeted 재실행 시작 15:36 KST
+- **상태:** 완료 — 한정된 GPT 시나리오 및 소스 RC Closure. 정식 release/패키지 발행 아님.
+- **목적:** 실제 GPT 최종 evidence를 readiness와 일치시키고 S0~S6/RC 회귀를 현재 HEAD에서 다시 확인하여 `weavra-v0.1-rc1` 태그 준비 여부를 판정한다. 기능 추가나 Policy 의미 변경은 하지 않는다.
+- **시작/최종 검증 HEAD SHA:** **`dc6d3df65ad4d9217f2f82e81cd56f07511163b6`**, `devlop`, 시작 시 clean 및 `origin/devlop`과 일치. 이번 작업에서 커밋하지 않아 최종 HEAD도 동일하다. 최종 작업 트리 차이는 아래 문서 두 개뿐이다.
+- **연결 이력:** LOG-019 뒤 누적 수정 14개 파일은 사용자 승인으로 `970d238852366d044e6613ce4f24851020f69dc7`에 커밋·푸시했다. 이후 원격 evidence 문서 커밋 `dc6d3df65`를 fast-forward로 가져왔다. 앞선 로그의 당시 미커밋/미검증 상태는 수정하지 않고 이 항목에서 최종 결과를 연결한다.
+
+### 실제 GPT evidence와 최종 판정
+
+근거는 **[docs/GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)** 전체(특히 §1~10·12)다. 사용자 주도 interactive 수동 검증이며 이번 작업에서 실제 모델을 새로 호출한 결과가 아니다.
+
+- Provider: **`codex-lb`**, 모델: **`gpt-6-astra`**, reasoning 표시: **`high`**.
+- 수동 환경: macOS/POSIX, Pi 표시 버전 `v0.85.1`, 별도 `kjg8619/weavra-rc-fixture`, `pi -e ../pi/packages/company-runtime/src/extension.ts`, fixture Node built-in tests.
+
+| RC | 최종 판정 | 확인된 실제 결과 |
+|---|---|---|
+| RC-01 QUICK/R0 | PASS | known-risk finding 보존·파일 무변경·두 checks PASS·COMPLETED |
+| RC-02 QUICK/R1 | PASS | Executor-only·한 파일 typo 수정·두 checks PASS·COMPLETED |
+| RC-03 STANDARD/R1 | PASS | Developer/Reviewer 별도 session ID/JSONL·독립 PASS·두 checks PASS·COMPLETED |
+| RC-04 STANDARD/R2 | PASS | `package.json`만 수정, install 없음, mandatory Reviewer·두 checks PASS·unresolved 없음·COMPLETED |
+| RC-05 scoped R3 | PASS | Human Approval UI·기본 Deny·Deny/EXPIRED 파일 유지·Approve once 단일 삭제 |
+| RC-06 mixed unsafe | PASS (expected block) | downgrade 없이 preflight 차단, worker mutation 이전 무변경 종료 |
+| RC-07 IMPLEMENT cancel | PASS (expected cancel) | CANCELLED, Reviewer/verification 미실행, COMPLETE 금지·기록된 변경 없음 |
+| RC-08 stale evidence | PASS (expected block) | Reviewer 뒤 외부 변경, 두 checks PASS여도 stale diff로 BLOCKED·부분 변경 보고 |
+
+`BLOCKED`/`CANCELLED` 안전 시나리오의 PASS는 그 run을 COMPLETED로 바꿨다는 뜻이 아니다. 초기 실제 실패와 immutable 과거 run은 보존한다.
+
+### Evidence 한계와 NOT VERIFIED 유지
+
+- 수동 RC는 run별 SHA를 모두 고정하지 않았고 수정/재실행을 포함한다. 실제 GPT run 모두를 위 최종 HEAD에서 다시 실행했다고 주장하지 않는다. 이번 자동 회귀만 최종 HEAD에 정확히 연결한다.
+- RC-05 문서의 직접 증거는 승인 UI 및 유지/삭제다. 승인 뒤 모든 review/check/COMPLETE 상세가 기록됐다고 확대하지 않는다. 해당 guard는 자동 suite에서 별도 검증했다.
+- RC-07에는 취소 후 writer.lock 부재의 별도 수동 캡처가 없다. lease/lifecycle 자동 회귀와 과거 S6 interactive faux 증거를 별도로 해석한다.
+- token/cost/duration·특정 timeout 예산의 충분성·실제 ref 오류 후 재제출 trace·장시간 network/rate-limit/quota/OAuth 경계는 미수집/미검증이다.
+- **DeepSeek 및 다른 Provider/모델, 다른 OS와 macOS/Node 조합: NOT VERIFIED.** Windows 실행은 UNSUPPORTED / NOT VERIFIED다. 지원되지 않는 COMPLEX·범용 R3·shell/install/deploy·DAG/T3Code·model routing을 추가하지 않았다.
+- 전체 upstream suite/e2e/build, Node/Bun 배포물의 저장소 밖 설치/실행 smoke, dependency vulnerability 재평가를 이번에 하지 않았다. 과거 audit를 현재 보안 PASS로 취급하지 않는다.
+
+### 변경 파일과 문제 정리
+
+- `docs/V0.1_READINESS.md`: 최종 HEAD와 이번 회귀 수치, RC-01~08 표, 근거 출처/한계, GPT PASS와 타 Provider/OS NOT VERIFIED를 구분했다. RC-01/04/05의 오래된 재실행 대기·미완료 상태를 최종 수동 결과로 갱신하되 당시 문제와 자동 결과는 보존했다. RC 진입 안내를 Closure/태그 준비 판정으로 정리했다.
+- `docs/WORK_LOG.md`: 현재 요약을 갱신하고 본 완료 항목을 추가했다. LOG-001~019의 이력 본문은 보존한다.
+- evidence 원문, Runtime 소스·테스트·Policy/Approval/StateStore/Kernel, README/설계 문서, dependency/lockfile, branding/package/version은 변경하지 않았다.
+- 문제는 readiness의 오래된 미검증 상태와 최종 GPT 결과가 불일치한 것이었다. 실제 evidence를 출처로 연결하여 해소했으며 문서에 없는 성공 trace를 추가하지 않았다. 이번 테스트 실패나 코드 수정은 없다.
+
+### 이번에 실제 실행한 검증
+
+자동 환경: **Darwin arm64, Node v26.7.0**, 로컬 filesystem/Git/POSIX. 다음 명령을 각각 해당 package root에서 실행했다.
+
+```sh
+# packages/company-runtime — 전체 Runtime S0~S6 및 RC fixes targeted
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent — Runtime/RC suite와 기존 prompt
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+
+# packages/coding-agent — 추가 기존 Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# repo root
+npm run check
+git diff --check
+git status --short --branch
+git rev-parse HEAD
+git tag --list 'weavra-v0.1-rc1'
+git ls-remote --tags origin 'refs/tags/weavra-v0.1-rc1' 'refs/tags/weavra-v0.1-rc1^{}'
+```
+
+| 이번 실행 | 파일 수 | 테스트 수 | 실제 결과 |
+|---|---:|---:|---|
+| Runtime S0~S6/RC | 17 | 497 | PASS |
+| coding-agent Runtime + prompt | 9 | 353 | PASS |
+| 추가 Pi runtime/model-extension/retry-events/queue | 4 | 59 | PASS |
+| **합계** | **30** | **909** | **PASS, 실패/skip 0** |
+| root `npm run check` | — | — | PASS, Biome 자동 수정 없음; TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함 |
+| `git diff --check` | — | — | PASS |
+| 로컬/원격 exact RC tag 조회 | — | — | 기존 `weavra-v0.1-rc1` 없음 |
+
+숫자가 LOG-018의 909개와 같지만 **이번 Closure에서 다시 실행한 결과**다. 이전 결과나 수동 RC 8개를 합산하지 않는다. 실제 GPT·DeepSeek API/유료 호출·TUI interactive smoke는 이번에 새로 실행하지 않았다.
+
+문서 갱신 뒤 root `npm run check`도 다시 실행해 자동 수정 없이 PASS했다. 임시 `python3 /tmp/weavra-rc-closure-doc-check.py` 검사로 HEAD/문서 전용 변경 범위, RC-01~08 판정·30/909 합계, 상대 링크·코드 fence, LOG-001~019 본문 보존, GPT evidence 원문 무변경을 확인했다(PASS). 검사 script는 실행 후 제거했으며 프로젝트 파일로 추가하지 않았다.
+
+### 최종 Closure·태그 준비와 다음 작업
+
+**`weavra-v0.1-rc1` 소스 RC 태그 후보로 적합하다.** 사용자 지정 GPT RC 범위와 현재 코드의 targeted/check 검증이 모두 통과했다. 이는 다른 Provider/OS, 패키징/전체 suite/보안 검증까지 완료됐다는 뜻이 아니다. Pi 정식 lockstep release/배포 절차와 별개이며 패키지 발행·새 버전/기능은 추가하지 않는다.
+
+- **최종 HEAD:** `dc6d3df65ad4d9217f2f82e81cd56f07511163b6`.
+- **다음 작업:** 사용자 승인 후 이번 Closure 문서 두 개를 커밋하고 최종 커밋 SHA·문서 전용 diff·작업 트리를 확인한 뒤 RC 태그를 생성/푸시할 수 있다. 그 사이 코드가 바뀌면 관련 검증을 다시 수행한다. 태그 설명에도 위 evidence 한계와 NOT VERIFIED 범위를 공개한다.
+- **커밋·푸시·태그:** 이번 작업에서는 모두 하지 않음. 기능/Policy 불변이며 문서 두 개만 미커밋으로 남긴다.
 
 ---
 
