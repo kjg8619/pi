@@ -15,14 +15,25 @@ npm install --ignore-scripts
 npm run build
 npm link --workspace packages/company-runtime --ignore-scripts
 cd /absolute/path/to/my-project
+# 현재 workspace에서 실행
 weavra
+# 격리된 Git worktree 생성 후 실행
+weavra --worktree fix-login
 weavra --help     # fork-local Pi 도움말
 weavra --version  # fork-local Pi 버전; Weavra 버전은 /workflow help
 ```
 
-Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/coding-agent/dist/bundle/cli.js`와 Extension 절대경로를 구하고 `exec <local-cli> -e <extension> <args>`로 실행한다. cwd·환경·인수·stdio·종료 코드/시그널을 유지한다. PATH의 `pi`를 조회하거나 fallback으로 실행하지 않는다. local build가 없거나 실행 불가하면 checkout의 install/build 명령을 안내하고 실패한다. checkout/Pi 소스·의존성 갱신 후에는 재빌드해야 하며 자동 freshness 검사·자동 build는 없다.
+Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/coding-agent/dist/bundle/cli.js`와 Extension 절대경로를 구하고 `exec <local-cli> -e <extension> <args>`로 실행한다. 기본 실행은 cwd·환경·인수·stdio·종료 코드/시그널을 유지한다. PATH의 `pi`를 조회하거나 fallback으로 실행하지 않는다. local build가 없거나 실행 불가하면 checkout의 install/build 명령을 안내하고 실패한다. checkout/Pi 소스·의존성 갱신 후에는 재빌드해야 하며 자동 freshness 검사·자동 build는 없다.
 
 `pi`는 사용자가 기존에 설치한 executable/symlink 그대로이고 `weavra`만 fork-local CLI를 사용하므로 서로 다른 Pi 버전과 공존할 수 있다. 위 workspace 한정 link는 `weavra`만 제공하며 **coding-agent 패키지 자체를 global link하지 않는다.** Pi Core/bin·Status Projection·Runtime 의미는 바꾸지 않는다. Windows는 지원하지 않는다.
+
+`--worktree <name>`은 launcher 전용 옵션이다. clean Git source의 frozen HEAD에서 `weavra/<name>` branch와 `<repo-parent>/.weavra-worktrees/<repo-name>/<name>`을 새로 만들고 그 루트를 cwd로 사용한다. 이름은 `[A-Za-z0-9._-]+` 및 Git branch validity를 만족해야 하며, 기존 branch/경로는 거부한다. source HEAD/branch/status를 전후로 재검증하고 생성된 worktree의 HEAD/branch/clean 상태도 확인한다. local Pi build 누락·Git 오류·검증 실패 시 Pi를 시작하지 않고 global fallback도 하지 않는다.
+
+`--worktree <name>`만 소비하며 나머지 argv(`--` 이후 포함)는 재해석 없이 전달한다. fork-local CLI/Extension은 계속 Weavra 소스 checkout의 절대경로이고, `.ai` state만 프로젝트 worktree 기준이다. 생성 안내는 stderr로 출력한 뒤 기존 exec/stdio/exit/signal 계약을 유지한다. uncommitted/ignored 파일·의존성은 복사하지 않으므로 필요한 config/check는 source에 직접 commit해야 한다. Launcher Git 호출에서는 optional index writes와 checkout/fsmonitor hooks를 끄고 repository 환경 override·worktree 부모 symlink는 거부한다.
+
+**--worktree does not merge, commit, stash, reset, or remove anything automatically.**
+
+성공·BLOCKED·CANCELLED·Pi 실패·시그널 종료에도 branch/worktree는 보존한다. 생성 오류 시 예약된 디렉터리·부분 생성 결과도 자동 정리하지 않는다. 사용자 검토·수동 후처리가 필요하며 merge/PR/충돌 해결·강제 재사용은 V1 범위 밖이다. Git object/ref는 source와 공유한다. 외부 경합·trusted Git filter/프로그램은 sandbox하지 않는다. Kernel/Workflow/Risk/Policy/Approval/Reviewer/Verification/StateStore/RuntimeEvent/Status Projection과 worker 도구는 변경하지 않는다. 상세 사용법과 경계는 [worktree 안내](../../README.md#isolated-git-worktree)를 따른다.
 
 설정/인증/session 디렉터리는 아직 공유한다. 기본 `~/.pi` 및 `PI_CODING_AGENT_DIR` 등 환경변수를 그대로 전달하며 Weavra 전용 디렉터리 분리는 별도 설계 항목이다.
 

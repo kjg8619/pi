@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { type Context, fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -222,6 +231,58 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 		expect(JSON.stringify(stored)).not.toContain("DEVELOPER_PRIVATE_REASONING");
 		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
 	});
+	it.each(["COMPLETED", "BLOCKED", "CANCELLED"] as const)(
+		"runs the unchanged faux SDK workflow in a launcher-created worktree and preserves it after %s",
+		async (outcome) => {
+			const source = cwd;
+			const sourceHead = git("rev-parse", "HEAD");
+			const sourceBranch = git("symbolic-ref", "HEAD");
+			const sourceIndex = readFileSync(join(source, ".git/index"));
+			const checkout = join(harness.tempDir, "launcher checkout");
+			const launcher = join(checkout, "packages/company-runtime/bin/weavra");
+			const cli = join(checkout, "packages/coding-agent/dist/bundle/cli.js");
+			for (const directory of [
+				"packages/company-runtime/bin",
+				"packages/company-runtime/src",
+				"packages/coding-agent/dist/bundle",
+			])
+				mkdirSync(join(checkout, directory), { recursive: true });
+			copyFileSync(new URL("../../../company-runtime/bin/weavra", import.meta.url), launcher);
+			chmodSync(launcher, 0o755);
+			writeFileSync(join(checkout, "packages/company-runtime/src/extension.ts"), "// CLI path fixture\n");
+			// Only the CLI process is a fixture. Below, actual SDK/faux workers, Git checks,
+			// Policy and StateStore run at the cwd selected by the production launcher.
+			writeFileSync(cli, `#!${process.execPath}\nconsole.log(process.cwd());\n`, { mode: 0o755 });
+			cwd = execFileSync(launcher, ["--worktree", "lifecycle"], {
+				cwd: source,
+				env: { PATH: process.env.PATH, HOME: agentDir, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" },
+				encoding: "utf8",
+				stdio: "pipe",
+			}).trim();
+			expect(cwd).toBe(join(realpathSync(harness.tempDir), ".weavra-worktrees/project/lifecycle"));
+			expect(git("status", "--porcelain")).toBe("");
+			harness.setResponses([edit(), handoff, review(outcome === "BLOCKED" ? "BLOCK" : "PASS")]);
+			if (outcome === "CANCELLED")
+				onEvent = (event) => {
+					if (event.type === "StepStarted" && event.step.stepId === "review") workflow.cancel();
+				};
+			const report = await create().execute();
+			expect(report.run?.status, report.error).toBe(outcome);
+			expect(readFileSync(join(cwd, "src/app.js"), "utf8")).toBe("fixed\n");
+			const stored = JSON.parse(readFileSync(join(cwd, ".ai/state.json"), "utf8")) as { runs: Run[] };
+			expect(stored.runs[0].status).toBe(outcome);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+			expect(git("symbolic-ref", "HEAD").trim()).toBe("refs/heads/weavra/lifecycle");
+			expect(git("rev-parse", "HEAD")).toBe(sourceHead);
+			expect(git("-C", source, "worktree", "list", "--porcelain")).toContain(`worktree ${cwd}\n`);
+			expect(git("-C", source, "rev-parse", "HEAD")).toBe(sourceHead);
+			expect(git("-C", source, "symbolic-ref", "HEAD")).toBe(sourceBranch);
+			expect(readFileSync(join(source, ".git/index"))).toEqual(sourceIndex);
+			expect(git("-C", source, "status", "--porcelain")).toBe("");
+			expect(readFileSync(join(source, "src/app.js"), "utf8")).toBe("original\n");
+			expect(existsSync(join(source, ".ai/state.json"))).toBe(false);
+		},
+	);
 	it("REVISE repeats Developer/SELF_CHECK/independent review once, then tests the current revision", async () => {
 		harness.setResponses([
 			edit(),
