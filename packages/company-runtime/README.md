@@ -35,6 +35,24 @@ Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/co
 
 성공·BLOCKED·CANCELLED·Pi 실패·시그널 종료에도 branch/worktree는 보존한다. 생성 오류 시 예약된 디렉터리·부분 생성 결과도 자동 정리하지 않는다. 사용자 검토·수동 후처리가 필요하며 merge/PR/충돌 해결·강제 재사용은 V1 범위 밖이다. Git object/ref는 source와 공유한다. 외부 경합·trusted Git filter/프로그램은 sandbox하지 않는다. Kernel/Workflow/Risk/Policy/Approval/Reviewer/Verification/StateStore/RuntimeEvent/Status Projection과 worker 도구는 변경하지 않는다. 상세 사용법과 경계는 [worktree 안내](../../README.md#isolated-git-worktree)를 따른다.
 
+### 기존 worktree 재접속·조회
+
+```sh
+weavra --worktree-open fix-login
+weavra --worktree-open fix-login --continue
+weavra --worktree-open fix-login --resume
+weavra --worktree-open fix-login --session <path-or-id>
+weavra --worktree-list
+```
+
+- `--worktree` = create only, `--worktree-open` = open existing only, `--worktree-list` = read-only discovery다. 옵션은 서로 배타적이며 기존 create의 충돌 실패 의미는 유지한다.
+- `src/launcher-worktrees.ts`는 **launcher 전용 Node CLI**이며 Runtime/Extension에서 import하지 않는다. Node의 native TypeScript 지원으로 직접 실행하고 외부 dependency나 별도 build는 없다. `git worktree list --porcelain -z`만 등록 원본으로 사용하고 별도 registry/state를 만들지 않는다.
+- open은 생성과 같은 name validity 및 정확한 `refs/heads/weavra/<name>` 등록 1개, 실제 root·동일 common repository·branch/HEAD·linked metadata backlink/index를 검사하고 등록을 재확인한다. 기본 생성 경로를 추정하지 않아 사용자가 정상 이동한 worktree도 현재 등록 위치에서 열린다. 다른 repository/branch, 중복 등록, missing/broken/prunable이면 실패하며 자동 repair/prune/recreate/move/delete하지 않는다.
+- source와 대상의 dirty 상태는 open 거부 조건이 아니다. launcher는 파일·index·`.ai`를 변경하지 않는다. Git inspection은 optional locks와 hooks/fsmonitor를 비활성화하고 repository override 환경변수를 거부한다. 외부 프로세스 경합에 대한 OS sandbox나 잠금은 아니다.
+- `--worktree-open <name>`만 소비하고 Pi `--continue`/`-c`, `--resume`/`-r`, `--session <path|id>` 및 다른 argv를 그대로 전달한다. 같은 canonical cwd의 기존 Pi SessionManager를 사용한다. session 복제/이관/registry·Runtime resume는 추가하지 않는다. open 성공은 기존 `/workflow run`의 clean baseline·Policy·Approval 조건 완화를 뜻하지 않는다.
+- list는 해당 Git repository의 `refs/heads/weavra/*`만 NAME/BRANCH/PATH/STATUS로 출력하고 Pi/Extension/`.ai`/session을 로드하지 않는다. 따라서 local Pi build는 없어도 되지만 Node/Git/helper는 필요하다. 추가 Pi 인수는 거부한다. `OK`는 metadata 정상이지 clean이나 Runtime COMPLETE가 아니다. `LOCKED`는 정상 등록이면 open 가능하고, `PRUNABLE`/`MISSING/BROKEN`/`BROKEN`/`AMBIGUOUS`는 점검 대상으로 표시할 뿐 수정하지 않는다.
+- tab/newline/control 문자는 목록에서 escape한다. 줄바꿈 경로·최종 디렉터리 symlink는 open에서 거부한다. 성공 안내는 stderr, 이후 fork-local Pi는 기존 exec/stdio/exit/signal 계약 그대로다. global Pi fallback은 없다.
+
 설정/인증/session 디렉터리는 아직 공유한다. 기본 `~/.pi` 및 `PI_CODING_AGENT_DIR` 등 환경변수를 그대로 전달하며 Weavra 전용 디렉터리 분리는 별도 설계 항목이다.
 
 같은 local CLI에 명시적으로 로드할 수도 있다(아래는 저장소 루트 기준).

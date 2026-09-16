@@ -34,11 +34,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Weavra Branding + Launcher UX | 완료 / 커밋·푸시 | `632ad3bcd`로 게시. 당시 31개 파일·931개 및 root check PASS; RC 태그 불변 |
 | Weavra Status Projection | 완료 / 커밋·푸시 | `2205dec84`로 게시. 당시 공식 setStatus·stale/실패 격리, 33개 파일·975개 및 실제 TUI smoke PASS |
 | Fork-local Weavra Launcher | 완료 / 기존 커밋 확인 | `14c3f6992`에 반영. global Pi 의존 제거, 같은 checkout의 built CLI 고정. LOG-025 자동 33개 파일·982개 PASS. 사용자 정상 실행 보고는 LOG-026 참조 |
-| Weavra Worktree Launcher V1 | 완료 / 게시 승인·검증 완료(LOG-029) | `--worktree <name>`의 frozen HEAD·외부 경로 생성·cwd 전환·충돌/dirty 거부·자동 정리 없음. LOG-028 자동 34개 파일·1,040개 PASS |
+| Weavra Worktree Launcher V1 | 완료 / 커밋·푸시 | `965240041`에 반영. create-only·frozen HEAD·외부 경로·충돌/dirty 거부·자동 정리 없음. LOG-028 당시 34개 파일·1,040개 PASS |
+| Weavra Worktree Open/List | 완료 / 게시 승인·검증 완료(LOG-031) | Git porcelain 등록 기반 open-only/read-only list, dirty 허용·common repository/metadata 검증·Pi session argv 전달. LOG-030 자동 34개 파일·1,098개 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 현재 시작 HEAD `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **Weavra Worktree Launcher V1**이다. clean source의 frozen HEAD에서 외부 worktree/branch를 명시적으로 생성하고 같은 fork-local Pi/Extension을 새 cwd에서 실행한다. Kernel/Workflow/Policy/Approval/StateStore/RuntimeEvent/Status Projection·worker 도구와 prompt는 변경하지 않았다. 이번 자동 targeted는 **34개 파일·1,040개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-028). 실제 bundled CLI/TUI smoke·build·유료 GPT RC는 이번에 재실행하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **Weavra Worktree Open/List**다. 기존 `--worktree` create-only는 유지하고, Git 등록을 검증한 기존 worktree를 dirty 상태로 열거나 읽기 전용 목록을 조회한다. 별도 registry·session resume 구현 없이 기존 Pi 인수와 cwd 계약을 사용한다. Kernel/Workflow/Policy/Approval/StateStore/RuntimeEvent/Status Projection·worker 도구와 prompt는 변경하지 않았다. 이번 자동 targeted는 **34개 파일·1,098개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-030). 실제 checkout의 list 조회도 확인했다. 실제 bundled CLI/TUI/session picker smoke·build·유료 GPT RC는 이번에 재실행하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -1596,6 +1597,80 @@ git rev-parse HEAD weavra-v0.1-rc1 'weavra-v0.1-rc1^{}'
 - **문제·해결:** 추가 문제 없음. Runtime/Status/Policy 의미 및 global Pi 설치를 그대로 유지하고 명시적 6개 경로만 stage한다. dependency/lockfile 변경은 없다.
 - **남은 제한·다음 작업:** 기존 플랫폼/실제 bundled CLI·TUI 미검증 및 worktree의 비-sandbox 한계를 유지한다. 일반 commit/push 후 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): launch Weavra in isolated Git worktrees`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. 안정 태그 `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-030 — Weavra Worktree Open/List: 기존 등록 재접속과 읽기 전용 조회
+
+- **기록일:** 2026-09-16 19:36 (KST)
+- **상태:** 구현·자동 회귀 완료 / 미커밋
+- **목적:** create-only V1을 유지하면서 종료 후 기존 worktree를 다시 열고 Pi의 기존 session 옵션을 전달한다. 별도 registry 없이 Git 등록만 조회한다.
+- **시작 상태:** `devlop` clean, HEAD `965240041e697028fa4e60c7192be70ff494d2aa`. LOG-029 뒤 worktree V1은 해당 커밋으로 게시됐다. RC tag object `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c`와 peeled commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 시작·최종 조회에서 동일했다.
+
+### 문제·구체적 동작·해결
+
+기존 `weavra --worktree test-1`은 생성하고 종료하면 worktree/branch를 남기지만, 다시 같은 명령을 실행하면 create-only 충돌로 실패한다. 사용자가 경로를 직접 찾아 `cd`해야 했던 재접속을 `--worktree-open test-1`로 분리했다. `--worktree-list`로 현재 common repository의 `weavra/*` 등록을 찾는다. 기존 생성 명령을 재사용 모드로 바꾸지 않는다.
+
+### 변경 파일과 설계
+
+- `packages/company-runtime/bin/weavra`: `--worktree`/`--worktree-open`/`--worktree-list`를 상호 배타적으로 파싱한다. `--` 이후와 나머지 Pi argv는 재해석 없이 보존한다. create의 실제 Git 생성·clean source·충돌/전후 검증 본문은 그대로다.
+- open은 기존 local CLI/Extension 사전 검사 후 launcher helper에서 검증한 canonical cwd로 이동하여 같은 fork-local Pi를 `exec`한다. 별도 Pi proxy/signal handler/global fallback은 없다. `--continue`/`-c`, `--resume`/`-r`, `--session <path|id>`는 launcher가 해석하지 않는다.
+- list는 Pi/Extension을 실행하지 않는 조회이므로 build/Extension 검사 전에 분기한다. 추가 Pi 인수는 거부하며 Node/Git/helper만 필요하다. 이 예외는 create/open의 local build 요구를 바꾸지 않는다.
+- 신규 `packages/company-runtime/src/launcher-worktrees.ts`: Node native TypeScript로 실행하는 launcher 전용 CLI. Runtime/Extension에서는 import하지 않는다. `spawnSync`의 argv로 `git worktree list --porcelain -z`를 읽고 NUL 구분을 파싱한다. 별도 registry/state/cache 파일과 `.ai`·Pi session 읽기/복제는 없다.
+- open은 생성과 같은 보수적 이름 및 Git branch validity, 정확한 `refs/heads/weavra/<name>` 등록 1개, 실제 root·같은 canonical common repository·일치하는 branch/HEAD, linked metadata의 gitdir 역참조와 index를 검증한다. 등록 목록과 metadata를 다시 확인하여 검사 중 변경을 거부한다. 사용자가 정상 이동한 worktree는 현재 등록 경로를 사용하며 기본 생성 경로를 추정하지 않는다.
+- branch만 있는 경우, 중복/위장 등록, wrong branch/repository, missing/broken/prunable, 최종 경로 symlink/줄바꿈은 open 실패다. 자동 생성/prune/repair/recreate/move/delete/branch 삭제는 없다. 정상 locked 등록은 open 가능하다.
+- open에서는 source/target dirty 여부를 검사하지 않는다. staged/unstaged/untracked와 `.ai` 변경은 그대로 보존한다. Git 조회는 optional locks와 hooks/fsmonitor를 끄고 repository override 환경변수를 거부한다. index 검사에는 읽기 전용 `ls-files --stage -z`를 사용한다.
+- list는 `refs/heads/weavra/*`만 NAME/BRANCH/PATH/STATUS로 표시한다. 상태는 `OK`, `LOCKED`, `PRUNABLE`, `MISSING/BROKEN`, `BROKEN`, `AMBIGUOUS`이며 파일 수정이나 clean/Runtime 성공 판정이 아니다. 경로 제어 문자는 escape한다. Git 목록 자체가 실패/손상되면 성공 목록을 출력하지 않는다.
+- `packages/company-runtime/test/worktree.test.ts`: 기존 55개를 유지하고 open/list **58개 추가**, 공통 fixture에 새 helper 복사 및 읽기 전용 argv audit/파일 snapshot을 연결했다. 제품 코드의 생성/정리 권한을 테스트에 맞춰 완화하지 않았다.
+- `README.md`, `packages/company-runtime/README.md`: create/open/list 구분, Pi session 인수, dirty 허용과 Runtime baseline 조건의 차이, 목록 상태/build 예외, 이동/손상/동시 변경 및 수동 점검 한계를 설명한다.
+- `docs/WORK_LOG.md`: 현재 요약 및 본 항목. 총 **6개 파일** 변경이다. Pi Core/bin/SessionManager/SDK와 Runtime·Policy·Approval·Workflow·Status Projection 구현, 기존 coding-agent 테스트, dependency/lockfile/package metadata는 변경하지 않았다.
+
+### 이번 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime — launcher/worktree, Status, S0~S6/RC
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent — 기존 faux Runtime/RC/Status·Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+bash -n packages/company-runtime/bin/weavra
+git diff --check
+packages/company-runtime/bin/weavra --worktree-list
+git rev-parse HEAD weavra-v0.1-rc1 'weavra-v0.1-rc1^{}'
+```
+
+- 환경: Darwin arm64, Node `v26.7.0`, Git `2.50.1 (Apple Git-155)`. 최종 **Runtime 20개 파일·658개 + coding-agent 14개 파일·440개 = 34개 파일·1,098개 PASS**, 실패/skip 0. LOG-028의 1,040개는 과거 결과이며 이번에 모두 다시 실행했다.
+- 초기 launcher/worktree **2개 파일·126개 PASS** 후 추가 7개를 보완했다. 최종에는 기존 launcher 20개 + worktree 113개(기존 55 + 신규 58)가 포함된다. 이번 작업에서 테스트 실패는 없었다.
+- create 종료 후 open, Pi cwd/전체 argv/env/stdio/exit23/SIGTERM, dirty source+target의 staged/unstaged/untracked/`.ai` 및 파일·Git index/ref bytes 불변, worktree의 후속 commit 유지, 수동 이동/다른 linked source discovery를 검증했다.
+- 잘못된 이름·옵션 충돌·branch-only·wrong branch/default path, 누락/손상 `.git`/index/symlink, prunable, 중복/변경/위장 목록, 동일 path/branch의 다른 repository 및 같은 common repository의 잘못된 backlink를 거부했다. list는 dirty 상태/build·Extension 부재에서도 동작하고 prefix 필터·locked/prunable·empty 목록·Git 실패·경로 제어문자 escaping·읽기 전용 argv를 확인했다. 모든 경우 global Pi trap은 호출되지 않았다.
+- `npm run check`: PASS(TypeScript/deps/entry graphs/shrinkwrap/install-lock/browser smoke 포함). Biome은 이번 helper와 worktree 테스트만 포맷했고 이후 전체 targeted를 실행했다. `bash -n`, `git diff --check`: PASS.
+- 최종 문서 기록 후 root `npm run check`를 재실행해 자동 수정 없이 PASS했다. `bash -n`·`git diff --check` 및 임시 Python 검사도 PASS했다. 정확한 6개 변경 파일, staged 변경 없음, 기존 create 실행 본문과 LOG-001~029 본문 보존, 문서 fence/공백, HEAD/RC 태그 불변, 실제 프로젝트 `.ai` 부재를 확인했다. 검사 script는 제거했다.
+- 실제 작업 checkout에서 `packages/company-runtime/bin/weavra --worktree-list`: exit 0, NAME/BRANCH/PATH/STATUS 헤더만 출력. 현재 repository에는 대상 등록이 없으며 dirty checkout도 조회를 막지 않았다. Pi/Provider/Runtime 명령은 시작하지 않았다. RC 태그와 HEAD 불변을 재확인했다.
+
+### 남은 한계·다음 작업·커밋
+
+- Pi session 선택 UI 자체는 이번 테스트에서 실행하지 않았다. launcher가 정확한 cwd/인수를 넘기는 process fixture와 기존 coding-agent 회귀를 검증했다. session 존재/선택/오류 처리는 기존 Pi가 소유한다. 사용자가 worktree를 이동했다면 이전 cwd의 Pi session을 자동 이관하지 않는다.
+- open의 dirty 허용은 launcher 접근 조건이다. 새 `/workflow run`의 clean baseline·Policy·Approval·writer lock 조건을 완화하거나 기존 workflow를 자동 재개하지 않는다. `.ai`는 registry가 아니며 자동 commit/merge/stash/reset/clean/rollback/삭제는 없다.
+- common Git object/ref는 계속 공유한다. Git 검사/exec 사이 외부 교체를 원자적으로 막는 잠금이나 OS sandbox는 아니다. 검사 중 변경을 감지하면 수동 재시도를 요구한다. UTF-8 Git 출력·Git 명령당 10초/8 MiB 한도를 사용하며 한도 초과도 open 성공으로 처리하지 않는다. 다른 OS/Node·구버전 Git은 미검증이다.
+- 실제 bundled Pi/TUI·session picker smoke, build, 전체 upstream suite/e2e, 유료 GPT RC-01~08/DeepSeek는 재실행하지 않았다. Runtime semantics 불변이므로 새 실제 Provider 검증을 주장하지 않는다.
+- **다음 작업:** 사용자 프로젝트에서 `--worktree-list`와 `--worktree-open <name> --continue/--resume`를 사용해 기존 Pi session을 선택한다. 추가 자동 복구/관리 기능은 별도 승인 범위다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음. `weavra-v0.1-rc1`을 그대로 유지한다.
+
+---
+
+## LOG-031 — Weavra Worktree Open/List 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 08:57 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-030의 Open/List 변경을 커밋하고 `origin/devlop`에 게시하기 위한 검증을 완료했다.
+- **변경 파일:** `README.md`, `docs/WORK_LOG.md`, `packages/company-runtime/README.md`, `packages/company-runtime/bin/weavra`, `packages/company-runtime/src/launcher-worktrees.ts`, `packages/company-runtime/test/worktree.test.ts` 총 6개. 이번 준비에서는 현재 요약과 이 항목만 갱신했다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 없음. `bash -n packages/company-runtime/bin/weavra`, `git diff --check` PASS. `git status --short --branch`, diff 목록, 기존 staged 변경 없음과 RC tag object/peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 34개 파일·1,098개 PASS와 실제 checkout의 list 조회는 LOG-030 구현 검증 당시 결과다. 이번 커밋 준비에서는 테스트/build/실제 Provider/TUI를 재실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 6개 경로만 stage하고 일반 commit/push를 사용한다. create-only 의미, Runtime/Policy/Approval/Workflow/Status Projection, global Pi 설치 및 dependency/lockfile은 그대로다.
+- **남은 제한·다음 작업:** 기존 실제 session picker/TUI·플랫폼 미검증과 비-sandbox 한계를 유지한다. 게시 후 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): reopen and list existing Weavra worktrees`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. 안정 태그 `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

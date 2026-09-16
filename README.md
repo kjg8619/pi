@@ -44,7 +44,7 @@ weavra <args>    → exec <checkout>/packages/coding-agent/dist/bundle/cli.js
 
 기본 `weavra`는 cwd·환경·인수·stdio·exit code·signal을 유지한다. `weavra --help`는 **fork-local Pi 도움말**, `weavra --version`은 **fork-local Pi 버전**을 그대로 출력한다. Weavra 버전/기능 도움말은 시작 알림과 `/workflow help`에서 확인한다. `weavra --model ...`은 부모 Pi 모델을 선택하며 worker profile은 `.ai/config.yaml`이 결정한다. `--no-extensions`는 자동 탐색을 끄지만 명시적 `-e`의 Weavra는 로드된다.
 
-local CLI build가 없거나 실행할 수 없으면 checkout 경로와 `npm install --ignore-scripts && npm run build` 안내를 출력하고 즉시 실패한다. `--help`/`--version`도 예외가 아니며 global Pi로 대체하지 않는다. Extension이 없으면 checkout/link 복구 안내를 표시한다.
+Pi를 실행하는 명령은 local CLI build가 없거나 실행할 수 없으면 checkout 경로와 `npm install --ignore-scripts && npm run build` 안내를 출력하고 즉시 실패한다. `--help`/`--version`도 예외가 아니며 global Pi로 대체하지 않는다. Extension이 없으면 checkout/link 복구 안내를 표시한다.
 
 CLI와 Extension은 같은 checkout에서 관리한다. **checkout/Pi 소스·의존성 갱신 후에는 다시 build해야 한다.** launcher는 자동 build/update나 build freshness 검사를 하지 않는다. 기존 모델 데이터가 준비되어 있으면 `npm run build:offline`을 사용할 수 있다. 데이터가 없는 경우 `npm run hydrate:model-data`로 공개 모델 카탈로그를 준비할 수 있으며 추론 요청은 보내지 않는다.
 
@@ -73,7 +73,7 @@ weavra --worktree fix-login --model provider/model
 
 이름은 필수이며 `[A-Za-z0-9._-]+`와 Git branch validity를 모두 만족해야 한다. 기존 branch 또는 target 경로(빈 디렉터리·파일·symlink 포함)가 있으면 재사용하지 않고 실패한다. 줄바꿈이 포함된 repository 경로와 source 안으로 들어가는 target은 거부한다. `--` 뒤 인수는 Pi에 그대로 전달하며 launcher 옵션으로 해석하지 않는다.
 
-**Source는 clean이어야 한다.** staged/tracked/untracked 변경, Git/HEAD/status 검사 실패는 생성 거부다. ignored 파일이나 uncommitted 변경은 복사하지 않는다. `.ai/config.yaml`과 검증 script 등 worktree에서 필요한 파일은 먼저 직접 commit해야 한다. 생성 worktree가 프로젝트 cwd가 되므로 `.ai` state도 그곳에서 동작한다. 기존 설정·의존성·ignored 파일을 자동 준비하거나 trust를 승인하지 않는다.
+**생성 시 source는 clean이어야 한다.** staged/tracked/untracked 변경, Git/HEAD/status 검사 실패는 생성 거부다. ignored 파일이나 uncommitted 변경은 복사하지 않는다. `.ai/config.yaml`과 검증 script 등 worktree에서 필요한 파일은 먼저 직접 commit해야 한다. 생성 worktree가 프로젝트 cwd가 되므로 `.ai` state도 그곳에서 동작한다. 기존 설정·의존성·ignored 파일을 자동 준비하거나 trust를 승인하지 않는다.
 
 Weavra **소스 checkout**의 fork-local CLI/Extension 경로는 바뀌지 않는다. 사용자 **프로젝트 worktree**만 실행 cwd가 된다. global Pi fallback은 없으며 local build가 없으면 생성 전에 실패한다. 생성 안내는 Pi stdout/JSON을 오염시키지 않도록 stderr에 출력하고, 이후 Pi argv/env/stdio·종료 코드/시그널은 기존 exec 계약을 따른다.
 
@@ -82,6 +82,34 @@ Weavra **소스 checkout**의 fork-local CLI/Extension 경로는 바뀌지 않�
 성공·BLOCKED·CANCELLED·오류·시그널 종료 후에도 worktree와 branch를 남긴다. 생성 도중 실패하면 예약된 빈 디렉터리나 Git의 부분 생성 결과도 남을 수 있다. 자동 rollback·강제 재사용·충돌 해결·PR 생성은 없다. 결과 확인과 이후 처리는 사용자가 직접 한다.
 
 이 기능은 launcher convenience이며 Runtime/Policy/Approval/Status Projection의 의미나 worker 도구를 바꾸지 않는다. Worktree는 별도 파일 checkout이지 **OS sandbox나 독립 Git repository가 아니다**. Git object/ref 저장소는 공유한다. Launcher Git 명령은 optional index writes와 checkout/fsmonitor hooks를 끄고, worktree 부모 symlink 및 repository를 바꾸는 `GIT_DIR`/`GIT_WORK_TREE` 등의 환경 override는 거부한다. 외부 프로세스의 검사/생성 사이 경합이나 trusted Git filter·Pi/검증 프로그램 내부 부작용까지 격리하지 않는다.
+
+### 기존 worktree 다시 열기와 조회
+
+```sh
+# 최초 생성: 이미 존재하면 실패 (create only)
+weavra --worktree test-1
+
+# 종료 후 같은 repository에서 다시 열기 (open existing only)
+weavra --worktree-open test-1
+weavra --worktree-open test-1 --continue  # 마지막 Pi 대화 계속; -c도 가능
+weavra --worktree-open test-1 --resume    # Pi session picker; -r도 가능
+weavra --worktree-open test-1 --session <path-or-id>
+
+# 현재 repository의 Weavra branch에 연결된 worktree 조회 (read-only)
+weavra --worktree-list
+```
+
+- **`--worktree`는 계속 생성 전용이다.** 기존 branch/path를 재사용하지 않는다. create/open/list는 동시에 지정하거나 반복할 수 없다.
+- **`--worktree-open`은 기존 등록만 연다.** 생성과 같은 이름 검증 후 `git worktree list --porcelain -z`에서 정확한 `refs/heads/weavra/<name>`을 찾는다. 별도 registry 없이 정확히 하나의 등록, 실제 디렉터리, 동일 Git common repository, 일치하는 HEAD/branch, linked metadata의 역참조 경로와 index를 확인한다. Git common repository는 worktree들이 공유하는 Git 저장소다.
+- branch만 있거나 경로가 누락/손상/prunable이면 실패한다. 조회 중 등록이 바뀌어도 중단한다. 자동 create/prune/repair/recreate/move/delete는 없다. 사용자가 정상적으로 옮긴 worktree는 **현재 Git 등록 경로**를 사용한다. 이 기능은 경로를 이동시키지 않으며 이전 Pi 세션 경로를 이관하지도 않는다.
+- **Open에서는 source와 대상 worktree가 dirty여도 허용한다.** staged/unstaged/untracked 변경과 `.ai` 파일을 그대로 보존한다. 단, 이것이 새 `/workflow run`의 기존 clean baseline·Policy·Approval 조건을 완화하는 것은 아니다.
+- launcher는 `--worktree-open <name>`만 소비하고 `--continue`/`--resume`/`--session`을 포함한 Pi 인수를 그대로 전달한다. 같은 canonical worktree cwd에서 Pi의 기존 SessionManager가 대화를 선택한다. session registry 복제나 `.ai` 기반 worktree 검색은 없다. **Pi 대화 재개는 Weavra workflow 자동 재개가 아니다.** `/state`로 결과를 확인하고 새 workflow는 명시적으로 시작한다.
+
+`--worktree-list`는 `refs/heads/weavra/*`에 연결된 등록만 `NAME`, `BRANCH`, `PATH`, `STATUS`로 출력한다. `.ai`/session/config를 로드하거나 Pi를 시작하지 않으므로 **fork-local Pi build 없이도 조회 가능**하다. Node와 Git 및 checkout의 launcher helper는 필요하다. 목록 전용 명령이므로 추가 Pi 인수는 거부한다.
+
+`OK`는 조회 시점의 Git metadata가 정상이라는 뜻이며 clean 상태나 Runtime 성공을 뜻하지 않는다. `LOCKED`도 metadata가 정상인 등록이며 open 가능하다. `PRUNABLE`, `MISSING/BROKEN`, `BROKEN`, `AMBIGUOUS`는 사용자 점검 대상이다. 상태 표시 자체가 자동 수정을 수행하지 않는다. 외부에서 등록한 경로의 탭/줄바꿈/제어 문자는 escape해서 표시하며, 줄바꿈 경로나 최종 디렉터리 symlink는 open에서 거부한다.
+
+Open 성공 시 기존 fork-local CLI/Extension을 `exec`하므로 argv/env/stdio/exit/signal 계약과 global Pi 미사용은 그대로다. 안내는 stderr에 출력한다. 등록 검사는 OS sandbox나 Git lock이 아니므로 외부 프로세스의 검사/exec 사이 변경까지 완전히 방지하지는 않는다.
 
 ## Quick Start
 

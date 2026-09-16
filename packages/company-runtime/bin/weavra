@@ -9,34 +9,27 @@ while [[ -L "$SOURCE" ]]; do
   [[ "$SOURCE" = /* ]] || SOURCE="$DIRECTORY/$SOURCE"
 done
 DIRECTORY="$(CDPATH= cd -P -- "$(dirname "$SOURCE")" && pwd)"
-EXTENSION="$DIRECTORY/../src/extension.ts"
-if [[ ! -f "$EXTENSION" || ! -r "$EXTENSION" ]]; then
-  printf '%s\n' "Weavra: extension not found or unreadable at $EXTENSION. Keep the repository checkout intact and run npm link --workspace packages/company-runtime --ignore-scripts again." >&2
-  exit 1
-fi
-EXTENSION="$(CDPATH= cd -P -- "$DIRECTORY/../src" && pwd)/extension.ts"
-CHECKOUT="$(CDPATH= cd -P -- "$DIRECTORY/../../.." && pwd)"
-# Keep the CLI and Extension tied to the same checkout, never a PATH-selected Pi.
-PI="$CHECKOUT/packages/coding-agent/dist/bundle/cli.js"
-if [[ ! -f "$PI" || ! -r "$PI" || ! -x "$PI" ]]; then
-  printf 'Weavra: fork-local Pi build is missing or not executable: %s\nBuild from this checkout: cd %q && npm install --ignore-scripts && npm run build\nNo global Pi fallback.\n' "$PI" "$CHECKOUT" >&2
-  exit 1
-fi
-
 fail() {
   printf 'Weavra: %s\n' "$1" >&2
   exit 1
 }
 
 WORKTREE_NAME=""
+WORKTREE_MODE=""
 PI_ARGS=()
 while (( $# )); do
   case "$1" in
-    --worktree)
-      [[ -z "$WORKTREE_NAME" ]] || fail "--worktree may only be specified once."
-      (( $# >= 2 )) && [[ -n "$2" && "$2" != --* ]] || fail "--worktree requires a name: weavra --worktree fix-login"
+    --worktree|--worktree-open)
+      [[ -z "$WORKTREE_MODE" ]] || fail "choose only one of --worktree, --worktree-open, or --worktree-list."
+      (( $# >= 2 )) && [[ -n "$2" && "$2" != --* ]] || fail "$1 requires a name: weavra $1 fix-login"
+      WORKTREE_MODE="$1"
       WORKTREE_NAME="$2"
       shift 2
+      ;;
+    --worktree-list)
+      [[ -z "$WORKTREE_MODE" ]] || fail "choose only one of --worktree, --worktree-open, or --worktree-list."
+      WORKTREE_MODE="$1"
+      shift
       ;;
     --)
       PI_ARGS+=("$@")
@@ -51,7 +44,31 @@ done
 # The conditional expansion also supports empty arrays on macOS Bash 3.2 with nounset.
 set -- "${PI_ARGS[@]+"${PI_ARGS[@]}"}"
 
-if [[ -n "$WORKTREE_NAME" ]]; then
+# Discovery does not need a Pi build or load an Extension/session.
+if [[ "$WORKTREE_MODE" = --worktree-list ]]; then
+  (( $# == 0 )) || fail "--worktree-list does not accept Pi arguments."
+  exec node "$DIRECTORY/../src/launcher-worktrees.ts" list
+fi
+
+EXTENSION="$DIRECTORY/../src/extension.ts"
+if [[ ! -f "$EXTENSION" || ! -r "$EXTENSION" ]]; then
+  printf '%s\n' "Weavra: extension not found or unreadable at $EXTENSION. Keep the repository checkout intact and run npm link --workspace packages/company-runtime --ignore-scripts again." >&2
+  exit 1
+fi
+EXTENSION="$(CDPATH= cd -P -- "$DIRECTORY/../src" && pwd)/extension.ts"
+CHECKOUT="$(CDPATH= cd -P -- "$DIRECTORY/../../.." && pwd)"
+# Keep the CLI and Extension tied to the same checkout, never a PATH-selected Pi.
+PI="$CHECKOUT/packages/coding-agent/dist/bundle/cli.js"
+if [[ ! -f "$PI" || ! -r "$PI" || ! -x "$PI" ]]; then
+  printf 'Weavra: fork-local Pi build is missing or not executable: %s\nBuild from this checkout: cd %q && npm install --ignore-scripts && npm run build\nNo global Pi fallback.\n' "$PI" "$CHECKOUT" >&2
+  exit 1
+fi
+
+if [[ "$WORKTREE_MODE" = --worktree-open ]]; then
+  TARGET="$(node "$DIRECTORY/../src/launcher-worktrees.ts" open "$WORKTREE_NAME")" || exit 1
+  [[ -n "$TARGET" && "$TARGET" = /* && "$TARGET" != *$'\n'* && "$TARGET" != *$'\r'* ]] || fail "invalid worktree discovery result."
+  cd -- "$TARGET" || fail "cannot enter registered worktree; no repair was performed."
+elif [[ "$WORKTREE_MODE" = --worktree ]]; then
   [[ "$WORKTREE_NAME" != *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]* ]] || fail "invalid worktree name; use only A-Z, a-z, 0-9, dot, underscore, or hyphen."
   BRANCH="weavra/$WORKTREE_NAME"
 

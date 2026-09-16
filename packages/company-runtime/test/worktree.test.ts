@@ -5,7 +5,9 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
+	readlink,
 	realpath,
 	rename,
 	rm,
@@ -65,6 +67,40 @@ async function noCreation() {
 	expect(git(["for-each-ref", "--format=%(refname)", "refs/heads/weavra/"])).toBe("");
 }
 
+async function existingWorktree() {
+	const result = run();
+	expect(result.status, result.stderr).toBe(0);
+	await rm(join(root, "pi-started"));
+	await rm(join(root, "git-calls.jsonl"));
+}
+async function snapshot(paths: string[]) {
+	const files: Record<string, string> = {};
+	async function visit(path: string): Promise<void> {
+		const stat = await lstat(path);
+		files[path] = String(stat.mode);
+		if (stat.isSymbolicLink()) files[path] += await readlink(path);
+		else if (stat.isDirectory()) for (const entry of await readdir(path)) await visit(join(path, entry));
+		else files[path] += (await readFile(path)).toString("hex");
+	}
+	for (const path of paths) await visit(path);
+	return files;
+}
+async function readOnlyCalls() {
+	const calls = (await readFile(join(root, "git-calls.jsonl"), "utf8"))
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as string[]);
+	for (const args of calls) {
+		const command = args.filter(
+			(arg, i) => arg !== "-c" && arg !== "-C" && args[i - 1] !== "-c" && args[i - 1] !== "-C",
+		)[0];
+		expect(["check-ref-format", "rev-parse", "symbolic-ref", "ls-files", "worktree"]).toContain(command);
+		if (command === "worktree")
+			expect(args.slice(args.indexOf("worktree"))).toEqual(["worktree", "list", "--porcelain", "-z"]);
+		if (command === "symbolic-ref") expect(args.at(-1)).toBe("HEAD");
+	}
+}
+
 beforeEach(async () => {
 	root = await realpath(await mkdtemp(join(tmpdir(), "weavra worktree ")));
 	source = join(root, "user project");
@@ -88,6 +124,7 @@ beforeEach(async () => {
 	};
 	await symlink(process.execPath, join(bin, "node"));
 	await copyFile(join(packageRoot, "bin/weavra"), launcher);
+	await copyFile(join(packageRoot, "src/launcher-worktrees.ts"), join(dirname(extension), "launcher-worktrees.ts"));
 	await chmod(launcher, 0o755);
 	await writeFile(extension, "// Launcher path fixture; Runtime behavior uses the existing faux suites.\n");
 	// This executable checks the process boundary, not actual Pi/Provider behavior.
@@ -137,6 +174,17 @@ fs.appendFileSync(log, JSON.stringify(args) + '\\n');
 const command = args.filter((arg, i) => arg !== '-c' && arg !== '-C' && args[i - 1] !== '-c' && args[i - 1] !== '-C')[0];
 const added = calls.some(call => call.includes('worktree') && call.includes('add'));
 const fault = process.env.GIT_FAULT;
+if (command === 'worktree' && args.includes('list') && fault?.startsWith('list-')) {
+  if (fault === 'list-error') process.exit(128);
+  if (fault === 'list-malformed') { process.stdout.write('worktree broken\\0\\0'); process.exit(0); }
+  let output = spawnSync(${JSON.stringify(gitPath)}, args, {encoding: 'utf8'}).stdout;
+  const record = output.split('\\0\\0').find(block => block.includes('branch refs/heads/weavra/fix-login'));
+  if (fault === 'list-duplicate') output += record + '\\0\\0';
+  if (fault === 'list-foreign') output = output.split('\\0\\0')[0] + '\\0\\0worktree ' + process.env.FAKE_WORKTREE_PATH + '\\0HEAD ${head}\\0branch refs/heads/weavra/fix-login\\0\\0';
+  if (fault === 'list-wrong-branch') output = output.replace('branch refs/heads/other', 'branch refs/heads/weavra/fix-login');
+  if (fault === 'list-changed' && calls.filter(call => call.includes('list')).length > 0) output = output.replace('branch refs/heads/weavra/fix-login', 'branch refs/heads/weavra/different');
+  process.stdout.write(output); process.exit(0);
+}
 if ((fault === 'status' && command === 'status') ||
     (fault === 'root' && args.includes('--show-toplevel')) ||
     (fault === 'head' && args.includes('HEAD^{commit}')) ||
@@ -173,9 +221,20 @@ afterEach(async () => {
 			const command = args.filter(
 				(arg, i) => arg !== "-c" && arg !== "-C" && args[i - 1] !== "-c" && args[i - 1] !== "-C",
 			)[0];
-			expect(["check-ref-format", "rev-parse", "status", "show-ref", "worktree", "symbolic-ref"]).toContain(command);
-			if (command === "worktree")
-				expect(args.slice(args.indexOf("worktree") + 1, args.indexOf("worktree") + 3)).toEqual(["add", "-b"]);
+			expect([
+				"check-ref-format",
+				"rev-parse",
+				"status",
+				"show-ref",
+				"worktree",
+				"symbolic-ref",
+				"ls-files",
+			]).toContain(command);
+			if (command === "worktree") {
+				const operation = args.slice(args.indexOf("worktree") + 1);
+				if (operation[0] === "list") expect(operation).toEqual(["list", "--porcelain", "-z"]);
+				else expect(operation.slice(0, 2)).toEqual(["add", "-b"]);
+			}
 		}
 	} catch (error) {
 		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
@@ -441,6 +500,320 @@ describe("Weavra isolated worktree launcher (POSIX)", () => {
 			expect(git(["rev-parse", "weavra/fix-login"])).toBe(head);
 			expect(git(["worktree", "list", "--porcelain"])).toContain(`worktree ${target()}\n`);
 			expect(JSON.parse(await readFile(join(target(), ".ai/state.json"), "utf8"))).toEqual({ status: outcome });
+			await sourceUnchanged();
+		},
+	);
+});
+
+describe("Weavra existing worktree open and read-only discovery", () => {
+	it.each([
+		{ args: [] },
+		{ args: ["--continue"] },
+		{ args: ["-c"] },
+		{ args: ["--resume"] },
+		{ args: ["-r"] },
+		{ args: ["--session", "session id or /path with spaces.jsonl"] },
+		{ args: ["--model", "provider/model", "--", "", "$(touch marker); *", "--worktree-open", "literal"] },
+	])("opens after create/exit with exact Pi session argv: $args", async ({ args }) => {
+		await existingWorktree();
+		const before = await snapshot([source, target()]);
+		const result = run(["--worktree-open", "fix-login", ...args]);
+		expect(result.error).toBeUndefined();
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			cli,
+			cwd: target(),
+			args: ["-e", extension, ...args],
+			marker: env.WEAVRA_MARKER,
+			home: root,
+			agentDir: env.PI_CODING_AGENT_DIR,
+		});
+		expect(result.stderr).toContain("Weavra worktree opened");
+		expect(await snapshot([source, target()])).toEqual(before);
+		await readOnlyCalls();
+		await sourceUnchanged();
+	});
+	it("allows dirty source and worktree, preserves staged/unstaged/untracked data and .ai, and does not call status", async () => {
+		await existingWorktree();
+		for (const path of [source, target()]) {
+			await writeFile(join(path, "app.txt"), "staged work\n");
+			git(["add", "app.txt"], path);
+			await writeFile(join(path, "app.txt"), "unstaged work\n");
+			await writeFile(join(path, "untracked"), "keep\n");
+			await mkdir(join(path, ".ai"));
+			await writeFile(join(path, ".ai/state.json"), "user state, not a registry\n");
+		}
+		const before = await snapshot([source, target()]);
+		const result = run(["--worktree-open", "fix-login", "--continue"], { GIT_FAULT: "status" });
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).cwd).toBe(target());
+		expect(await snapshot([source, target()])).toEqual(before);
+		expect(git(["rev-parse", "HEAD"])).toBe(head);
+		expect(git(["symbolic-ref", "HEAD"])).toBe("refs/heads/main");
+		await readOnlyCalls();
+	});
+	it("opens the current committed worktree HEAD without reverting to the creation base", async () => {
+		await existingWorktree();
+		await writeFile(join(target(), "app.txt"), "committed work\n");
+		git(["add", "app.txt"], target());
+		git(["-c", "commit.gpgsign=false", "commit", "-m", "user work"], target());
+		const currentHead = git(["rev-parse", "HEAD"], target());
+		expect(currentHead).not.toBe(head);
+		const before = await snapshot([source, target()]);
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(0);
+		expect(await snapshot([source, target()])).toEqual(before);
+		await sourceUnchanged();
+	});
+	it("uses the registered location after a user move, not the default directory formula", async () => {
+		await existingWorktree();
+		const moved = join(root, 'moved worktree "quote"');
+		git(["worktree", "move", target(), moved]);
+		const result = run(["--worktree-open", "fix-login"]);
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).cwd).toBe(moved);
+		await absent(target());
+		await sourceUnchanged();
+	});
+	it("discovers from another linked worktree and a source subdirectory", async () => {
+		await existingWorktree();
+		const other = join(root, "other checkout");
+		git(["worktree", "add", "-b", "other", other, head]);
+		await mkdir(join(other, "subdir"));
+		cwd = join(other, "subdir");
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(0);
+		const listing = run(["--worktree-list"]);
+		expect(listing.status).toBe(0);
+		expect(listing.stdout).toContain(`fix-login\tweavra/fix-login\t${target()}\tOK`);
+		expect(listing.stdout).not.toContain("other checkout");
+		await sourceUnchanged();
+	});
+	it.each(["../escape", "a/b", "a b", "한글", ".", "..", "a..b", "a.lock", "trailing.", ".hidden"])(
+		"rejects invalid open name %s without creation",
+		async (name) => {
+			expect(run(["--worktree-open", name]).status).toBe(1);
+			await noCreation();
+			await absent(join(root, "pi-started"));
+		},
+	);
+	it.each([
+		{ args: ["--worktree-open"] },
+		{ args: ["--worktree-open", ""] },
+		{ args: ["--worktree-open", "--continue"] },
+		{ args: ["--worktree", "a", "--worktree-open", "b"] },
+		{ args: ["--worktree-open", "a", "--worktree", "b"] },
+		{ args: ["--worktree-open", "a", "--worktree-open", "a"] },
+		{ args: ["--worktree-list", "--worktree-open", "a"] },
+		{ args: ["--worktree-list", "--worktree-list"] },
+		{ args: ["--worktree-list", "--continue"] },
+	])("rejects missing/conflicting options: $args", async ({ args }) => {
+		expect(run(args).status).toBe(1);
+		await noCreation();
+		await absent(join(root, "pi-started"));
+	});
+	it.each(["absent", "branch only", "wrong branch at expected path"])(
+		"does not create/reuse a %s worktree",
+		async (kind) => {
+			if (kind === "branch only") git(["branch", "weavra/fix-login"]);
+			if (kind === "wrong branch at expected path") git(["worktree", "add", "-b", "other", target(), head]);
+			const before = await snapshot([source]);
+			const result = run(["--worktree-open", "fix-login"]);
+			expect(result.status).toBe(1);
+			expect(result.stderr).toContain("found 0");
+			expect(await snapshot([source])).toEqual(before);
+			await absent(join(root, "pi-started"));
+			await readOnlyCalls();
+		},
+	);
+	it.each(["missing", "gitfile missing", "gitfile broken", "corrupt index", "symlink"])(
+		"refuses broken registered worktree: %s",
+		async (kind) => {
+			await existingWorktree();
+			if (kind === "missing" || kind === "symlink") {
+				const saved = join(root, "saved worktree");
+				await rename(target(), saved);
+				if (kind === "symlink") await symlink(saved, target());
+			} else if (kind === "gitfile missing") await rm(join(target(), ".git"));
+			else if (kind === "gitfile broken") await writeFile(join(target(), ".git"), "invalid Git metadata\n");
+			else {
+				const gitDir = git(["rev-parse", "--absolute-git-dir"], target());
+				await writeFile(join(gitDir, "index"), "corrupt index\n");
+			}
+			const before = await snapshot([source]);
+			const result = run(["--worktree-open", "fix-login"]);
+			expect(result.status).toBe(1);
+			expect(result.stderr).toContain("No repair or cleanup was performed");
+			await absent(join(root, "pi-started"));
+			expect(await snapshot([source])).toEqual(before);
+			expect(git(["for-each-ref", "refs/heads/weavra/fix-login"])).not.toBe("");
+			await readOnlyCalls();
+		},
+	);
+	it.each(["list-error", "list-malformed", "list-duplicate", "list-wrong-branch", "list-changed"])(
+		"fails closed on failed/ambiguous/forged/changing Git list: %s",
+		async (fault) => {
+			await existingWorktree();
+			if (fault === "list-wrong-branch") {
+				git(["branch", "other"]);
+				git(["symbolic-ref", "HEAD", "refs/heads/other"], target());
+			}
+			const before = await snapshot([source, target()]);
+			const result = run(["--worktree-open", "fix-login"], { GIT_FAULT: fault });
+			expect(result.status, result.stderr).toBe(1);
+			expect(result.stderr).not.toContain("Weavra worktree opened");
+			await absent(join(root, "pi-started"));
+			expect(await snapshot([source, target()])).toEqual(before);
+			await readOnlyCalls();
+		},
+	);
+	it("does not mistake another repository at the same path and branch for the registered worktree", async () => {
+		await existingWorktree();
+		await rename(target(), join(root, "saved checkout"));
+		git(["clone", "--no-local", source, target()]);
+		git(["checkout", "-b", "weavra/fix-login"], target());
+		const result = run(["--worktree-open", "fix-login"]);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("different common repository");
+		await absent(join(root, "pi-started"));
+		await sourceUnchanged();
+	});
+	it("rejects a foreign repository even when its path is injected as a registered row", async () => {
+		const foreign = join(root, "foreign repository");
+		git(["clone", "--no-local", source, foreign]);
+		git(["checkout", "-b", "weavra/fix-login"], foreign);
+		const result = run(["--worktree-open", "fix-login"], { GIT_FAULT: "list-foreign", FAKE_WORKTREE_PATH: foreign });
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("different common repository");
+		await absent(join(root, "pi-started"));
+		await noCreation();
+		await sourceUnchanged();
+	});
+	it("rejects a forged registered path sharing the correct repository and branch but not the backlink", async () => {
+		await existingWorktree();
+		const impostor = join(root, "impostor");
+		await mkdir(impostor);
+		await copyFile(join(target(), ".git"), join(impostor, ".git"));
+		const result = run(["--worktree-open", "fix-login"], { GIT_FAULT: "list-foreign", FAKE_WORKTREE_PATH: impostor });
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("metadata backlink mismatch");
+		await absent(join(root, "pi-started"));
+		await sourceUnchanged();
+	});
+	it("does not confuse a copied .git pointer with the registration backlink", async () => {
+		await existingWorktree();
+		const other = join(root, "other checkout");
+		git(["worktree", "add", "-b", "other", other, head]);
+		await copyFile(join(other, ".git"), join(target(), ".git"));
+		git(["symbolic-ref", "HEAD", "refs/heads/weavra/fix-login"], other);
+		// Git now has two records with the same branch; the launcher must not select either.
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(1);
+		await absent(join(root, "pi-started"));
+		await sourceUnchanged();
+	});
+	it("lists only Weavra refs read-only, without Pi build/Extension, state or session access", async () => {
+		await existingWorktree();
+		git(["worktree", "add", "-b", "other", join(root, "not weavra"), head]);
+		await writeFile(join(target(), "app.txt"), "work in progress\n");
+		await writeFile(join(source, "untracked"), "source dirty\n");
+		await rm(cli);
+		await rm(extension);
+		const before = await snapshot([source, target()]);
+		const result = run(["--worktree-list"]);
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout).toBe(`NAME\tBRANCH\tPATH\tSTATUS\nfix-login\tweavra/fix-login\t${target()}\tOK\n`);
+		expect(result.stderr).toBe("");
+		await absent(join(root, "pi-started"));
+		expect(await snapshot([source, target()])).toEqual(before);
+		await readOnlyCalls();
+	});
+	it("lists missing/prunable entries without pruning and normal locked entries remain openable", async () => {
+		await existingWorktree();
+		git(["worktree", "lock", target()]);
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(0);
+		expect(run(["--worktree-list"]).stdout).toContain("\tLOCKED\n");
+		git(["worktree", "unlock", target()]);
+		await rename(target(), join(root, "saved checkout"));
+		const before = await snapshot([source]);
+		const result = run(["--worktree-list"]);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain("\tPRUNABLE\n");
+		expect(await snapshot([source])).toEqual(before);
+		await absent(target());
+		await readOnlyCalls();
+	});
+	it.each(["list-error", "list-malformed"])(
+		"does not report a successful list on Git discovery failure: %s",
+		async (fault) => {
+			const before = await snapshot([source]);
+			const result = run(["--worktree-list"], { GIT_FAULT: fault });
+			expect(result.status).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(await snapshot([source])).toEqual(before);
+			await absent(join(root, "pi-started"));
+			await readOnlyCalls();
+		},
+	);
+	it("escapes externally registered paths in list output instead of emitting terminal controls", async () => {
+		await existingWorktree();
+		const moved = join(root, "tab\tline\n\u001b[31m");
+		git(["worktree", "move", target(), moved]);
+		const result = run(["--worktree-list"]);
+		expect(result.status).toBe(0);
+		expect(result.stdout.trim().split("\n")).toHaveLength(2);
+		expect(result.stdout).toContain("tab\\tline\\n\\u001b[31m");
+		expect(result.stdout).not.toContain("\u001b");
+		expect(result.stdout).toContain("\tBROKEN\n");
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(1);
+		await absent(join(root, "pi-started"));
+	});
+	it("passes open/list spellings after -- to Pi without launcher interpretation", async () => {
+		const args = ["--", "--worktree-open", "fix-login", "--worktree-list"];
+		const result = run(args);
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toMatchObject({ cwd: source, args: ["-e", extension, ...args] });
+		await noCreation();
+	});
+	it("rejects repository redirection for both open and list", async () => {
+		for (const args of [["--worktree-open", "fix-login"], ["--worktree-list"]]) {
+			const result = run(args, { GIT_COMMON_DIR: source });
+			expect(result.status).toBe(1);
+			expect(result.stderr).toContain("unset GIT_COMMON_DIR");
+		}
+		await absent(join(root, "pi-started"));
+		await noCreation();
+	});
+	it("empty listing is successful and non-Git discovery fails without mutation", async () => {
+		expect(run(["--worktree-list"]).stdout).toBe("NAME\tBRANCH\tPATH\tSTATUS\n");
+		cwd = root;
+		expect(run(["--worktree-list"]).status).toBe(1);
+		expect(run(["--worktree-open", "fix-login"]).status).toBe(1);
+		await noCreation();
+		await absent(join(root, "pi-started"));
+	});
+	it("open still fails before starting any Pi if its local build is absent; create remains create-only", async () => {
+		await existingWorktree();
+		const before = await snapshot([source, target()]);
+		expect(run().stderr).toContain("branch already exists");
+		await rm(cli);
+		const result = run(["--worktree-open", "fix-login", "--continue"]);
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("No global Pi fallback");
+		await absent(join(root, "pi-started"));
+		expect(await snapshot([source, target()])).toEqual(before);
+	});
+	it.each([{ code: "23" }, { code: "0", signal: "SIGTERM" }])(
+		"preserves open stdio/exit/signal and leaves the worktree: $code/$signal",
+		async ({ code, signal }) => {
+			await existingWorktree();
+			const result = run(
+				["--worktree-open", "fix-login"],
+				{ PI_EXIT: code, SIGNAL_EXIT: signal, ECHO_STDIN: "1" },
+				"stdin bytes\n",
+			);
+			if (signal) expect(result.signal).toBe(signal);
+			else expect(result.status).toBe(Number(code));
+			expect(result.stdout).toContain("stdin bytes\n");
+			expect(result.stderr).toContain("Pi stderr");
+			expect(git(["rev-parse", "HEAD"], target())).toBe(head);
 			await sourceUnchanged();
 		},
 	);
