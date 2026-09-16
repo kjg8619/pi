@@ -48,6 +48,21 @@ pi -e ./packages/company-runtime
 
 Factory는 네 명령과 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
 
+## Weavra Status Projection
+
+TUI에서 현재 Host가 소유한 `StandardWorkflow.snapshot`(기존 Kernel snapshot)을 footer에 투영한다. 별도 Workflow/State/Graph model을 만들거나 `.ai`에 UI 상태를 저장하지 않는다. Worker에는 UI/Extension 리소스를 추가하지 않는다.
+
+- `RuntimeEvent` 수신 시 현재 snapshot의 run ID가 event와 일치할 때만 투영한다. 이벤트 종류를 상태 전이 명령으로 재해석하지 않는다. `RunCreated` 도중 아직 Kernel이 Host에 연결되지 않았거나 과거 복구 이벤트인 경우 건너뛰고 이후 현재 run 이벤트를 사용한다.
+- 공식 `ctx.ui.setStatus("weavra.runtime", text)`로 단일 합성 문자열을 발행한다. 같은 문자열은 재발행하지 않으며 polling/timer는 없다. phase를 바꾸지 않는 token/tool 진행은 갱신하지 않는다.
+- 예: `Weavra · QUICK · R1 · IMPLEMENT · Executor`, `Weavra · STANDARD · R2 · REVIEW · Reviewer`. WAITING_APPROVAL은 저장 phase가 IMPLEMENT여도 UI에 `APPROVAL`로 투영한다. terminal은 `Weavra · COMPLETED/BLOCKED/CANCELLED/FAILED/INTERRUPTED` 중 실제 상태만 표시하며 과거 active role을 붙이지 않는다.
+- 실행 Promise 종료 시 final snapshot/report를 한 번 더 확인한다. 이벤트 없는 저장 실패도 반영하며 별도 cleanup/report 오류는 `Weavra · ATTENTION · /state`로 표시한다. owner가 끝났지만 snapshot이 active인 경우 `Weavra · UNCONFIRMED · /state`다.
+- 시작 시 표시를 비우고 config/state 파일은 읽지 않는다. 저장된 상태나 writer 존재는 live 근거가 아니며 `/state` 등 과거 조회도 footer를 덮어쓰지 않는다. 종료 결과는 이 Host의 마지막 실행 결과로 유지하며 현재 filesystem 검증을 뜻하지 않는다.
+- 새 run preflight에서 과거 결과를 지운다. `/workflow cancel`은 기존 cleanup을 기다린 후 실제 terminal 표시를 남긴다. switch/fork/tree/reload/shutdown은 cleanup 대기 전에 UI 연결을 끊고 자기 키만 지워 늦은 이벤트/finally가 stale 표시를 복원하지 못하게 한다.
+- Snapshot/format/setStatus/clear 예외는 표시 계층에서 격리한다. 기존 주입 observer는 그대로 전달하고 실패 진단은 기존 Kernel이 소유한다. 정상 run을 FAILED로 바꾸거나 cleanup을 중단하지 않는다. 고장 난 UI의 실제 화면 갱신 자체는 best-effort다.
+- 기존 Pi footer와 다른 키의 status를 유지한다. 외부 footer가 공식 extension status map(`getExtensionStatuses()`)을 렌더링하면 같은 키를 사용할 수 있다. 외부 extension 의존성·footer 교체·RPC/Print/JSON status 출력은 추가하지 않는다.
+
+구체적인 live transition·승인·취소·lifecycle·UI 실패 검증은 `test/status.test.ts` 및 `packages/coding-agent/test/suite/company-runtime-status.test.ts`의 기존 harness/faux 통합을 따른다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.

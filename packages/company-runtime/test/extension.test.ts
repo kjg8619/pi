@@ -20,14 +20,16 @@ models:
     reasoning: { provider: faux, model: review }
 `;
 const notify = vi.fn();
+const setStatus = vi.fn();
 const confirm = vi.fn(async () => false);
 const context = () =>
 	({
 		cwd,
+		mode: "tui",
 		hasUI: true,
 		isIdle: () => true,
 		isProjectTrusted: () => true,
-		ui: { notify, confirm },
+		ui: { notify, confirm, setStatus },
 	}) as unknown as ExtensionCommandContext;
 function commands() {
 	const registered = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
@@ -54,6 +56,7 @@ function commands() {
 beforeEach(async () => {
 	cwd = await mkdtemp(join(tmpdir(), "company-extension-"));
 	notify.mockReset();
+	setStatus.mockReset();
 	confirm.mockClear();
 });
 afterEach(async () => {
@@ -103,7 +106,11 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		if (mode === "tui") {
 			expect(notify).toHaveBeenCalledTimes(1);
 			expect(notify).toHaveBeenCalledWith(expect.stringContaining("Weavra Runtime loaded — v0.1 RC1"), "info");
-		} else expect(notify).not.toHaveBeenCalled();
+			expect(setStatus).toHaveBeenCalledExactlyOnceWith("weavra.runtime", undefined);
+		} else {
+			expect(notify).not.toHaveBeenCalled();
+			expect(setStatus).not.toHaveBeenCalled();
+		}
 		expect(host.models).not.toHaveBeenCalled();
 		expect(await readdir(cwd)).toEqual([]);
 	});

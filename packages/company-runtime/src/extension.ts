@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
+	type ExtensionContext,
 	getAgentDir,
 	ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
@@ -18,6 +19,7 @@ import {
 	type RunView,
 } from "./observations.ts";
 import { FileStateStore } from "./state-store.ts";
+import { formatWeavraStatus } from "./status.ts";
 import { formatWorkflowReport, StandardWorkflow, type WorkflowReport } from "./workflow.ts";
 
 /** Explicit composition seam for local faux tests/Hosts, not a worker-visible provider registration mechanism. */
@@ -37,11 +39,49 @@ export function registerCompanyRuntime(
 	let cancellation: AbortController | undefined;
 	let last: WorkflowReport | undefined;
 	let project: string | undefined;
+	// One namespaced footer entry, not a replacement footer or a second Run store.
+	let statusUI: ExtensionContext["ui"] | undefined;
+	let statusText: string | undefined;
+	const clearStatus = () => {
+		const ui = statusUI;
+		statusUI = undefined;
+		statusText = undefined;
+		try {
+			ui?.setStatus("weavra.runtime", undefined);
+		} catch {
+			// Best effort: a broken UI must not prevent cancellation/cleanup.
+		}
+	};
+	const updateStatus = (runId?: string) => {
+		try {
+			if (!statusUI) return;
+			const run = workflow?.snapshot;
+			// Recovery events for old runs are not evidence of a locally executing worker.
+			if (runId && run?.runId !== runId) return;
+			const text = formatWeavraStatus(run, pending !== undefined, pending ? undefined : last?.error);
+			if (text === statusText) return;
+			statusUI.setStatus("weavra.runtime", text);
+			statusText = text;
+		} catch {
+			// Also contain snapshot/formatting errors. Retry only on a later update, never on a timer.
+			try {
+				statusUI?.setStatus("weavra.runtime", undefined);
+			} catch {
+				// A failed clear is not an execution result either.
+			}
+			statusText = undefined;
+		}
+	};
 	const cancel = async () => {
 		cancellation?.abort();
 		workflow?.cancel();
 		await pending;
 		await exporting;
+	};
+	const leaveSession = async () => {
+		// Detach before awaiting cleanup so late events/finally cannot repopulate the old footer.
+		clearStatus();
+		await cancel();
 	};
 	const inspect = async (ctx: ExtensionCommandContext, runId?: string): Promise<RunView> => {
 		const id = runId === "latest" ? undefined : runId;
@@ -199,6 +239,8 @@ export function registerCompanyRuntime(
 						}
 						const goal = argument.slice(4).trim();
 						if (!goal) throw new Error("A goal is required");
+						clearStatus();
+						if (ctx.mode === "tui" && ctx.hasUI) statusUI = ctx.ui;
 						workflow = undefined;
 						last = undefined;
 						project = ctx.cwd;
@@ -229,7 +271,13 @@ export function registerCompanyRuntime(
 								goal,
 								config,
 								signal,
-								events: options.events,
+								events: {
+									emit: (event) => {
+										updateStatus(event.runId);
+										// Preserve the existing observer and its Kernel-owned delivery diagnostics.
+										return options.events?.emit(event);
+									},
+								},
 								approvalTimeoutMs: options.approvalTimeoutMs,
 								approval: {
 									requestApproval: async (request, signal) => {
@@ -292,6 +340,8 @@ export function registerCompanyRuntime(
 							})
 							.finally(() => {
 								pending = undefined;
+								// No event is emitted for some persistence/cleanup failures; reconcile the final snapshot/report.
+								updateStatus();
 							});
 						ctx.ui.notify("Weavra: preflight started. Status/cancel remain available.", "info");
 						return;
@@ -348,11 +398,15 @@ export function registerCompanyRuntime(
 		});
 	}
 	pi.on("session_start", (_event, ctx) => {
-		if (ctx.mode === "tui" && ctx.hasUI)
+		clearStatus();
+		if (ctx.mode === "tui" && ctx.hasUI) {
+			statusUI = ctx.ui;
+			clearStatus();
 			ctx.ui.notify(
 				"Weavra Runtime loaded — v0.1 RC1 (development)\nQUICK / STANDARD · R0–R2 / scoped R3\n/workflow · /state · /team · /risk — /workflow help",
 				"info",
 			);
+		}
 	});
 	pi.on("input", () => (pending || exporting ? { action: "handled" } : { action: "continue" }));
 	pi.on("tool_call", () =>
@@ -372,10 +426,10 @@ export function registerCompanyRuntime(
 				}
 			: undefined,
 	);
-	pi.on("session_before_switch", cancel);
-	pi.on("session_before_fork", cancel);
-	pi.on("session_before_tree", cancel);
-	pi.on("session_shutdown", cancel);
+	pi.on("session_before_switch", leaveSession);
+	pi.on("session_before_fork", leaveSession);
+	pi.on("session_before_tree", leaveSession);
+	pi.on("session_shutdown", leaveSession);
 }
 
 export default function companyRuntime(pi: ExtensionAPI): void {

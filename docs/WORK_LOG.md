@@ -31,9 +31,10 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | RC-04 handoff 후속 수정 | 완료 / 실제 GPT 최종 PASS | unresolved 없음·독립 review·checks·COMPLETED, 기존 Kernel guard 유지; 당시 targeted 901개 |
 | RC-05 R3 prompt 수정 | 완료 / 실제 GPT 최종 PASS | 승인 UI·Deny/Expire 무삭제·Approve once 단일 삭제 확인; 당시 targeted 909개 |
 | GPT Real-Provider RC / V0.1 Closure | 완료 / 소스 RC 기준점 유지 | 실제 GPT RC-01~08 PASS. LOG-020 당시 HEAD `dc6d3df65`의 targeted 30개 파일·909개 및 root check PASS |
-| Weavra Branding + Launcher UX | 완료 / 게시 승인·검증 완료 | 실제 Pi 재사용 launcher·TUI 안내·도움말·README/config 예제. 이번 31개 파일·931개 및 root check PASS; RC 태그 불변 |
+| Weavra Branding + Launcher UX | 완료 / 커밋·푸시 | `632ad3bcd`로 게시. 당시 31개 파일·931개 및 root check PASS; RC 태그 불변 |
+| Weavra Status Projection | 완료 / 게시 승인·검증 완료 | 공식 setStatus 단일 키·로컬 snapshot 투영·stale/실패 격리. 이번 33개 파일·975개 및 실제 TUI smoke PASS |
 
-S0~S6와 제한된 GPT Real-Provider RC-01~08 Closure 이후 Weavra Branding + Launcher UX를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence이며 이번에 유료 Provider를 재호출하지 않았다. 이전 실패·재실행 대기 기록은 역사로 보존한다. 현재 안정 태그 `weavra-v0.1-rc1`은 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`를 가리키며 이번에 수정·이동하지 않았다. 태그 이후 branding/launcher 변경은 사용자 승인에 따라 커밋·푸시 준비 검증을 완료했다(LOG-022). Runtime/Policy/Risk/Approval/Workflow semantics와 worker prompt는 유지했고 이번 자동 회귀 931개·root check 및 저장소 밖 npm-link/TUI 명령 smoke를 통과했다. DeepSeek·다른 Provider/OS·다른 Node 조합, 전체 suite/e2e/build·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 evidence 한계는 [V0.1_READINESS](V0.1_READINESS.md)와 LOG-020, 이번 작업은 LOG-021을 따른다.
+S0~S6와 제한된 GPT Real-Provider RC-01~08 Closure 이후 Weavra Branding + Launcher UX를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence이며 이번에 유료 Provider를 재호출하지 않았다. 이전 실패·재실행 대기 기록은 역사로 보존한다. 현재 안정 태그 `weavra-v0.1-rc1`은 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`를 가리키며 이번에 수정·이동하지 않았다. Branding/launcher는 `632ad3bcd`로 게시됐고 이후 사용자 추가 adoption plan 문서를 포함한 `9cef7aa93`에서 Status Projection을 진행했다. Runtime/Policy/Risk/Approval/Workflow semantics와 worker prompt는 유지했으며 이번 자동 회귀 975개와 실제 status TUI smoke를 통과했다. Status Projection은 사용자 승인에 따라 커밋·푸시 준비 검증을 완료했다(LOG-024). 구현 검증·한계는 LOG-023을 따른다. DeepSeek·다른 Provider/OS·다른 Node 조합, 전체 suite/e2e/build·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 evidence 한계는 [V0.1_READINESS](V0.1_READINESS.md)와 LOG-020, Branding 이력은 LOG-021~022, 현재 Status Projection은 LOG-023을 따른다.
 
 ---
 
@@ -1353,6 +1354,90 @@ git rev-parse HEAD weavra-v0.1-rc1 'weavra-v0.1-rc1^{}'
 - **문제·해결:** 추가 문제 없음. 사용자 승인된 launcher 등록에 필요한 lockfile만 `PI_ALLOW_LOCKFILE_CHANGE=1`로 명시적으로 포함하며 일반 pre-commit 검사는 유지한다.
 - **남은 제한·다음 작업:** 기존 플랫폼/DeepSeek/배포물 미검증과 Runtime semantics 불변을 유지한다. 명시적 13개 경로만 stage·commit 후 일반 push하고 원격 HEAD 일치·clean·안정 태그 불변을 확인한다. 다음 제품 단계는 읽기 전용 DAG Projection이다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add Weavra branding and launcher UX`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. RC 태그는 수정·이동·재생성하지 않는다.
+
+---
+
+## LOG-023 — Weavra Status Projection
+
+- **기록일:** 2026-09-16 17:06 (KST)
+- **상태:** 완료 / 미커밋
+- **목적:** 기존 Runtime 상태를 Pi TUI에서 지속적으로 확인하는 관찰 UX를 추가한다. 새 실행 기능·상태 authority·DAG model은 만들지 않는다.
+- **시작 상태:** `devlop` clean, HEAD/origin `9cef7aa93ef2d39cb874856045a21c09177135bf`. LOG-022의 branding/launcher는 `632ad3bcdb2dc5dc4263348654542fb26823fe1c`로 커밋·푸시됐으며, 이후 추가된 `docs/WEAVRA_EXTENSION_ADOPTION_PLAN.md`를 읽고 보존했다. 안정 RC tag object는 계속 `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c`다.
+
+### 설계와 변경 파일
+
+- `packages/company-runtime/src/status.ts` 신규: 기존 `Run` snapshot을 짧은 문자열로 만드는 순수 함수. QUICK/STANDARD·R0~R3·현재 phase/activeAgents를 읽고 WAITING_APPROVAL만 표시상 APPROVAL로 투영한다. terminal은 과거 active role/phase 없이 실제 종료 상태만 표시한다. Run/schema는 변경하지 않는다.
+- `packages/company-runtime/src/extension.ts`: 공식 `ctx.ui.setStatus("weavra.runtime", text)`를 TUI에만 연결했다. 상태 소스는 이 Host가 소유한 `StandardWorkflow.snapshot`이며 `RuntimeEvent`는 갱신 신호일 뿐 replay/state machine이 아니다. event.runId와 현재 snapshot이 일치할 때만 읽고 같은 문자열은 재발행하지 않는다. 기존 주입 observer와 Kernel의 delivery diagnostics는 유지한다.
+- Kernel 생성 중 Host에 snapshot이 아직 연결되지 않은 RunCreated 및 이전 run recovery event는 건너뛴다. 이후 RunStarted/step/agent/approval/terminal event의 최신 snapshot을 읽으므로 완료 event의 과거 step 이름으로 phase를 되돌리지 않는다. token/tool마다 polling하거나 timer를 두지 않는다.
+- 실행 Promise가 끝나면 final snapshot/report를 한 번 재확인한다. 이벤트 없는 persistence 실패도 반영하고 별도 cleanup/report 오류가 있으면 `Weavra · ATTENTION · /state`로 표시한다. 소유 실행이 끝났는데 active snapshot이 남으면 `Weavra · UNCONFIRMED · /state`다.
+- 저장된 run/writer만으로 live를 추정하지 않는다. 시작/reload에서는 파일을 읽지 않고 표시를 비우며 `/state` 등 과거 조회는 footer를 덮어쓰지 않는다. 완료 후 footer는 이 Pi에서 실행한 마지막 결과이지 현재 Git 검증 보장이 아니다.
+- 새 run preflight에서 이전 결과를 비운다. 명시적 cancel은 기존 cleanup 후 실제 terminal 결과로 바꾸고, switch/fork/tree/reload/shutdown은 cleanup을 기다리기 **전에** UI를 분리·clear하여 늦은 event/finally의 stale 재표시를 막는다. 다른 status 키·footer는 교체하지 않는다.
+- snapshot/format/setStatus/clear 예외는 UI 계층에서 격리하며 실행 결과·취소·정리를 바꾸지 않는다. 외부 footer가 Pi의 공식 extension status map을 렌더링하면 공존할 수 있고 `pi-footer` 의존성은 없다. UI 자체가 고장 난 경우 화면 문자 제거는 best-effort다.
+- 테스트: `packages/company-runtime/test/status.test.ts` 신규 19개, 기존 `test/extension.test.ts`의 TUI-only startup/clear assertions 보강. `packages/coding-agent/test/suite/company-runtime-status.test.ts` 신규 25개는 기존 harness/faux·실제 SDK/Git/check를 사용한다.
+- 문서: `README.md`, `packages/company-runtime/README.md`에 source/update timing·표시·lifecycle/stale·error·공존 계약을 추가했다. `docs/WORK_LOG.md`의 현재 요약과 본 기록을 추가하며 이전 LOG 본문을 보존했다. 변경은 총 8개 파일이다.
+
+### 표시 예와 유지한 의미
+
+```text
+Weavra · QUICK · R1 · IMPLEMENT · Executor
+Weavra · STANDARD · R2 · REVIEW · Reviewer
+Weavra · STANDARD · R3 · APPROVAL · Developer
+Weavra · COMPLETED
+Weavra · BLOCKED
+Weavra · CANCELLED
+```
+
+Kernel/Workflow owner/Policy/Approval/StateStore/분류/schema/worker prompt·도구·권한·리소스 격리는 그대로다. `.ai`에 status를 저장하지 않고 UI 문자열 한 개와 UI 연결만 메모리에 보관한다. Launcher·package/bin·lockfile·Pi Core·RC 태그도 변경하지 않았다. DAG Scheduler/Graph model/Planner/Lead/COMPLEX/병렬 실행은 추가하지 않았다.
+
+### 이번 자동 검증
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run test/status.test.ts test/launcher.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- Runtime **19개 파일·538개 PASS**. coding-agent **14개 파일·437개 PASS**. 최종 합계 **33개 파일·975개 PASS**, 실패/skip 0. 신규 44개와 기존 S0~S6/RC·branding/launcher 및 관련 Pi 회귀를 모두 이번에 실행했다. 과거 931개 및 수동 GPT RC 결과를 중복 합산하지 않는다.
+- QUICK R0/R1, STANDARD R1/R2의 실제 implement/self-check/review/test/complete 순서와 중복 UI 호출 생략, R3 승인 UI 진입 시 WAITING_APPROVAL·대상 파일 존재·Approve/Deny 결과, 독립 BLOCK, 세 역할 cancel, 네 lifecycle hook의 늦은 event 차단/새 실행 연결을 검증했다.
+- 저장된 RUNNING을 writer 유무와 무관하게 live로 투영하지 않음, 조회 시 source bytes 불변·Provider 호출 0, 다른 status 키 보존, RPC 미출력, UI/formatter/observer throw·reject와 clear 실패에서 정상 COMPLETE 또는 cancel/lock 정리 유지, event 없는 저장 실패와 terminal 뒤 cleanup 실패의 final 투영을 검증했다.
+- `npm run check`: PASS(TypeScript/deps/entry graphs/shrinkwrap/install-lock/browser smoke 포함). Biome의 테스트 포맷 후 전체 targeted를 실행했고 문서 갱신 후 최종 check도 자동 수정 없이 PASS했다. `git diff --check`: PASS. 임시 문서 검사로 상대 링크/fence, LOG-001~022 본문 보존, launcher/package/lock/adoption plan 불변을 확인했다(PASS). 검사 script는 제거했다.
+- 최초 신규 통합 23개 중 2개 실패는 faux가 QUICK의 risk를 `scope.risk` 대신 STANDARD payload의 risk 필드에서 읽어 R0에 write를 요청한 fixture 오류였다. 올바른 payload 분기로 고쳐 23개 PASS 후 RPC/clear-failure 2개를 추가했다. Runtime guard는 바꾸지 않았다.
+- 최초 전체 병렬 실행은 기존 QUICK `cancels an active TEST process`의 기본 waitFor(1초) 안에 marker가 나타나지 않아 **436 PASS / 1 FAIL**이었다. 해당 테스트와 Runtime을 변경하지 않고 동시 worker를 2로 제한해 관련 전체 14개 파일을 다시 실행하여 **437 PASS**를 확인했다. 병렬 부하에서의 시간 민감성 가능성이 있으며 지연 원인 분포를 별도로 측정한 것은 아니다.
+
+### 실제 Pi TUI smoke
+
+- interactive-testing skill의 tmux **80×24**, 저장소 `pi-test.sh`, 임시 Extension wrapper와 기존 suite harness/faux를 사용했다. 별도 HOME/agentDir·credential 없는 `env -i`·offline·외부 임시 Git fixture만 사용했고 실제 Provider/유료 토큰은 호출하지 않았다.
+- 기본 Pi footer에서 `Other status`와 Weavra가 동시에 표시됐다. QUICK/R0 IMPLEMENT→COMPLETED, STANDARD/R1 IMPLEMENT·SELF_CHECK·REVIEW/Reviewer, R3 APPROVAL/Developer와 실제 Deny modal→BLOCKED, 명시적 QUICK cancel→CANCELLED를 확인했다.
+- 완료 후 reload 및 live Developer 중 reload에서 Weavra만 제거되고 Other status는 남았다. reload 후 `/state`의 저장 CANCELLED 조회도 footer에 과거 phase를 복원하지 않았다.
+- 종료 후 임시 state의 실제 결과 **COMPLETED, COMPLETED, BLOCKED, CANCELLED, CANCELLED**, R3 DENIED·원본 파일 유지, writer.lock 부재, UI key 미저장을 검사했다(PASS). 초기 fd/model 미설정 경고는 offline fixture의 예상 결과다. 실제 TUI의 TEST 프레임은 별도 캡처하지 않았고 자동 순서 검증으로 확인했다.
+- 임시 Python 검사에서 변경 대상 외 Runtime core/prompt/schema의 byte 불변과 RC tag 불변도 PASS했다. tmux·임시 fixture/wrapper/검사 script를 정리했다. 실제 프로젝트 `.ai`는 생성하지 않았다.
+
+### 한계·다음 작업·커밋
+
+- 기본 Pi footer 및 별도 status 키와의 공존을 검증했으며 외부 pi-footer 자체를 설치/실행하지 않았다. 공식 status map을 무시하는 custom footer의 표시를 강제로 바꾸지 않는다. 저장된 다른 owner의 실시간 실행을 추적하거나 재시작 후 terminal을 복원하지 않는다.
+- snapshot/보고 오류로 표시한 ATTENTION/UNCONFIRMED는 관찰 진단이며 저장된 Run status를 재작성하지 않는다. UI API가 clear 자체를 거부하면 실제 화면 제거를 보장하지 않지만 Runtime 결과는 바꾸지 않는다.
+- Runtime semantics 불변이므로 GPT RC-01~08은 재실행하지 않았다. DeepSeek·다른 OS/Node 조합은 계속 NOT VERIFIED. 전체 upstream suite/e2e/build는 미실행이다.
+- **다음 작업:** 사용자 확인 후 다음 관찰/Host 개선 범위를 정한다. DAG Projection 또는 worktree는 별도 승인 범위이며 이번에 구현하지 않았다.
+- **커밋·푸시:** 하지 않음. 안정 태그 `weavra-v0.1-rc1`은 수정·이동하지 않았다.
+
+---
+
+## LOG-024 — Weavra Status Projection 커밋·푸시 준비
+
+- **기록일:** 2026-09-16 17:18 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-023의 Status Projection 변경을 커밋하고 `origin/devlop`에 게시하기 위한 검증 완료.
+- **변경 파일:** LOG-023의 status formatter·Extension 연결·테스트·README·작업 이력 총 8개 파일. 이번 준비에서는 작업 이력만 추가했다. dependency/lockfile/launcher/Runtime core 변경은 없다.
+- **이번 검증:** `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check` PASS. `git status --short --branch`와 staged diff로 대상 외 변경·기존 staged 파일이 없음을 확인했다. RC tag object/peeled SHA가 기존 기준점과 같음을 확인했다.
+- **과거 검증과 구분:** 33개 파일·975개 PASS 및 실제 TUI smoke는 LOG-023의 구현 검증 결과다. 이번 커밋 준비에서는 테스트·실제 Provider를 재실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 8개 경로만 stage하며 일반 commit/push와 검사 절차를 유지한다.
+- **남은 제한·다음 작업:** 기존 플랫폼/DeepSeek/외부 footer 미검증과 Runtime semantics 불변을 유지한다. 게시 후 로컬·원격 HEAD 일치, clean, RC 태그 불변을 확인한다. 이후 제품 범위는 별도 사용자 승인에 따른다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): project Weavra runtime status in the Pi footer`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 수정·이동·재생성하지 않는다.
 
 ---
 

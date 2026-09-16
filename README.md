@@ -14,6 +14,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - STANDARD/R0–R2: Developer → SELF_CHECK → 독립 Reviewer → TEST → COMPLETE.
 - Scoped R3: Git 추적 텍스트 파일 한 개 삭제에 한정한 1회 Human Approval.
 - 실제 Git diff/digest, 등록 checks, 부분 변경 보고, 명시적 취소와 읽기 전용 상태 조회.
+- Pi 기본 footer에 로컬 workflow/risk/phase·active role 및 마지막 종료 결과를 표시하는 Status Projection.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -115,6 +116,28 @@ verification:
 | `/risk [runId]` | 분류·Policy·Approval 상태 |
 
 runId 생략 또는 `latest`는 최신 run이다. 조회는 worker/check를 재실행하지 않는다. 저장된 PASS는 기록 시점의 증거이며 현재 파일 상태나 프로세스 생존을 보장하지 않는다.
+
+### Persistent status
+
+로컬 workflow를 실행하면 Pi 기본 footer에 짧은 상태가 표시된다.
+
+```text
+Weavra · QUICK · R1 · IMPLEMENT · Executor
+Weavra · STANDARD · R2 · REVIEW · Reviewer
+Weavra · STANDARD · R3 · APPROVAL · Developer
+Weavra · COMPLETED
+Weavra · BLOCKED
+Weavra · CANCELLED
+```
+
+기존 Kernel snapshot을 RuntimeEvent 발생 시 읽고, 문자열이 바뀔 때만 공식 `ctx.ui.setStatus("weavra.runtime", text)`를 호출한다. 실행 정리 완료 시 final snapshot/report도 확인한다. 타이머·파일 polling·별도 실행 상태 저장은 없다.
+
+- 실행 전에는 비어 있고 종료 후에는 **이 Pi에서 실행한 마지막 결과**를 남긴다. 현재 Git 상태에 대한 보장이 아니다.
+- 새 run의 preflight, reload·세션 전환·종료에서는 이전 표시를 지운다. `/workflow cancel` 후에는 실제 `CANCELLED` 등 종료 결과로 대체한다.
+- 저장된 run·다른 Pi의 writer/active 기록은 footer의 live 근거로 사용하지 않는다. 재시작이나 `/state` 조회로 과거 RUNNING을 복원하지 않는다.
+- 실행 소유권이 끝났는데 snapshot이 active라면 `Weavra · UNCONFIRMED · /state`, final report에 별도 저장/정리 오류가 있으면 `Weavra · ATTENTION · /state`로 표시한다.
+- 다른 extension의 status 키를 건드리지 않고 footer를 교체하지 않는다. 외부 footer도 Pi의 extension statuses를 표시하면 공존할 수 있다. `pi-footer` 설치는 필요 없다.
+- TUI에만 표시한다. 표시/clear 실패는 best-effort이며 실행 결과·취소·cleanup을 바꾸지 않는다. UI API 자체가 고장 난 경우 실제 화면의 stale 문자 제거까지 보장할 수는 없다.
 
 ## Workflow & Risk
 
