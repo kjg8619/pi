@@ -242,6 +242,69 @@ describe("S5B STANDARD/R2 with actual file Policy/checks and independent faux re
 			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
 		},
 	);
+	// RC-04: actual mutation/SELF_CHECK followed by malformed review must remain retryable, without a new role/attempt.
+	it("RC-04 corrects malformed evidence in the same Reviewer session before Kernel PASS and COMPLETE", async () => {
+		harness.setResponses([
+			edit(manifests[0]),
+			edit(manifests[1]),
+			handoff,
+			(context) => {
+				const request = input(context);
+				if (request.role !== "Reviewer") throw new Error("Reviewer required");
+				const trusted = [
+					...new Set([
+						...request.verification.evidenceRefs,
+						...request.verification.checks.flatMap((check) => check.evidenceRefs),
+					]),
+				];
+				expect(request).toMatchObject({ trustedEvidenceRefs: trusted });
+				const response = review()(context);
+				for (const part of response.content)
+					if (part.type === "toolCall") part.arguments.evidenceRefs = [request.verification.diffDigest];
+				return response;
+			},
+			(context) => {
+				expect(context.messages.at(-1)).toMatchObject({
+					role: "toolResult",
+					toolName: "submit_review",
+					isError: true,
+				});
+				expect(JSON.stringify(context.messages.at(-1))).toContain("trustedEvidenceRefs");
+				const current = state().runs[0];
+				expect(current).toMatchObject({ phase: "REVIEW", status: "RUNNING", revisionCycle: 0 });
+				expect(current.review).toBeUndefined();
+				expect(current.verification.map((check) => check.status)).toEqual(["PASS"]);
+				expect(current.roleSessionRefs.map((ref) => ref.role)).toEqual(["Developer", "Reviewer"]);
+				expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
+				expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
+				return review()(context);
+			},
+		]);
+		const report = await create().execute();
+		expect(report.error).toBeUndefined();
+		expect(report.run).toMatchObject({
+			workflow: "STANDARD",
+			risk: "R2",
+			phase: "COMPLETE",
+			status: "COMPLETED",
+			revisionCycle: 0,
+		});
+		expect(report.run?.roleSessionRefs).toHaveLength(2);
+		expect(report.run?.reviewHistory).toHaveLength(1);
+		expect(report.run?.review?.result).toBe("PASS");
+		expect(report.run?.review?.diffDigest).toBe(report.run?.workspace?.diffDigest);
+		expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+		expect(state().runs[0]).toEqual(report.run);
+		expect(
+			state()
+				.actions.filter((action) => action.decision.role === "Developer")
+				.map((action) => action.status),
+		).toEqual(["SUCCEEDED", "SUCCEEDED"]);
+		expect(events.filter((event) => event.type === "AgentSessionCreated")).toHaveLength(2);
+		expect(events.filter((event) => event.type === "RunCompleted")).toHaveLength(1);
+		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+	});
+
 	it("REVISE requires fresh Developer and Reviewer sessions for the next attempt", async () => {
 		harness.setResponses([edit(manifests[0]), edit(manifests[1]), handoff, review("REVISE"), handoff, review()]);
 		const report = await create().execute();

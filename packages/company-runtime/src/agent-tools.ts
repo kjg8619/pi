@@ -14,7 +14,14 @@ import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { parseRuntimeConfig, type RuntimeConfig } from "./config.ts";
-import { ExecutorHandoffSchema, HandoffSchema, type Review, ReviewSchema, validateContract } from "./contracts.ts";
+import {
+	ExecutorHandoffSchema,
+	HandoffSchema,
+	type Review,
+	ReviewSchema,
+	type VerificationResult,
+	validateContract,
+} from "./contracts.ts";
 import {
 	type ActionAudit,
 	evaluatePolicy,
@@ -38,6 +45,11 @@ export const WORKER_FILE_TOOLS = [
 /** Stable for the frozen JSON-shaped input constructed by this adapter. Never hashes credentials. */
 export function workerDigest(value: unknown): string {
 	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+/** Exact verifier-owned references for this attempt; handoff prose and digests are not reference sources. */
+export function trustedReviewEvidenceRefs(verification: VerificationResult): string[] {
+	return [...new Set([...verification.evidenceRefs, ...verification.checks.flatMap((check) => check.evidenceRefs)])];
 }
 
 function readText(path: string): string {
@@ -120,8 +132,13 @@ export function createWorkerTools(options: {
 	tools: ToolDefinition[];
 	result: () => AgentExecutionResult | undefined;
 	policyDenial: () => string | undefined;
+	consumeReviewValidationError: (toolCallId: string) => boolean;
 } {
 	const { request, signal } = options;
+	const evidenceRefs = request.role === "Reviewer" ? trustedReviewEvidenceRefs(request.verification) : [];
+	const trustedEvidence = new Set(evidenceRefs);
+	// Adapter-owned classification, never a model-supplied error label. Consumed once by the SDK event handler.
+	const reviewValidationErrors = new Set<string>();
 	let submitted: AgentExecutionResult | undefined;
 	let policyDenial: string | undefined;
 	const assertActive = () => {
@@ -299,10 +316,11 @@ export function createWorkerTools(options: {
 			defineTool({
 				name: "submit_review",
 				label: "Submit review",
-				description: "Submit an independent PASS/REVISE/BLOCK review of the supplied evidence. Call alone.",
+				description:
+					"Submit an independent PASS/REVISE/BLOCK review. Use only exact trustedEvidenceRefs strings in all evidenceRefs arrays. Correct evidence errors and resubmit in this session. Call alone.",
 				executionMode: "sequential",
 				parameters: ReviewSchema,
-				execute: async (_id, params) => {
+				execute: async (id, params) => {
 					assertActive();
 					const review: Review = structuredClone(validateContract(ReviewSchema, params));
 					if (
@@ -312,6 +330,25 @@ export function createWorkerTools(options: {
 						review.diffDigest !== request.verification.diffDigest
 					)
 						throw new Error("Review identity or diff mismatch");
+					const invalidFields: string[] = [];
+					if (!review.evidenceRefs.length || review.evidenceRefs.some((ref) => !trustedEvidence.has(ref)))
+						invalidFields.push("evidenceRefs");
+					for (const [index, item] of review.requirements.entries()) {
+						if (
+							item.evidenceRefs.some((ref) => !trustedEvidence.has(ref)) ||
+							(review.result === "PASS" && !item.evidenceRefs.length)
+						)
+							invalidFields.push(`requirements[${index}].evidenceRefs`);
+					}
+					if (invalidFields.length) {
+						reviewValidationErrors.add(id);
+						throw new Error(
+							`Review evidence validation failed: ${invalidFields.join(", ")}. ` +
+								"Copy exact strings from trustedEvidenceRefs; filenames, diffDigest and descriptions are not references. " +
+								"All verdicts require nonempty top-level evidenceRefs; PASS also requires evidence for every requirement. " +
+								`Correct and resubmit submit_review alone in this session. trustedEvidenceRefs: ${JSON.stringify(evidenceRefs)}`,
+						);
+					}
 					submitted = { role: "Reviewer", review };
 					return {
 						content: [{ type: "text", text: "Review submitted for Kernel validation." }],
@@ -436,5 +473,6 @@ export function createWorkerTools(options: {
 				: tools,
 		result: () => structuredClone(submitted),
 		policyDenial: () => policyDenial,
+		consumeReviewValidationError: (toolCallId) => reviewValidationErrors.delete(toolCallId),
 	};
 }

@@ -238,7 +238,8 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 			"QUICK digest changed after SELF_CHECK; verification is stale",
 		);
 		requireEvidence(
-			handoff.known_risks.length === 0 &&
+			// Read-only findings do not imply unfinished work; mutations still require risk resolution.
+			(evidence.quickScope.risk === "R0" || handoff.known_risks.length === 0) &&
 				handoff.requirements.length === task.requirements.length &&
 				new Set(handoff.requirements.map((item) => item.requirement)).size === task.requirements.length &&
 				task.requirements.every((requirement) =>

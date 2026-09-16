@@ -5,21 +5,23 @@ import { assertCanComplete, type CompletionEvidence } from "../src/kernel.ts";
 import { evaluatePolicy } from "../src/policy.ts";
 import { assertQuickWorkspace, changedLineCount, QUICK_MAX_CHANGED_LINES, selectQuickScope } from "../src/quick.ts";
 
-function evidence(): CompletionEvidence {
+function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
+	const changedFiles = risk === "R0" ? [] : ["src/app.ts"];
+	const requirement = risk === "R0" ? "Explain src/app.ts" : "Correct label";
 	const handoff: ExecutorHandoff = {
 		runId: "run",
 		revision: 0,
 		role: "Executor",
 		task: "task",
-		changed_files: ["src/app.ts"],
-		summary: "Corrected spelling",
+		changed_files: [...changedFiles],
+		summary: risk === "R0" ? "Explained source behavior" : "Corrected spelling",
 		assumptions: [],
 		tests_run: [],
 		known_risks: [],
 		unresolved: [],
 		requirements: [
 			{
-				requirement: "Correct label",
+				requirement,
 				status: "MET",
 				explanation: "Label spelling corrected in the named source file",
 			},
@@ -31,7 +33,7 @@ function evidence(): CompletionEvidence {
 		step: { stepId: "self-check", attempt: 1 },
 		diffDigest: "digest",
 		evidenceRefs: ["diff:digest"],
-		changedFiles: ["src/app.ts"],
+		changedFiles: [...changedFiles],
 		checks: [
 			{
 				id: "test",
@@ -49,18 +51,24 @@ function evidence(): CompletionEvidence {
 	};
 	return {
 		workflow: "QUICK",
+		risk,
 		executorDigest: "digest",
-		quickScope: { risk: "R1", targetPath: "src/app.ts" },
+		quickScope: { risk, targetPath: risk === "R0" ? null : "src/app.ts" },
 		workspace: {
 			safe: true,
 			diffDigest: "digest",
 			evidenceRefs: ["diff:digest"],
-			changedFiles: ["src/app.ts"],
-			changedLines: 2,
+			changedFiles: [...changedFiles],
+			changedLines: risk === "R0" ? 0 : 2,
 		},
 		runId: "run",
 		revision: 0,
-		task: { id: "task", goal: "Fix typo in src/app.ts", requirements: ["Correct label"], status: "inProgress" },
+		task: {
+			id: "task",
+			goal: risk === "R0" ? requirement : "Fix typo in src/app.ts",
+			requirements: [requirement],
+			status: "inProgress",
+		},
 		checks: [{ id: "test", kind: "test", required: true }],
 		handoff,
 		selfCheck,
@@ -123,9 +131,16 @@ describe("QUICK routing and fixed scope", () => {
 	});
 });
 
-describe("QUICK Kernel completion guard", () => {
+describe.each(["R0", "R1"] as const)("QUICK/%s Kernel completion guard", (risk) => {
 	it("accepts complete structured requirements and both real-evidence stages without review", () => {
-		expect(() => assertCanComplete(evidence())).not.toThrow();
+		expect(() => assertCanComplete(evidence(risk))).not.toThrow();
+	});
+	it("allows informational known risks only for read-only R0, otherwise requires STANDARD", () => {
+		// RC-01: explaining existing code can report a risk without leaving the explanation unfinished.
+		const value = evidence(risk);
+		value.handoff!.known_risks = ["Existing code does not handle division by zero"];
+		if (risk === "R0") expect(() => assertCanComplete(value)).not.toThrow();
+		else expect(() => assertCanComplete(value)).toThrow("STANDARD required");
 	});
 	it.each([
 		(e: CompletionEvidence) => {
@@ -147,7 +162,7 @@ describe("QUICK Kernel completion guard", () => {
 			e.handoff!.unresolved = ["unfinished"];
 		},
 		(e: CompletionEvidence) => {
-			e.handoff!.known_risks = ["needs review"];
+			if (e.handoff?.role === "Executor") e.handoff.requirements[0].status = "UNMET";
 		},
 		(e: CompletionEvidence) => {
 			if (e.handoff?.role === "Executor") e.handoff.requirements = [];
@@ -159,7 +174,7 @@ describe("QUICK Kernel completion guard", () => {
 			if (e.handoff?.role === "Executor") e.handoff.requirements[0].status = "UNVERIFIED";
 		},
 		(e: CompletionEvidence) => {
-			e.handoff!.changed_files = [];
+			e.handoff!.changed_files = ["src/unreported.ts"];
 		},
 		(e: CompletionEvidence) => {
 			e.workspace!.safe = false;
@@ -172,6 +187,9 @@ describe("QUICK Kernel completion guard", () => {
 		},
 		(e: CompletionEvidence) => {
 			e.workspace!.changedFiles.push("src/other.ts");
+		},
+		(e: CompletionEvidence) => {
+			e.selfCheck!.checks[0].status = "FAIL";
 		},
 		(e: CompletionEvidence) => {
 			e.finalCheck!.checks[0].status = "FAIL";
@@ -196,7 +214,8 @@ describe("QUICK Kernel completion guard", () => {
 			e.workflow = "STANDARD";
 		},
 	])("rejects incomplete/stale/expanded evidence %i", (mutate) => {
-		const value = evidence();
+		const value = evidence(risk);
+		if (risk === "R0") value.handoff!.known_risks = ["Informational finding in existing code"];
 		mutate(value);
 		expect(() => assertCanComplete(value)).toThrow();
 	});

@@ -25,8 +25,10 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | S5C | 완료 | 단일 tracked 텍스트 파일 삭제의 1회 Human Approval, 자동 608개 및 실제 승인/거절/Esc/만료 smoke 통과 |
 | S5D | 완료 | 읽기 전용 관찰·명시적 결정/check export·revision 설정 연결, 자동 655개 및 실제 명령 smoke 통과 |
 | S6 | 완료 | cleanup/lease·race/crash/freshness 실패 경계 보강, targeted 740개 + 기존 Pi 59개 및 interactive 실패 smoke 통과 |
+| RC-01 후속 수정 | 완료 / 실제 Provider 재실행 대기 | GPT R0 설명의 known-risk 완료 차단 문제 수정, S0~S6 및 추가 Pi targeted 829개 통과 |
+| RC-04 후속 수정 | 완료 / 실제 Provider 재실행 대기 | Reviewer trusted ref 안내·제출 검증·동일 세션 재제출, S0~S6/RC-01 및 추가 Pi targeted 847개 통과 |
 
-현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 실제 GPT/DeepSeek/다른 플랫폼·전체 저장소 검증은 별도 RC 단계이며 release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
+현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 사용자 GPT RC-01의 completion semantics와 RC-04의 Reviewer evidence 참조 제출 문제를 수정했으며 실제 GPT 재실행·DeepSeek/다른 플랫폼·전체 저장소 검증은 별도 RC 단계로 남아 있다. release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
 
 ---
 
@@ -868,6 +870,138 @@ git diff --check
 **제한된 V0.1 RC 검증 진입은 조건부 가능**하다. 별도 사용자 승인 후 disposable 프로젝트의 실제 GPT/DeepSeek smoke, 지원 OS/Node 범위, 실제 프로젝트 checks와 설치/취약점/배포 검증 범위를 결정한다. S6 완료만으로 V0.1 release를 선언하지 않는다.
 
 **이번 S6 커밋·푸시: 하지 않음.**
+
+---
+
+## LOG-013 — RC-01: QUICK/R0 정보성 known risk의 완료 의미 수정
+
+- **기록일:** 2026-09-16 12:00 (KST)
+- **상태:** 수정 및 자동 회귀 검증 완료. 수정 후 실제 Provider RC 재실행은 대기.
+- **목적:** 실제 GPT Provider integration에서 드러난 QUICK/R0 설명 작업의 잘못된 완료 차단만 수정한다. 기능·권한·workflow 범위는 확대하지 않는다.
+- **시작 상태:** `devlop` clean, HEAD `5ce99df59`. 작업 요청 cwd는 별도 `weavra-rc-fixture`이고 실제 Kernel은 형제 저장소 `pi/packages/company-runtime`에 있다.
+- **환경:** macOS/Darwin arm64, Node v26.7.0. 이번 자동 검증은 로컬 unit 및 기존 suite harness/faux SDK 통합이며 실제 GPT 호출이 아니다.
+
+### 실제 RC 문제와 원인
+
+사용자가 GPT RC-01에서 `QUICK/R0 Explain src/calculator.js`를 실행했다. Provider/Worker, 구조화 Executor 결과, SELF_CHECK, TEST는 정상이었고 파일 변경도 없었다. Executor가 현재 코드의 division-by-zero 미처리를 `known_risks`로 보고하자 Kernel이 `QUICK requirements incomplete or risks unresolved; STANDARD required`로 BLOCKED 처리했다. 이는 사용자 보고로 확인된 실제 Provider integration issue이며 모델 ID·비용/지연은 보고되지 않아 추정하지 않는다.
+
+`assertCanComplete()`의 QUICK 분기가 R0/R1 모두에 `handoff.known_risks.length === 0`을 요구했다. 따라서 설명을 마쳤고 unresolved가 없어도 기존 코드의 정보성 finding 하나만으로 완료가 거부됐다. LOG-008의 당시 모든 QUICK에 대한 known_risks 없음 조건은 이 후속 수정으로 R1에만 적용된다. 이전 이력 자체는 보존한다.
+
+### 변경 파일과 한정된 수정
+
+- `packages/company-runtime/src/kernel.ts`: 기존 조건을 `(evidence.quickScope.risk === "R0" || handoff.known_risks.length === 0)`으로 한정 변경했다. 앞선 trusted scope/workspace 검사와 R0 실제 changedFiles 0 요구는 그대로다. finding을 삭제하거나 필터링하지 않고 executorResult/state에 유지한다.
+- `packages/company-runtime/test/quick.test.ts`: R0 known risk 허용/R1 STANDARD 요구를 명시적으로 검증한다. 기존 실패 matrix를 R0/R1에 적용하며 R0에는 known risk를 함께 넣어 unresolved·UNMET/UNVERIFIED·누락/잘못된 requirement·파일 변경·SELF_CHECK/TEST 실패·stale evidence·scope/revision 위반이 계속 차단됨을 확인한다.
+- `packages/coding-agent/test/suite/company-runtime-quick.test.ts`: 기존 SDK/harness/faux/Git/verifier로 R0 COMPLETE/COMPLETED와 R1 BLOCKED 회귀 2개를 추가했다. 두 checks PASS, finding 보존, R0 무변경, R1 partial change·STANDARD 안내, durable state·terminal event·writer cleanup을 확인한다.
+- `packages/company-runtime/README.md`: QUICK 완료 조건에 R0 finding과 R1 잔여 위험의 차이를 반영했다.
+- `docs/V0.1_READINESS.md`, `docs/WORK_LOG.md`: 실제 RC 발견, 원인/수정, 자동 회귀와 실제 재실행 미검증을 구분해 기록했다.
+
+공통 unresolved 0·정확한 requirements/MET, SELF_CHECK/TEST/exit/evidence/digest/state guard는 완화하지 않았다. QUICK/R1은 known risk가 남으면 계속 STANDARD 실행이 필요하다. R2/R3/STANDARD completion guard, Policy/Approval/StateStore/Provider 구현, 분류·prompt·schema는 변경하지 않았다. `weavra-rc-fixture`의 prompt·코드·config·저장된 run을 수정하지 않았다.
+
+### 이번에 실행한 검증
+
+수정 전 새 테스트로 문제를 재현했다:
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run test/quick.test.ts
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-quick.test.ts -t 'RC-01'
+```
+
+- 수정 전 unit: **68 PASS / 1 FAIL**. R0 known-risk 허용 사례가 기존 STANDARD required 오류로 실패했다.
+- 수정 전 신규 통합: **1 PASS / 1 FAIL / 기존 38개 필터 제외**. R0의 예상 COMPLETED 대신 BLOCKED를 확인했고, R1 차단은 이미 통과했다.
+
+Kernel 수정 후 LOG-012와 같은 S0~S6 targeted 및 추가 Pi 회귀를 다시 실행했다:
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# pi root
+npm run check
+git diff --check
+```
+
+- 최종 targeted 결과: Runtime **17개 파일·481개**, 관련 coding-agent **8개 파일·289개**, 추가 기존 Pi **4개 파일·59개**, 합계 **29개 파일·829개 PASS**. 이번에 모두 실행한 결과이며 전체 저장소 suite 수가 아니다. 기존 799개 대비 30개 순증이다.
+- QUICK 단위 **69개**, QUICK SDK 통합 **40개**가 위 결과에 포함된다. 수정 전 실패한 R0 사례도 통과했고 R1 known risk는 계속 BLOCKED다.
+- `npm run check`: **PASS**, Biome 자동 수정 없음. TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함.
+- `git diff --check`: **PASS**. 변경 범위와 fixture working tree 무변경을 확인했다.
+- build·전체 npm test/Vitest suite·interactive smoke·실제 GPT/DeepSeek/API 재실행·다른 OS 검증은 이번에 하지 않았다. 사용자 실제 RC 결과를 이번 faux 실행의 성과로 계산하지 않는다.
+
+### 남은 제한·다음 작업·커밋
+
+- 실제 GPT RC-01의 수정 후 성공은 아직 확인하지 않았다. 같은 `Explain src/calculator.js` prompt/config로 새 run을 실행하여 COMPLETE, 실제 changedFiles 0, known risk 보존을 확인해야 한다. 기존 BLOCKED 기록을 성공으로 재작성하지 않는다.
+- known risk 허용은 R0 설명 완료의 의미만 바꾼다. 발견한 division-by-zero 결함을 수정했다거나 코드가 위험 없음을 보장하지 않는다. 기존 신뢰된 check·heuristic classification·로컬 filesystem 및 비협조 Provider 한계는 유지한다.
+- **다음 작업:** 사용자 환경에서 실제 GPT RC-01 재실행 후 별도 결과 기록. DeepSeek 및 남은 RC 시나리오는 별도 검증한다.
+- **커밋·푸시:** 하지 않음.
+
+---
+
+## LOG-014 — RC-04: Reviewer evidence 참조 안내·검증·동일 세션 재제출
+
+- **기록일:** 2026-09-16 13:41 (KST)
+- **상태:** 구현·자동 회귀 완료, 실제 GPT RC-04 재실행은 미검증
+- **목적:** 실제 GPT STANDARD/R2에서 발견된 Reviewer 참조 오류를 Kernel guard 완화 없이 입력·제출 경계에서 교정 가능하게 한다.
+- **시작 상태:** `devlop`, HEAD `5ce99df59`. RC-01의 미커밋 Kernel/QUICK test/README/문서 변경이 이미 있었으며 그대로 보존했다.
+
+### 문제와 한정된 해결
+
+사용자 보고에서 Developer mutation과 SELF_CHECK는 성공했지만 Reviewer의 잘못된 evidence ref 때문에 Kernel이 `Review references unknown or missing evidence`로 BLOCKED했다. 기존 `submit_review`는 identity/diffDigest만 검사한 뒤 구조화 결과를 수락하고 세션을 종료했다. 여기에 membership 검증만 추가해도 Adapter가 모든 Tool error를 치명적 오류로 취급하므로 Reviewer는 수정할 기회를 얻지 못한다.
+
+- `packages/company-runtime/src/agent-tools.ts`: 현재 verifier의 `evidenceRefs` + 각 check의 `evidenceRefs` 합집합을 만드는 helper를 추가했다. `submit_review`에서 top-level/각 requirement membership과 필수 배열의 비어 있음 여부를 검사한다. 잘못된 필드·정확한 trusted 목록·재제출 안내를 Tool error로 반환하며 `submitted`나 `terminate`를 설정하지 않는다. Adapter 내부 call ID 집합으로 이 오류만 1회 식별하고, 모델의 문자열·오류 label로 retry 권한을 판단하지 않는다.
+- `packages/company-runtime/src/agent-runner.ts`: Reviewer 입력에 `trustedEvidenceRefs`를 추가하고 prompt에서 정확한 문자열 복사, filename/diffDigest/description 사용 금지, 동일 세션 재제출을 안내했다. 위 도구가 확인한 evidence 검증 오류만 즉시 abort에서 제외한다. 새 session/revision/Provider 재시도 시스템은 만들지 않았다.
+- `packages/coding-agent/test/suite/company-runtime-agent.test.ts`: 17개 SDK/faux 회귀를 추가했다. unknown/missing/nonexact/file/digest/description ref 거부와 동일 세션 retry, check-only ref 수락·정확한 합집합, REVISE/BLOCK 조건, 미제출/턴 한도/취소/stale identity/금지 도구/혼합 submit 종료를 검증한다.
+- `packages/coding-agent/test/suite/company-runtime-r2.test.ts`: RC-04 유사 통합 1개를 추가했다. 실제 임시 Git/Policy mutation·SELF_CHECK 뒤 digest-as-ref 제출을 거부하고 REVIEW 상태/lock을 유지한다. 같은 Reviewer 세션에서 정상 제출한 후 TEST·COMPLETE, durable review 1개·독립 세션 2개·revision0·lock 해제를 확인했다.
+- `docs/V0.1_READINESS.md`, `docs/WORK_LOG.md`: 사용자 실제 GPT 발견과 이번 자동 검증을 구분해 기록했다.
+
+Kernel `assertReview()`와 freshness/integrity guard는 변경하지 않았다. 기존 의미대로 모든 verdict의 top-level evidenceRefs는 비어 있을 수 없고 PASS는 각 requirement에도 ref가 필요하다. REVISE/BLOCK의 requirement refs는 빈 배열이 가능하나 제공한 모든 ref는 trusted set에 속해야 한다. 잘못된 ref를 필터링·추정·자동 대체하지 않는다. Schema/identity/Policy/Provider 오류와 timeout/turn/cancel 경계, QUICK/R0/R1·STANDARD/R1·R2/R3 completion 및 RC-01 수정은 유지한다. 실제 RC fixture·prompt/config·기존 run은 수정하지 않았다.
+
+### 이번에 실행한 검증
+
+```sh
+# packages/coding-agent: 최초 실행 및 formatter 이후 최종 재실행
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-r2.test.ts
+
+# packages/company-runtime: S0~S6 + RC-01
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent: Runtime/RC-01 통합 및 기존 Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- 최초 수정 후 두 파일 실행: **101 PASS / 2 FAIL**. 신규 테스트가 SDK user content를 string으로만 가정했고 action audit에서 Verifier action까지 Developer mutation 수로 계산했다. 실제 SDK의 text block 입력 처리를 반영하고 Developer action만 검사하도록 테스트를 수정했다. 구현의 guard를 완화하지 않았다.
+- S0~S6/RC-01 전체 targeted 재실행: Runtime **17개 파일·481개**, 관련 coding-agent **8개 파일·307개**, 추가 기존 Pi **4개 파일·59개**, 합계 **29개 파일·847개 PASS**. 이전 829개에 신규 18개를 더한 현재 실행 결과다. 전체 저장소 suite 수가 아니다.
+- formatter 적용 뒤 수정한 두 테스트 파일 재실행: **2개 파일·103개 PASS**. 위 847개와 중복되므로 합산하지 않는다.
+- `npm run check`: **PASS**. 최초 Biome이 이번 변경 파일 3개의 import/format을 정리했고, 최종 재실행은 자동 수정 없이 통과했다. TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함.
+- `git diff --check`: **PASS**. `kernel.ts`의 diff는 시작 시 존재하던 RC-01 변경뿐이며 `assertReview()`는 그대로다.
+
+### 제한·다음 작업·커밋
+
+- 실제 GPT RC-04 수정 후 재실행·DeepSeek·interactive smoke·다른 플랫폼·전체 suite/build는 이번에 하지 않았다. 실제 API/유료 호출도 없다. faux 재제출 성공이 실제 모델의 준수/품질을 보장하지 않는다.
+- 재제출은 기존 시간·턴 제한 안에서만 가능하다. 최종 유효 제출이 없으면 실패하며 arbitrary tool/schema/identity 오류 전반을 재시도 대상으로 확장하지 않았다.
+- **다음 작업:** 사용자 환경의 같은 fixture/prompt/config에서 새 실제 GPT RC-04 run으로 ref 준수 또는 오류 후 수정 및 independent PASS·TEST·COMPLETE를 확인한다. 기존 BLOCKED run을 성공으로 재작성하지 않는다. RC-01의 실제 Provider 재실행도 별도 확인한다.
+- **커밋·푸시:** 하지 않음. 시작 시 RC-01 미커밋 변경과 이번 RC-04 변경을 작업 트리에 유지한다.
+
+---
+
+## LOG-015 — RC-01/RC-04 통합 커밋·푸시 준비
+
+- **기록일:** 2026-09-16 (KST)
+- **상태·목적:** 사용자 최종 지시에 따라 RC-01과 RC-04를 모두 포함하는 커밋 범위를 확정하고 게시 전 검증을 완료했다. 중간의 RC-04만 포함하는 방안은 취소했으며 해당 방안으로 스테이징·커밋·파일 분리는 수행하지 않았다.
+- **변경 파일:** LOG-013/014의 코드·테스트·README·readiness·작업 이력 총 10개 파일. 기존 RC-01 변경을 사용자 명시적 승인으로 포함한다. 그 외 기능·의존성·lockfile 변경은 없다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check` PASS, `git status --short --branch`와 변경 diff로 대상 10개 파일 및 `devlop`을 확인했다. 추가 테스트는 이번 커밋 준비에서 재실행하지 않았다. 직전 LOG-014의 29개 파일·847개 PASS는 구현 검증 당시 결과다.
+- **문제·해결:** RC-01/RC-04가 같은 문서에 함께 존재했으나 사용자가 모두 게시하도록 최종 승인하여 부분 스테이징이 필요 없어졌다. 이전 로그의 당시 미커밋 상태 기록은 보존한다.
+- **남은 제한·다음 작업:** 실제 GPT RC-01/RC-04 수정 후 재실행 및 DeepSeek 검증은 여전히 미검증이다. 명시적 10개 경로만 스테이징하여 일반 커밋 후 `origin/devlop`에 푸시하고 HEAD/원격 일치와 작업 트리를 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 예정 메시지는 `fix(coding-agent): correct runtime R0 completion and review evidence retries`이며 실제 커밋 ID·푸시 결과는 Git 이력과 최종 응답으로 보고한다.
 
 ---
 

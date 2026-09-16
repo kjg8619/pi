@@ -244,6 +244,153 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review: { ...review, result } });
 	});
 
+	// RC-04: evidence mistakes must be tool errors, not accepted results or terminal worker failures.
+	it.each([
+		["unknown top-level", { evidenceRefs: ["invented"] }],
+		["filename", { evidenceRefs: ["src/app.ts"] }],
+		["diffDigest", { evidenceRefs: ["digest-1"] }],
+		["description", { evidenceRefs: ["fixture evidence from trusted verifier"] }],
+		["nonexact reference", { evidenceRefs: [" diff-1 "] }],
+		["missing top-level", { evidenceRefs: [] }],
+		[
+			"unknown requirement",
+			{ requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: ["invented"] }] },
+		],
+		["missing PASS requirement", { requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: [] }] }],
+	])("RC-04 rejects %s then accepts exact references in the same Reviewer session", async (_name, invalid) => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_review", { ...review, ...invalid }), { stopReason: "toolUse" }),
+			(context) => {
+				const error = context.messages.at(-1);
+				expect(error).toMatchObject({ role: "toolResult", toolName: "submit_review", isError: true });
+				expect(JSON.stringify(error)).toContain("Review evidence validation failed");
+				expect(JSON.stringify(error)).toContain("diff-1");
+				expect(dispose).not.toHaveBeenCalled();
+				expect(workers).toHaveLength(1);
+				return submitReview();
+			},
+		]);
+		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review });
+		expect(workers).toHaveLength(1);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(executor.safeToRelease).toBe(true);
+	});
+
+	it("RC-04 supplies the exact deduplicated union, including check-only references", async () => {
+		const request = reviewer();
+		if (request.role !== "Reviewer") throw new Error("Reviewer required");
+		request.verification.checks = [
+			{
+				id: "regression",
+				runId: "run-1",
+				revision: 0,
+				kind: "test",
+				status: "PASS",
+				required: true,
+				exitCode: 0,
+				reason: "Fixture",
+				evidenceRefs: ["diff-1", "check-1"],
+				diffDigest: "digest-1",
+			},
+		];
+		request.verification.reviewContext!.evidence.push({ ref: "check-1", content: "Check passed" });
+		request.handoff.tests_run = ["untrusted-handoff-ref"];
+		const expected = {
+			...review,
+			evidenceRefs: ["check-1"],
+			requirements: [{ ...review.requirements[0], evidenceRefs: ["check-1"] }],
+		};
+		harness.setResponses([
+			(context) => {
+				const message = context.messages.find((item) => item.role === "user");
+				if (!message || message.role !== "user") throw new Error("Missing JSON input");
+				const content =
+					typeof message.content === "string"
+						? message.content
+						: message.content
+								.filter((part) => part.type === "text")
+								.map((part) => part.text)
+								.join("");
+				expect(JSON.parse(content).trustedEvidenceRefs).toEqual(["diff-1", "check-1"]);
+				expect(context.systemPrompt).toContain("copy only exact strings from trustedEvidenceRefs");
+				expect(context.systemPrompt).toContain("same session");
+				return fauxAssistantMessage(fauxToolCall("submit_review", expected), { stopReason: "toolUse" });
+			},
+		]);
+		expect(await executor.execute(request)).toEqual({ role: "Reviewer", review: expected });
+	});
+
+	it.each(["REVISE", "BLOCK"] as const)(
+		"RC-04 preserves %s evidence policy while allowing correction",
+		async (result) => {
+			const valid = {
+				...review,
+				result,
+				requirements: [{ requirement: "Fix bug", status: "UNVERIFIED", evidenceRefs: [] }],
+			};
+			harness.setResponses([
+				fauxAssistantMessage(fauxToolCall("submit_review", { ...valid, evidenceRefs: [] }), {
+					stopReason: "toolUse",
+				}),
+				(context) => {
+					expect(context.messages.at(-1)).toMatchObject({ role: "toolResult", isError: true });
+					return fauxAssistantMessage(
+						fauxToolCall("submit_review", {
+							...valid,
+							requirements: [{ ...valid.requirements[0], evidenceRefs: ["unknown"] }],
+						}),
+						{ stopReason: "toolUse" },
+					);
+				},
+				(context) => {
+					expect(context.messages.at(-1)).toMatchObject({ role: "toolResult", isError: true });
+					return fauxAssistantMessage(fauxToolCall("submit_review", valid), { stopReason: "toolUse" });
+				},
+			]);
+			expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review: valid });
+			expect(workers).toHaveLength(1);
+		},
+	);
+
+	it.each(["no-resubmission", "turn-limit", "cancel", "stale-identity", "forbidden-tool", "mixed-submit"])(
+		"RC-04 retry does not bypass %s termination",
+		async (mode) => {
+			const controller = new AbortController();
+			const runner = mode === "turn-limit" ? await PiAgentExecutor.create({ ...options, maxTurns: 1 }) : executor;
+			harness.setResponses([
+				fauxAssistantMessage(fauxToolCall("submit_review", { ...review, evidenceRefs: ["unknown"] }), {
+					stopReason: "toolUse",
+				}),
+				() => {
+					if (mode === "cancel") controller.abort();
+					if (mode === "no-resubmission") return fauxAssistantMessage("PASS done");
+					if (mode === "stale-identity")
+						return fauxAssistantMessage(fauxToolCall("submit_review", { ...review, revision: 1 }), {
+							stopReason: "toolUse",
+						});
+					if (mode === "forbidden-tool")
+						return fauxAssistantMessage(
+							fauxToolCall("runtime_write", { path: "src/app.ts", content: "forbidden" }),
+							{ stopReason: "toolUse" },
+						);
+					if (mode === "mixed-submit")
+						return fauxAssistantMessage(
+							[fauxToolCall("submit_review", review), fauxToolCall("runtime_read", { path: "src/app.ts" })],
+							{ stopReason: "toolUse" },
+						);
+					return submitReview();
+				},
+			]);
+			await expect(runner.execute({ ...reviewer(), signal: controller.signal })).rejects.toThrow();
+			expect(workers).toHaveLength(1);
+			expect(dispose).toHaveBeenCalledTimes(1);
+			expect(runner.safeToRelease).toBe(true);
+			expect(readFileSync(join(workspace, "src/app.ts"), "utf8")).toBe("original\n");
+		},
+	);
+
 	it.each([
 		"../outside.ts",
 		"absolute",

@@ -247,6 +247,52 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
 		},
 	);
+	it.each(["R0", "R1"] as const)(
+		"RC-01 known-risk finding completes only read-only R0, not mutation R1 (%s)",
+		async (risk) => {
+			const knownRisks = ["Existing code does not handle division by zero"];
+			const submitWithRisk = (context: Context) => handoff(context, { known_risks: knownRisks });
+			harness.setResponses(
+				risk === "R0"
+					? [
+							fauxAssistantMessage(fauxToolCall("runtime_read", { path: "src/app.ts" }), {
+								stopReason: "toolUse",
+							}),
+							submitWithRisk,
+						]
+					: [write(), submitWithRisk],
+			);
+			const report = await create(risk === "R0" ? "Explain src/app.ts" : goal).execute();
+			expect(report.run?.workflow).toBe("QUICK");
+			expect(report.run?.risk).toBe(risk);
+			expect(report.run?.phase).toBe("COMPLETE");
+			expect(report.run?.status).toBe(risk === "R0" ? "COMPLETED" : "BLOCKED");
+			expect(report.run?.executorResult?.known_risks).toEqual(knownRisks);
+			expect(report.run?.executorResult?.unresolved).toEqual([]);
+			expect(report.run?.executorResult?.requirements.map((item) => item.status)).toEqual(["MET"]);
+			expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Executor"]);
+			expect(report.run?.review).toBeUndefined();
+			expect(report.run?.verification.map((check) => [check.step?.stepId, check.status, check.exitCode])).toEqual([
+				["self-check", "PASS", 0],
+				["test", "PASS", 0],
+			]);
+			expect(report.run?.executorDigest).toBe(report.run?.workspace?.diffDigest);
+			expect(report.changedFiles).toEqual(risk === "R0" ? [] : ["src/app.ts"]);
+			expect(report.partialChanges).toBe(risk === "R1");
+			if (risk === "R0") {
+				expect(report.error).toBeUndefined();
+				expect(git("status", "--porcelain")).toBe("");
+				expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe("original\n");
+			} else {
+				expect(report.error).toContain("STANDARD required");
+				expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe("fixed\n");
+			}
+			expect(events.some((event) => event.type === "RunCompleted")).toBe(risk === "R0");
+			expect(events.some((event) => event.type === "RunBlocked")).toBe(risk === "R1");
+			expect(state().runs[0]).toEqual(report.run);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		},
+	);
 	it.each(["SELF_CHECK", "TEST"])(
 		"required failure in %s blocks completion and retains partial edits",
 		async (phase) => {

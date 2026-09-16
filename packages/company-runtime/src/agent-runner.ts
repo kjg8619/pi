@@ -10,7 +10,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { createWorkerTools, WORKER_FILE_TOOLS, workerDigest } from "./agent-tools.ts";
+import { createWorkerTools, trustedReviewEvidenceRefs, WORKER_FILE_TOOLS, workerDigest } from "./agent-tools.ts";
 import { type RuntimeConfig, RuntimeConfigSchema } from "./config.ts";
 import {
 	HandoffSchema,
@@ -125,10 +125,7 @@ function validateRequest(request: AgentExecutionRequest): void {
 		)
 			throw new Error("Stale Reviewer input");
 		const material = request.verification.reviewContext;
-		const refs = new Set([
-			...request.verification.evidenceRefs,
-			...request.verification.checks.flatMap((check) => check.evidenceRefs),
-		]);
+		const refs = new Set(trustedReviewEvidenceRefs(request.verification));
 		if (
 			!material ||
 			material.evidence.length !== refs.size ||
@@ -342,7 +339,10 @@ export class PiAgentExecutor implements AgentExecutor {
 					"No shell, extensions, skills, auto-discovered context, approval, or workflow control is available.",
 					request.role !== "Reviewer"
 						? "Implement only allowed ordinary code changes. Submit a structured handoff alone. Checks requested here are NOT executed."
-						: "Independently review the explicit handoff, diff and evidence. Never mutate files. Submit structured PASS/REVISE/BLOCK alone.",
+						: "Independently review the explicit handoff, diff and evidence. Never mutate files. Submit structured PASS/REVISE/BLOCK alone. " +
+							"For top-level evidenceRefs and every requirements[].evidenceRefs, copy only exact strings from trustedEvidenceRefs in the input. " +
+							"Do not invent references from filenames, diffDigest or descriptions. All verdicts require at least one top-level reference; PASS also requires at least one reference per requirement. " +
+							"If submit_review returns an evidence validation error, correct the references and resubmit alone in this same session.",
 					this.options.r2RunId
 						? "This is a STANDARD/R2 run. Independent Reviewer PASS is mandatory for completion. File permissions do not authorize installs, shell, deployment, credentials or destructive actions."
 						: "",
@@ -399,7 +399,11 @@ export class PiAgentExecutor implements AgentExecutor {
 			let turns = 0;
 			unsubscribe = session.subscribe((event) => {
 				if (event.type === "turn_start" && ++turns > this.maxTurns) failure ??= "Worker turn limit exceeded";
-				if (event.type === "tool_execution_end" && event.isError)
+				if (
+					event.type === "tool_execution_end" &&
+					event.isError &&
+					!(event.toolName === "submit_review" && worker.consumeReviewValidationError(event.toolCallId))
+				)
 					failure ??= worker.policyDenial() ?? "Worker tool failed or was denied";
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					const calls = event.message.content.filter((part) => part.type === "toolCall");
@@ -441,7 +445,11 @@ export class PiAgentExecutor implements AgentExecutor {
 					? { scope: request.scope }
 					: request.role === "Developer"
 						? { previousReview: request.previousReview }
-						: { handoff: request.handoff, verification: request.verification }),
+						: {
+								handoff: request.handoff,
+								verification: request.verification,
+								trustedEvidenceRefs: trustedReviewEvidenceRefs(request.verification),
+							}),
 			};
 			const prompt = JSON.stringify(context);
 			if (Buffer.byteLength(prompt) > 524288) throw new Error("Worker context exceeds size limit");
