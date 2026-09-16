@@ -20,7 +20,7 @@ describe("runtime config", () => {
 		const config = parseRuntimeConfig(JSON.stringify(minimal));
 		expect(config.models).toEqual(minimal.models);
 		expect(config.runtime.workflow).toBe("adaptive");
-		expect(config.agents).toEqual({ max_parallel: 1, max_revision_cycles: 1 });
+		expect(config.agents).toEqual({ max_parallel: 1, max_revision_cycles: 1, worker_timeout_ms: 180_000 });
 		expect(config.review.enabled).toBe(true);
 		expect(config.risk.approval_required).toEqual(["R3"]);
 		expect(config.files.allowed_paths).toEqual([]);
@@ -34,7 +34,7 @@ models:
     coding: { provider: faux, model: coding }
     reasoning: { provider: faux, model: review }
 runtime: { workflow: STANDARD }
-agents: { max_revision_cycles: 0 }
+agents: { max_revision_cycles: 0, worker_timeout_ms: 120000 }
 files: { allowed_paths: [src, test] }
 verification:
   checks:
@@ -45,6 +45,7 @@ verification:
 `);
 		expect(config.runtime.workflow).toBe("STANDARD");
 		expect(config.agents.max_revision_cycles).toBe(0);
+		expect(config.agents.worker_timeout_ms).toBe(120_000);
 		expect(config.verification.checks[0]).toMatchObject({
 			cwd: ".",
 			timeout_ms: 60_000,
@@ -52,6 +53,21 @@ verification:
 			args: ["--test", "$TOKEN", "$(touch marker)"],
 		});
 	});
+
+	it.each([10_000, 120_000, 180_000, 600_000])("accepts bounded worker timeout %i", (worker_timeout_ms) => {
+		const config = parseRuntimeConfig(JSON.stringify({ ...minimal, agents: { worker_timeout_ms } }));
+		expect(config.agents.worker_timeout_ms).toBe(worker_timeout_ms);
+		expect(config.agents.max_revision_cycles).toBe(1);
+	});
+
+	it.each([0, -1, 9_999, 600_001, 10_000.5, "180000", null, true, {}, []])(
+		"rejects invalid worker timeout %j",
+		(worker_timeout_ms) => {
+			expect(() => parseRuntimeConfig(JSON.stringify({ ...minimal, agents: { worker_timeout_ms } }))).toThrow(
+				"Invalid runtime config",
+			);
+		},
+	);
 
 	it.each([
 		{ review: { enabled: false } },

@@ -35,6 +35,10 @@ const text = Type.String({ minLength: 1, maxLength: 262144 });
 const pathSchema = Type.String({ minLength: 1, maxLength: 4096 });
 const strict = { additionalProperties: false } as const;
 const MAX_BYTES = 262144;
+// Only whole-entry, well-known English obligation statements. Mixed/ambiguous problem descriptions remain unresolved.
+// This is submission feedback, never evidence that an obligation was fulfilled or permission to filter a handoff.
+const RUNTIME_OBLIGATION_ONLY =
+	/^(?:(?:independent )?reviewer(?: pass| execution)?|self[_ -]?check|(?:final )?test|human approval) (?:(?:is )?(?:required|needed)(?: and remains pending)?|(?:is |remains )?(?:still )?pending)[.!]?$/i;
 export const WORKER_FILE_TOOLS = [
 	{ id: "runtime_read", operation: "read" },
 	{ id: "runtime_search", operation: "search" },
@@ -132,13 +136,13 @@ export function createWorkerTools(options: {
 	tools: ToolDefinition[];
 	result: () => AgentExecutionResult | undefined;
 	policyDenial: () => string | undefined;
-	consumeReviewValidationError: (toolCallId: string) => boolean;
+	consumeSubmissionValidationError: (toolName: string, toolCallId: string) => boolean;
 } {
 	const { request, signal } = options;
 	const evidenceRefs = request.role === "Reviewer" ? trustedReviewEvidenceRefs(request.verification) : [];
 	const trustedEvidence = new Set(evidenceRefs);
 	// Adapter-owned classification, never a model-supplied error label. Consumed once by the SDK event handler.
-	const reviewValidationErrors = new Set<string>();
+	const submissionValidationErrors = new Map<string, "submit_handoff" | "submit_review">();
 	let submitted: AgentExecutionResult | undefined;
 	let policyDenial: string | undefined;
 	const assertActive = () => {
@@ -284,10 +288,10 @@ export function createWorkerTools(options: {
 			defineTool({
 				name: "submit_handoff",
 				label: "Submit handoff",
-				description: `Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn.`,
+				description: `Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn.${request.role === "Developer" ? " unresolved must contain only remaining implementation/requirement problems, not Runtime-owned pending review, SELF_CHECK, TEST or Human Approval. Preserve real blockers; correct submission errors in this session." : ""}`,
 				executionMode: "sequential",
 				parameters: request.role === "Executor" ? ExecutorHandoffSchema : HandoffSchema,
-				execute: async (_id, params) => {
+				execute: async (id, params) => {
 					assertActive();
 					const handoff = structuredClone(
 						request.role === "Executor"
@@ -300,6 +304,21 @@ export function createWorkerTools(options: {
 						handoff.task !== request.task.id
 					)
 						throw new Error("Handoff identity mismatch");
+					if (request.role === "Developer") {
+						const invalidFields = handoff.unresolved.flatMap((item, index) =>
+							RUNTIME_OBLIGATION_ONLY.test(item.trim().replace(/\s+/g, " ")) ? [`unresolved[${index}]`] : [],
+						);
+						if (invalidFields.length) {
+							submissionValidationErrors.set(id, "submit_handoff");
+							throw new Error(
+								`Handoff unresolved validation failed: ${invalidFields.join(", ")} describes a Runtime-owned obligation, not unfinished implementation. ` +
+									"Kernel/Workflow owns Reviewer PASS, SELF_CHECK, TEST and Human Approval enforcement. Do not claim these succeeded or decide they are unnecessary. " +
+									"Keep every real implementation/requirement problem or blocker in unresolved; use [] only if none remain. " +
+									"If an entry means unfinished work, describe the concrete missing change instead of a pending stage. " +
+									"Nothing was accepted or filtered. Correct and resubmit submit_handoff alone in this same session.",
+							);
+						}
+					}
 					submitted = handoff.role === "Executor" ? { role: "Executor", handoff } : { role: "Developer", handoff };
 					return {
 						content: [
@@ -341,7 +360,7 @@ export function createWorkerTools(options: {
 							invalidFields.push(`requirements[${index}].evidenceRefs`);
 					}
 					if (invalidFields.length) {
-						reviewValidationErrors.add(id);
+						submissionValidationErrors.set(id, "submit_review");
 						throw new Error(
 							`Review evidence validation failed: ${invalidFields.join(", ")}. ` +
 								"Copy exact strings from trustedEvidenceRefs; filenames, diffDigest and descriptions are not references. " +
@@ -374,7 +393,9 @@ export function createWorkerTools(options: {
 				name: "runtime_delete",
 				label: "Request file deletion",
 				description:
-					"Delete only the preselected tracked text file after explicit human approval. No directories, globs or other mutations.",
+					"Calling this tool requests explicit human approval through the Runtime for the exact preselected tracked text file. " +
+					"No separate approval tool or prior grant is needed to call it. The tool waits for the user's Deny/Approve once decision and deletes only after valid one-use consent. " +
+					"Denial or approval timeout does not delete. You cannot approve or bypass approval; do not claim consent before the tool confirms it. No other paths, directories, globs or mutations.",
 				executionMode: "sequential",
 				parameters: Type.Object({ path: pathSchema }, strict),
 				execute: async (_id, params) => {
@@ -473,6 +494,7 @@ export function createWorkerTools(options: {
 				: tools,
 		result: () => structuredClone(submitted),
 		policyDenial: () => policyDenial,
-		consumeReviewValidationError: (toolCallId) => reviewValidationErrors.delete(toolCallId),
+		consumeSubmissionValidationError: (toolName, toolCallId) =>
+			submissionValidationErrors.get(toolCallId) === toolName && submissionValidationErrors.delete(toolCallId),
 	};
 }

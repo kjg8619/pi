@@ -49,6 +49,7 @@ runtime:
 agents:
   max_parallel: 1
   max_revision_cycles: 1
+  worker_timeout_ms: 180000
 review:
   enabled: true
 state:
@@ -72,6 +73,7 @@ verification:
 - 필수: `schemaVersion: 1`, `models.profiles.coding`, `models.profiles.reasoning`. 각 profile에는 비어 있지 않은 `provider`, `model`이 필요하다. `fast`, `creative`는 선택이다.
 - `runtime.workflow`: `adaptive` 기본값 또는 `QUICK`/`STANDARD`/`COMPLEX`. 설정 파싱은 workflow 판정·실행이 아니다.
 - `agents`: 병렬 수는 현재 `1`만 허용. STANDARD 재작업 횟수는 `0..3`, 기본 `1`이며 S5D부터 Host 실행에서도 그대로 적용한다. 최초 구현 이후 재작업 횟수다. QUICK/R3의 effective 한도는 항상 0이다.
+- `agents.worker_timeout_ms`: 기본 `180000`(180초), 정수 `10000..600000`(10~600초). Developer·Reviewer·Executor의 각 역할 호출에 동일하게 적용한다. 전체 run이나 개별 Provider 요청의 timeout이 아니며 여러 tool/retry turns를 포함한 역할 실행 총 예산이다. 역할별 설정·무제한 값은 지원하지 않는다. `/workflow config`로 현재 값을 확인할 수 있다.
 - `review.enabled`, `state.enabled`: `true`만 허용. state 디렉터리는 `.ai`로 고정한다.
 - `risk.approval_required`: 현재 `[R3]`만 허용. 프로젝트 설정으로 review·state·승인 요구를 끌 수 없다.
 - `files.allowed_paths`: 기본 `[]`. 문자 그대로의 workspace 상대 파일/디렉터리 경로이며 glob이 아니다. S2 Policy와 경로 Adapter가 이 범위 및 보호 파일·symlink를 검사한다.
@@ -191,8 +193,12 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 - 일반 bash·Pi 기본 도구·외부 custom tool을 설치하지 않는다. 파일 도구는 sequential이며 SDK Agent도 sequential로 설정한다.
 - 텍스트 파일은 256 KiB 이하, edit는 유일한 exact match, write는 기존 부모 디렉터리만 지원한다. 검색은 최대 32개 명시 파일의 literal 문자열 검색이며 100개 결과에서 잘림을 표시한다. OS sandbox·원자 코드 변경/rollback은 아니다.
 - `runtime_request_check`는 등록 ID만 받아 Pi tool history에 요청을 남기고 **UNAVAILABLE/미실행**을 반환한다. verifier를 호출하거나 PASS 증거를 만들지 않는다.
-- Handoff/Review 제출은 자기 역할의 전용 schema만 받는다. run/task/role/code revision 및 Review diffDigest를 검사한다. 자연어 완료, 누락·오류 결과, 다른 도구와 섞인 제출 batch는 실패다. 제출 도구는 `terminate`로 종료하며 이후 도구 실행을 막는다.
+- Handoff/Review 제출은 자기 역할의 전용 schema만 받는다. run/task/role/code revision 및 Review diffDigest를 검사한다. 자연어 완료, schema/identity 오류, 다른 도구와 섞인 제출 batch는 실패다. 정상 수락한 제출만 `terminate`로 종료하며 이후 도구 실행을 막는다. Reviewer evidence 참조 오류와 아래 Developer unresolved 표현 오류는 Tool error로 반환하여 기존 시간·턴 한도 안에서 같은 세션의 수정·재제출을 허용한다.
 - Kernel의 기존 독립 Review·요구사항·증거·완료 guard는 유지한다. Adapter의 schema 통과는 COMPLETE 승인이 아니다.
+
+Developer의 `unresolved`는 **직접 해결하지 못한 구현·요구사항 문제와 blocker**다. 예를 들어 `Required input validation is not implemented.`는 반드시 남겨야 한다. 반면 `Independent Reviewer PASS is required and remains pending.`는 Kernel/Workflow가 관리하는 후속 의무이므로 unresolved에 쓰지 않는다. SELF_CHECK·TEST·Human Approval 필요 여부도 Runtime이 관리한다. `unresolved: []`는 구현 미해결 문제가 없다는 뜻일 뿐 review/check/approval 완료나 생략 허가가 아니다. R3의 미실행 삭제 등 실제 필요한 변경이 남았다면 구체적 미완료 문제로 보고해야 하며 승인 도구를 우회할 수 없다.
+
+`submit_handoff`는 Developer에 한해 알려진 영어 whole-entry 패턴(Reviewer/PASS, SELF_CHECK, TEST, Human Approval + required/needed/pending)을 보수적으로 검출한다. 거부된 handoff는 저장/수락하지 않고, 해당 필드와 실제 blocker 보존 지침을 Tool error로 전달한다. 어떤 문자열도 자동 삭제·필터링하지 않는다. 구현 문제를 함께 담은 문장이나 인식하지 못한 표현은 그대로 수락될 수 있으나, unresolved가 하나라도 남으면 Kernel의 기존 `unresolved.length === 0` 완료 가드가 차단한다. 자연어 전체를 의미적으로 판정하는 기능이 아니다. QUICK Executor 계약·가드, R1/R2 독립 review와 R3 consent 조건은 유지한다. 이미 수락한 handoff를 이후 Reviewer PASS에 맞춰 다시 쓰지 않는다.
 
 Reviewer는 `VerificationResult.reviewContext`의 명시적 `{diff, evidence:[{ref,content}]}`를 요구한다. 모든 evidence reference와 실제 자료가 대응해야 한다. 이 선택 필드는 S1 fake 검증 계약을 유지하기 위한 최소 확장이며, 실제 Pi Reviewer에서는 누락을 거부한다. S3 테스트는 고정 fixture를, S4는 실제 Git/파일 snapshot과 등록 check 결과를 전달한다. Developer reasoning이나 세션 history는 전달하지 않는다.
 
@@ -206,7 +212,11 @@ Reviewer는 `VerificationResult.reviewContext`의 명시적 `{diff, evidence:[{r
 
 ### 취소와 이벤트
 
-기본 실행 제한은 60초·32 turns다. `timeoutMs`(1~3,600,000), `maxTurns`(1~128)로 제한할 수 있다. Kernel의 AbortSignal과 timeout을 결합하고 tool gate·실제 파일 실행·Provider stream 시작 지점에서 검사한다. SDK prompt preflight에서 취소되어도 스트림 시작 guard가 Provider 호출을 막는다. 취소/실패한 run ID는 해당 Adapter에서 다음 역할을 실행하지 않는다.
+기본 실행 제한은 180초·32 turns다. `.ai/config.yaml`의 `agents.worker_timeout_ms`(10,000~600,000ms)를 Extension Host가 전달하며 Adapter는 복사한 config와 함께 호출 예산을 고정한다. 이미 생성된 Adapter의 예산은 원본 config 객체를 바꿔도 변하지 않는다. Developer·Reviewer·Executor에 공통으로 적용하며 새 역할/재작업 호출마다 예산을 새로 시작한다. V0.1에는 역할별 timeout이나 자동 연장·재시도를 추가하지 않는다.
+
+실행 timer는 `execute()`에서 audit/auth 재확인·SDK 생성·session 참조 저장·전체 prompt/tool turns·R3 승인 대기를 포함한다. inactivity timeout이 아니므로 응답/도구 호출마다 갱신되지 않는다. 생성 시 profile/auth 사전 검사도 같은 값의 별도 AbortSignal budget을 사용한다. 등록 check의 `verification.checks[].timeout_ms`와 R3 승인의 TTL은 별도이며 변경하지 않는다. 직접 SDK를 구성하는 신뢰된 Host/test의 기존 `timeoutMs` override(1~3,600,000)와 `maxTurns`(1~128)는 유지하지만 이 override는 YAML 필드가 아니다.
+
+Kernel의 AbortSignal과 timeout을 결합하고 tool gate·실제 파일 실행·Provider stream 시작 지점에서 검사한다. timeout은 기존처럼 실패이며 다음 역할·COMPLETE로 진행하지 않는다. `/workflow cancel`·switch/fork/tree·reload/shutdown은 늘어난 timeout까지 기다리지 않고 즉시 취소 signal을 전달한다. 먼저 취소된 호출은 비협조 Provider를 기다리는 동안 deadline에 도달해도 timeout으로 원인을 덮어쓰지 않는다. SDK prompt preflight에서 취소되어도 스트림 시작 guard가 Provider 호출을 막는다. 취소/실패한 run ID는 해당 Adapter에서 다음 역할을 실행하지 않는다.
 
 `finally`에서 abort/idle을 기다린 후 unsubscribe/dispose한다. 늦은 결과와 cleanup 중 취소도 성공으로 반환하지 않는다. 협조하지 않는 Provider/인증/파일 시스템 I/O를 강제로 종료하는 OS 격리는 없다. timeout은 취소 요청 시점이며 비협조 I/O의 정리 완료 시간까지 보장하지 않는다. Host는 worker 정리 후 StateStore lock을 해제해야 한다.
 
@@ -313,6 +323,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 - 초기 grammar는 `Delete file <상대 경로>`, `Remove file <상대 경로>`, `파일 삭제 <상대 경로>`다. 공백 없는 literal 경로 한 개만 받는다. 대상은 clean baseline의 Git 추적 일반 UTF-8 파일이며 256 KiB 이하, `files.allowed_paths` 안이어야 한다.
 - `.git`, `.ai`/Runtime 설정·정책, 기존 규칙의 credential/secret, 알려진 npm/Cargo/Python/Go manifest/lockfile, node_modules와 symlink/hardlink/특수 파일은 승인으로 우회하지 못한다. 모든 의미적 파일 종류나 숨겨진 비밀을 판별하는 기능은 아니다. 디렉터리·대량 삭제·설치·배포·history·임의 shell은 지원하지 않는다.
 - R3 scope는 새 run에만 고정한다. R1/R2/QUICK에서 자동 승격하지 않으며 R2 binding을 인간 승인으로 취급하지 않는다. R3 Developer에는 delete 요청 외 mutation 도구가 없다. Reviewer는 계속 read-only다.
+- **`runtime_delete` 호출 자체가 승인 요청의 진입점**이다. Developer는 별도의 approval tool이나 승인 권한을 갖지 않으며, 이미 승인받았다고 가정하고 기다리는 구조가 아니다. preselected target으로 호출하면 Runtime이 `WAITING_APPROVAL`을 저장하고 사용자에게 Deny/Approve once를 묻는다. 유효한 1회 승인일 때만 그 tool 안에서 exact tracked text file을 삭제하고 결과를 반환한다. Deny·승인 timeout은 삭제 없이 종료한다. prompt/tool 설명은 승인 요청 능력과 승인 권한을 구분하며, Developer의 직접 승인·우회·tool 확인 전 승인 획득 주장을 금지한다. R3 Reviewer 및 R0/R1/R2에는 이 승인 요청/삭제 도구가 제공되지 않는다.
 - 일반 run/check 확인과 실제 삭제 승인은 별개다. Pi의 `--approve`는 project trust 설정이지 R3 승인 bypass가 아니다. 삭제 UI는 project/run/role/step/path/bytes/fingerprint/action/expiry를 표시하고 **Deny를 첫 선택**으로 둔다. 명시적으로 `Approve once`를 골라야 한다.
 - 승인 modal에서는 선택 또는 Esc/ctrl+c로 응답한다. Esc는 이번 승인 거부이며 다른 단계의 부모 Esc가 worker를 자동 취소한다는 의미가 아니다. modal이 떠 있는 동안 터미널 slash command 입력 대신 dialog 응답이 우선한다. Host API의 status/cancel과 lifecycle은 계속 동작하며, cancellation signal이 modal·worker를 정리한다.
 
@@ -390,7 +401,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
-node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-timeout.test.ts test/suite/agent-session-prompt.test.ts
 
 # 저장소 루트에서
 npm run check

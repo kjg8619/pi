@@ -229,6 +229,133 @@ afterEach(() => {
 });
 
 describe("S5C human-approved single-file deletion", () => {
+	// RC-05: calling runtime_delete requests consent; the Developer must not wait for a separate approval tool.
+	it.each(["approve", "deny", "timeout"])(
+		"RC-05 R3 prompt/tool contract initiates approval before deletion: %s",
+		async (mode) => {
+			let authorityEntered = false;
+			approve = async (request, signal) => {
+				expect(state().runs[0]).toMatchObject({ status: "WAITING_APPROVAL", phase: "IMPLEMENT" });
+				expect(state().runs[0].approvals?.[0]).toMatchObject({ status: "PENDING", request });
+				expect(request.path).toBe(target);
+				expect(request.actionDigest).not.toBe("");
+				expect(request.configDigest).not.toBe("");
+				expect(request.expiresAt).toBeGreaterThan(Date.now());
+				expect(existsSync(join(cwd, target))).toBe(true);
+				expect(state().actions).toEqual([]);
+				authorityEntered = true;
+				if (mode === "timeout")
+					await new Promise<void>((resolve) => {
+						if (signal?.aborted) resolve();
+						else signal?.addEventListener("abort", () => resolve(), { once: true });
+					});
+				return answer(request, mode !== "deny");
+			};
+			harness.setResponses([
+				(context) => {
+					expect(input(context)).toMatchObject({ role: "Developer", risk: "R3", targetPath: target });
+					expect(context.systemPrompt).toContain(
+						"You have no authority to approve actions, bypass approval, or control the workflow.",
+					);
+					expect(context.systemPrompt).toContain(
+						"calling runtime_delete requests explicit human approval through the Runtime",
+					);
+					expect(context.systemPrompt).toContain("Do not claim approval was granted before the tool confirms it.");
+					expect(context.systemPrompt).not.toContain("approval, or workflow control is available");
+					expect(context.systemPrompt).not.toContain("No approval-request or destructive tools are available");
+					expect(context.tools?.map((tool) => tool.name)).toEqual([
+						"runtime_read",
+						"runtime_search",
+						"runtime_request_check",
+						"submit_handoff",
+						"runtime_delete",
+					]);
+					expect(context.tools?.find((tool) => tool.name === "runtime_delete")?.description).toContain(
+						"Calling this tool requests explicit human approval",
+					);
+					expect(requests).toEqual([]);
+					expect(state().runs[0].approvals ?? []).toEqual([]);
+					expect(existsSync(join(cwd, target))).toBe(true);
+					return remove();
+				},
+				(context) => {
+					expect(mode).toBe("approve");
+					expect(context.messages.at(-1)).toMatchObject({
+						role: "toolResult",
+						toolName: "runtime_delete",
+						isError: false,
+					});
+					expect(JSON.stringify(context.messages.at(-1))).toContain("Approved file deleted");
+					expect(state().runs[0].approvals?.[0].status).toBe("CONSUMED");
+					expect(existsSync(join(cwd, target))).toBe(false);
+					return handoff(context);
+				},
+				(context) => {
+					expect(context.systemPrompt).toContain("This STANDARD/R3 Reviewer is read-only");
+					expect(context.systemPrompt).not.toContain("calling runtime_delete requests");
+					return review()(context);
+				},
+			]);
+			const report = await create({ timeout: mode === "timeout" ? 500 : 1500 }).execute();
+			expect(authorityEntered).toBe(true);
+			expect(requests).toHaveLength(1);
+			expect(report.run?.status).toBe(mode === "approve" ? "COMPLETED" : "BLOCKED");
+			expect(report.run?.approvals?.[0].status).toBe(
+				mode === "approve" ? "CONSUMED" : mode === "deny" ? "DENIED" : "EXPIRED",
+			);
+			expect(existsSync(join(cwd, target))).toBe(mode !== "approve");
+			expect(readFileSync(join(cwd, "src/keep.ts"), "utf8")).toBe("keep\n");
+			expect(events.some((event) => event.type === "RunCompleted")).toBe(mode === "approve");
+			expect(report.run?.verification.map((check) => check.status)).toEqual(
+				mode === "approve" ? ["PASS", "PASS"] : [],
+			);
+			expect(harness.faux.state.callCount).toBe(mode === "approve" ? 3 : 1);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		},
+	);
+
+	it("RC-05 cannot grant approval by adding an affirmative tool argument", async () => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("runtime_delete", { path: target, approved: true }), {
+				stopReason: "toolUse",
+			}),
+		]);
+		const report = await create().execute();
+		expect(report.run?.status).toBe("FAILED");
+		expect(requests).toEqual([]);
+		expect(existsSync(join(cwd, target))).toBe(true);
+		expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
+	});
+
+	it.each([
+		{ task: "Explain src/keep.ts", workflow: "QUICK", risk: "R0" },
+		{ task: "Fix typo in src/keep.ts", workflow: "QUICK", risk: "R1" },
+		{ task: "Fix bug", workflow: "STANDARD", risk: "R1" },
+		{ task: "Update dependency in package.json", workflow: "STANDARD", risk: "R2" },
+	])(
+		"RC-05 $workflow/$risk exposes neither a destructive tool nor an approval-request path",
+		async ({ task, workflow: selected, risk }) => {
+			let inspected = false;
+			harness.setResponses([
+				(context) => {
+					expect(context.systemPrompt).toContain("No approval-request or destructive tools are available to you.");
+					expect(context.systemPrompt).not.toContain("calling runtime_delete requests");
+					expect(context.tools?.map((tool) => tool.name)).not.toContain("runtime_delete");
+					expect(context.tools?.map((tool) => tool.name).some((name) => /approv|consent/.test(name))).toBe(false);
+					inspected = true;
+					return remove();
+				},
+			]);
+			const report = await create({ goal: task }).execute();
+			expect(inspected).toBe(true);
+			expect(report.run).toMatchObject({ workflow: selected, risk, status: "FAILED" });
+			expect(requests).toEqual([]);
+			expect(report.run?.verification).toEqual([]);
+			expect(existsSync(join(cwd, target))).toBe(true);
+			expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
+		},
+	);
+
 	it("persists WAITING_APPROVAL, executes exactly once, then independently reviews/tests before COMPLETE", async () => {
 		approve = async (request) => {
 			expect(existsSync(join(cwd, target))).toBe(true);
@@ -543,8 +670,13 @@ describe("S5C human-approved single-file deletion", () => {
 	it.each(["Deny", "Approve once"])("Host selection %s is explicit and defaults to denial", async (choice) => {
 		const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 		const notify = vi.fn();
+		let pendingAtSelection = false;
 		const select = vi.fn(async (_title: string, choices: string[]) => {
-			expect(choices[0]).toBe("Deny");
+			expect(choices).toEqual(["Deny", "Approve once"]);
+			expect(state().runs[0].status).toBe("WAITING_APPROVAL");
+			expect(state().runs[0].approvals?.[0].status).toBe("PENDING");
+			expect(existsSync(join(cwd, target))).toBe(true);
+			pendingAtSelection = true;
 			return choice;
 		});
 		const ctx = {
@@ -574,6 +706,7 @@ describe("S5C human-approved single-file deletion", () => {
 			{ timeout: 5000 },
 		);
 		expect(select).toHaveBeenCalledOnce();
+		expect(pendingAtSelection).toBe(true);
 		expect(existsSync(join(cwd, target))).toBe(choice === "Deny");
 		await commands.get("state")!.handler("", ctx);
 		expect(notify.mock.lastCall?.[0]).toContain(`Human approval: ${choice === "Deny" ? "DENIED" : "CONSUMED"}`);

@@ -235,6 +235,7 @@ export function registerCompanyRuntime(
 										cwd: ctx.cwd,
 										agentDir,
 										config,
+										timeoutMs: config.agents.worker_timeout_ms,
 										modelRuntime: models,
 										audit: store,
 										quickScope,

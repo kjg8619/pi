@@ -40,6 +40,7 @@ export const RuntimeConfigSchema = Type.Object(
 				{
 					max_parallel: Type.Optional(Type.Literal(1)),
 					max_revision_cycles: Type.Optional(Type.Integer({ minimum: 0, maximum: 3 })),
+					worker_timeout_ms: Type.Optional(Type.Integer({ minimum: 10_000, maximum: 600_000 })),
 				},
 				strict,
 			),
@@ -160,7 +161,11 @@ export function parseRuntimeConfig(source: string) {
 		schemaVersion: value.schemaVersion,
 		models: value.models,
 		runtime: { workflow: value.runtime?.workflow ?? "adaptive" },
-		agents: { max_parallel: 1 as const, max_revision_cycles: value.agents?.max_revision_cycles ?? 1 },
+		agents: {
+			max_parallel: 1 as const,
+			max_revision_cycles: value.agents?.max_revision_cycles ?? 1,
+			worker_timeout_ms: value.agents?.worker_timeout_ms ?? 180_000,
+		},
 		review: { enabled: true as const },
 		state: { enabled: true as const, directory: ".ai" as const },
 		risk: { approval_required: ["R3"] as ["R3"] },

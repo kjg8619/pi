@@ -143,6 +143,7 @@ export function formatConfiguration(config: RuntimeConfig): string {
 		"Current config (not an active run's frozen configuration):",
 		`Workflow: ${config.runtime.workflow}; COMPLEX execution unsupported`,
 		`Revision limit: STANDARD ${config.agents.max_revision_cycles} (default 1, range 0..3); QUICK/R3 0`,
+		`Worker timeout: ${config.agents.worker_timeout_ms}ms per role invocation (default 180000, range 10000..600000); cancel signals immediately, awaits cleanup`,
 		...Object.entries(config.models.profiles).map(
 			([profile, model]) =>
 				`${profile}: ${displayText(model.provider)}/${displayText(model.model)}${["fast", "creative"].includes(profile) ? " (not auto-selected)" : ""}`,

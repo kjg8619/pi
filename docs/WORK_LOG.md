@@ -26,9 +26,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | S5D | 완료 | 읽기 전용 관찰·명시적 결정/check export·revision 설정 연결, 자동 655개 및 실제 명령 smoke 통과 |
 | S6 | 완료 | cleanup/lease·race/crash/freshness 실패 경계 보강, targeted 740개 + 기존 Pi 59개 및 interactive 실패 smoke 통과 |
 | RC-01 후속 수정 | 완료 / 실제 Provider 재실행 대기 | GPT R0 설명의 known-risk 완료 차단 문제 수정, S0~S6 및 추가 Pi targeted 829개 통과 |
-| RC-04 후속 수정 | 완료 / 실제 Provider 재실행 대기 | Reviewer trusted ref 안내·제출 검증·동일 세션 재제출, S0~S6/RC-01 및 추가 Pi targeted 847개 통과 |
+| RC-04 후속 수정 | 완료 / 실제 Reviewer PASS 사용자 보고 | Reviewer trusted ref 안내·제출 검증·동일 세션 재제출, 당시 targeted 847개 통과; timeout 후의 최신 run은 Reviewer PASS·TEST까지 성공, 전체 COMPLETE는 실패 |
+| RC-04 timeout 후속 수정 | 완료 / 실제 설정·지연 미보고 | 공통 worker timeout 설정(기본180초, 10~600초), 취소·cleanup/lease 유지, 당시 targeted 876개 통과 |
+| RC-04 handoff 후속 수정 | 완료 / 실제 Provider 재실행 대기 | Developer unresolved 의미 안내·알려진 obligation 제출 거부/재제출, Kernel guard 유지, S0~S6/RC 및 추가 Pi targeted 901개 통과 |
+| RC-05 R3 prompt 수정 | 완료 / 실제 Provider 재실행 대기 | 승인 요청과 승인 권한의 구분, runtime_delete 진입 안내, guard 유지, S0~S6/RC 및 추가 Pi targeted 909개 통과 |
 
-현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 사용자 GPT RC-01의 completion semantics와 RC-04의 Reviewer evidence 참조 제출 문제를 수정했으며 실제 GPT 재실행·DeepSeek/다른 플랫폼·전체 저장소 검증은 별도 RC 단계로 남아 있다. release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
+현재 S0~S6의 제한된 구현·검증을 완료했다. 기능 범위를 늘리지 않고 안전한 실패와 소유권 정리를 강화했다. 사용자 GPT RC-01의 completion semantics와 RC-04의 evidence 참조·timeout·handoff unresolved 의미 문제를 수정했다. 최신 사용자 실제 GPT 보고에서는 Developer·SELF_CHECK·Reviewer PASS·final TEST까지 성공했으나 immutable handoff에 기록된 후속 review 의무 때문에 COMPLETE가 BLOCKED됐다. 별도 RC-05 R3 run에서는 승인 UI 없이 BLOCKED됐다는 보고에 따라 승인 요청을 시작하는 runtime_delete의 prompt/tool 의미 충돌을 수정했다. handoff 수정 후 실제 COMPLETE, R3 수정 후 실제 승인 UI, ref 오류 후 재제출 경로, timeout 설정값/지연, DeepSeek/다른 플랫폼·전체 저장소 검증은 별도로 남아 있다. release를 선언하지 않는다. 상세 DoD 판정은 [V0.1_READINESS](V0.1_READINESS.md)를 따른다.
 
 ---
 
@@ -1002,6 +1005,186 @@ git diff --check
 - **문제·해결:** RC-01/RC-04가 같은 문서에 함께 존재했으나 사용자가 모두 게시하도록 최종 승인하여 부분 스테이징이 필요 없어졌다. 이전 로그의 당시 미커밋 상태 기록은 보존한다.
 - **남은 제한·다음 작업:** 실제 GPT RC-01/RC-04 수정 후 재실행 및 DeepSeek 검증은 여전히 미검증이다. 명시적 10개 경로만 스테이징하여 일반 커밋 후 `origin/devlop`에 푸시하고 HEAD/원격 일치와 작업 트리를 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 예정 메시지는 `fix(coding-agent): correct runtime R0 completion and review evidence retries`이며 실제 커밋 ID·푸시 결과는 Git 이력과 최종 응답으로 보고한다.
+
+---
+
+## LOG-016 — RC-04 재검증: bounded worker timeout 설정과 선행 취소 보존
+
+- **기록일:** 2026-09-16 13:58 (KST)
+- **상태:** 구현·자동 회귀 완료, 실제 Provider 후속 재실행 미검증
+- **목적:** 실제 GPT STANDARD/R2 IMPLEMENT가 60초 worker deadline으로 끝난 문제에 대해 명시적·bounded 실행 예산을 제공하되 취소/cleanup/lease 안전성을 보존한다.
+- **시작 상태:** `devlop` clean, HEAD `d4d9ff4c0167293caf746827d7de8f1310c0d505`. LOG-015 뒤 사용자 승인대로 RC-01/RC-04 모두 이 커밋에 포함하여 `origin/devlop`에 푸시했고 당시 로컬/원격 HEAD 일치·clean을 확인했다. 이 항목의 새 변경은 아직 커밋하지 않았다.
+
+### 실제 발견·설계 판단
+
+사용자 실제 GPT RC-04 재검증에서 Developer가 IMPLEMENT 도중 `Worker timed out`으로 종료했다. 이 run에는 파일 변경·SELF_CHECK·Reviewer 실행이 없었다. 따라서 LOG-014의 Reviewer evidenceRefs 수정은 실제 Provider에서 여전히 검증되지 않았다. 모델/프롬프트를 바꾸거나 fixture를 축소하지 않는다. 정확한 reasoning/network 지연 원인은 이번 보고만으로 추정하지 않는다.
+
+기존 Adapter의 기본 60초와 Extension에서 timeout을 별도 전달하지 않는 경로를 확인했다. 설정은 `agents.worker_timeout_ms` 한 개로 한정하고 기본 180000ms·허용 정수 10000..600000ms를 선택했다. 120초보다 대기 여유를 주되 사용자 설정을 10분 이내로 제한한다. 모델별 실측 최적값이라는 주장은 아니다. V0.1에서는 역할별 timeout·별도 scheduler·자동 연장/재시도/모델 fallback이 필요하지 않다.
+
+예산은 각 Developer/Reviewer/Executor 호출의 audit/auth 재확인·SDK 생성·session 참조 저장·전체 Provider/tool turns와 승인 대기를 포함한다. token/turn마다 갱신되는 inactivity timeout도 전체 workflow timeout도 아니다. 생성 시 profile/auth preflight는 같은 값의 별도 signal budget을 사용한다. 기존 직접 Host/test `timeoutMs` override(1~3,600,000ms)는 의도된 API이므로 제거하지 않았고 YAML에 이를 노출하지 않는다. check timeout·R3 승인 TTL은 별도다.
+
+### 변경 파일·실패 경계
+
+- `packages/company-runtime/src/config.ts`: strict schema에 optional bounded 정수를 추가하고 생략 시 180000ms로 정규화한다. 0/음수/범위 초과/소수/문자열/null 등은 거부한다.
+- `packages/company-runtime/src/extension.ts`: Host가 정규화된 config 값을 `PiAgentExecutor.create`에 명시적으로 전달한다. 기존 lifecycle hook은 변경하지 않았다.
+- `packages/company-runtime/src/agent-runner.ts`: 직접 호출에도 frozen config의 값이 기본으로 적용된다. 원본 config 객체 변경은 이미 생성된 Adapter의 예산에 영향을 주지 않는다. timeout callback은 signal이 이미 취소됐으면 원인을 덮지 않는다. 이전에는 비협조 Provider의 취소 정산이 늦어 deadline에 도달하면 선행 사용자 취소가 `Worker timed out`으로 바뀔 수 있었다. 기존 abort/await/dispose·safeToRelease·다음 역할 거부는 그대로다.
+- `packages/company-runtime/src/observations.ts`: `/workflow config`에 공통 timeout과 범위·cleanup 대기 의미를 표시한다. active run의 설정을 바꾸거나 상태 schema를 확장하지 않는다.
+- `packages/company-runtime/test/config.test.ts`, `test/extension.test.ts`: 설정 유효/거부 matrix 14개, config 출력과 잘못된 설정이 confirmation/provider/writer 전에 거부되는 Host 사례 2개를 추가했다. check timeout이 독립이라는 기존 검증도 유지한다.
+- `packages/coding-agent/test/suite/company-runtime-timeout.test.ts`: SDK/harness/faux/가상 timer 13개를 추가했다. Developer/Reviewer 90초 지연 성공, 기본값 179999ms 성공, 120000ms timeout, 총 여러-turn 예산, 선행 cancel 우선, late result/tool 거부, 무효 config+override 거부를 검증한다. 실제 Extension config 전달 및 timeout/cancel/switch/reload/quit 경로에서 Provider/SDK cleanup 대기 동안 lock·RUNNING/IMPLEMENT를 유지하고 두 번째 writer를 거부하며, 최종 FAILED/CANCELLED 후 unlock·무변경·check/review 미실행을 확인한다.
+- `packages/company-runtime/README.md`, `docs/V0.1_READINESS.md`, `docs/WORK_LOG.md`: 설정 예시·정확한 시간 의미·역할 공통 결정·실제 GPT 실패와 자동 검증의 차이를 기록했다.
+
+Kernel/Ports/Policy/Approval/StateStore와 completion guard는 변경하지 않았다. QUICK/R0/R1·STANDARD/R1/R2·R3 실행 의미는 그대로이며 timeout 증가가 권한이나 완료 요건을 낮추지 않는다. timeout은 실패이고 COMPLETE로 진행하지 않는다. 사용자/lifecycle signal은 즉시 전달하지만 비협조 Provider/SDK 종료를 확인할 때까지 반환·unlock을 보장하지 않는다. cleanup이 불확실하면 기존처럼 lease를 유지한다.
+
+### 이번 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime: 초기 targeted와 최종 S0~S6/RC 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/config.test.ts test/extension.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent: 신규 suite 및 기존 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- 초기 config/Host **64개 PASS**. 신규 SDK suite 최초 **8 PASS / 4 FAIL**은 테스트가 Kernel의 저장된 cancel 원인을 Adapter의 `Worker aborted`로 예상한 오류였다. Kernel은 기존대로 `Run cancelled`를 저장하므로 기대값을 수정했다. 구현/Kernel guard는 이 테스트에 맞춰 바꾸지 않았다. 이후 여러-turn 예산 사례를 추가하여 신규 suite **13개 PASS**를 확인했다.
+- 최종 **30개 파일·876개 PASS**: Runtime 17개 파일·497개 + 관련 coding-agent 9개 파일·320개 + 추가 Pi 4개 파일·59개. 신규 29개이며 LOG-014의 847개와 중복 합산하지 않는다. 기존 S6 cleanup/lifecycle matrix와 RC-01/RC-04 evidence 회귀도 이번에 모두 다시 실행했다.
+- `npm run check` **PASS**: 최초 Biome이 이번 test 파일 3개 format을 정리했고 최종 재실행은 자동 수정 없이 통과했다. TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함. formatter 이후 전체 targeted를 실행했다.
+- `git diff --check` **PASS**. 실제 API/유료 호출·interactive smoke·전체 저장소 suite/build·다른 OS는 이번에 실행하지 않았다. 90~180초 성공은 가상 경과 시간의 실제 SDK/faux 검증이지 실제 GPT 지연/성공 증거가 아니다.
+
+### 제한·다음 작업·커밋
+
+- 실제 GPT RC-04는 새 timeout 설정으로 다시 실행해야 한다. `/workflow config`에서 effective 값을 확인하고 같은 fixture/prompt/model로 새 run을 수행한다. Reviewer가 실제 시작하여 정확한 ref 또는 Tool error 후 수정·PASS·TEST·COMPLETE에 도달해야 evidence 수정 검증으로 기록할 수 있다. 기존 실패 run을 재작성하지 않는다.
+- 180초 기본값이 quota/network/model 품질 문제를 해결하거나 Provider가 AbortSignal에 협조한다는 보장은 없다. shutdown 응답 시간·lease 정리는 여전히 협조적 cleanup에 의존한다. timeout은 강제 OS 종료 deadline이 아니다.
+- **커밋·푸시:** 이번 수정은 하지 않음. 새 기능 단계나 release 선언이 아니다.
+
+---
+
+## LOG-017 — RC-04 재검증: Developer unresolved와 Runtime 후속 의무 구분
+
+- **기록일:** 2026-09-16 14:29 (KST)
+- **상태:** 구현·자동 회귀 완료, 수정 후 실제 Provider COMPLETE 미검증
+- **목적:** Developer가 시스템 소유 후속 단계를 immutable handoff의 unresolved로 제출해 완료가 차단되는 문제를 prompt·제출 피드백으로 수정한다. Kernel의 unresolved 완료 가드는 유지한다.
+- **시작 상태:** `devlop`, HEAD `d4d9ff4c0`. LOG-016의 worker timeout 코드·테스트·문서가 미커밋 상태였으며 모두 보존했다. 이번 변경과 함께 검증하되 이전 작업과 이번 변경을 구분한다.
+
+### 실제 문제·짧은 trace
+
+사용자 실제 GPT STANDARD/R2 재검증에서 Developer → SELF_CHECK → Reviewer PASS → final TEST까지 성공했지만 COMPLETE가 `Handoff has the wrong task or unresolved work`로 BLOCKED됐다. Developer가 unresolved에 `Independent Reviewer PASS is required and remains pending.`를 넣었고, 실제 리뷰가 PASS해도 이미 수락한 immutable handoff는 바뀌지 않아 `unresolved.length === 0` 가드에 걸렸다.
+
+LOG-016 당시 timeout run과 달리 최신 보고에서는 Reviewer PASS와 final TEST까지 확인됐다. 이는 사용자 실제 Provider 실행의 보고이며 이번 faux 결과가 아니다. actual ref 오류 후 재제출 여부, 모델/지연/timeout 설정값은 미보고라 추정하지 않는다. 전체 run이 성공한 것으로 기록하거나 기존 BLOCKED state를 재작성하지 않는다.
+
+### 변경 파일과 한정된 설계
+
+- `packages/company-runtime/src/agent-runner.ts`: Developer prompt에서 unresolved를 구현·요구사항의 실제 미해결 문제/blocker로 정의한다. Reviewer 실행/PASS·SELF_CHECK·TEST·Human Approval 필요/대기는 Kernel/Workflow 소유이며, Developer가 생략·완료를 결정하지 않도록 명시한다. 미구현 변경은 구체적 blocker로 남겨야 하며 R3 승인 도구를 우회하지 않는다. 새 안내는 QUICK Executor prompt에는 적용하지 않았다.
+- `packages/company-runtime/src/agent-tools.ts`: Developer `submit_handoff` 설명과 검증을 추가했다. 알려진 영어 whole-entry 패턴(Reviewer/PASS/execution·SELF_CHECK·TEST·Human Approval + required/needed/pending)만 검출하고 해당 unresolved index를 Tool error로 반환한다. 대소문자·공백·마지막 마침표/느낌표 변형을 인식하지만 원본 handoff는 수정하지 않는다. 실제 미완료를 뜻한다면 구체적 누락 변경을 기술하고 실제 blocker를 반드시 보존하도록 안내한다. 수락/terminate 전에 거부하므로 같은 세션에서 다시 제출할 수 있다.
+- 기존 Reviewer evidence retry의 내부 call ID 분류를 tool 이름까지 결합한 submission 오류 Map으로 공유했다. 해당 Adapter가 표시한 handoff 의미 오류와 Reviewer ref 오류만 재제출 가능하다. 모델이 오류 문자열을 흉내 내거나 일반 Tool/Policy 오류를 일으켜도 재시도 권한이 생기지 않는다.
+- `packages/coding-agent/test/suite/company-runtime-agent.test.ts`: 13개 추가. 알려진 표현 변형 4개가 같은 Developer session에서 수정 가능함, 미재제출/턴 제한/취소/timeout/stale identity/Policy 거부/혼합 제출은 계속 종료됨, QUICK R0/R1 Executor unresolved는 이번 Developer 규칙으로 변경하지 않음을 검증했다.
+- `packages/coding-agent/test/suite/company-runtime-r2.test.ts`: 12개 추가. 알려진 obligation 5개 제출 거부 후 같은 Developer session에서 빈 unresolved로 수정 → 독립 Reviewer PASS·두 check PASS·COMPLETE; 실제/애매한 문제 5개는 그대로 보존되어 Reviewer PASS에도 BLOCKED; mixed 배열 교정 후 실제 blocker 유지; custom Adapter가 제출 검증을 우회해 원래 obligation을 반환해도 Kernel이 BLOCKED함을 확인했다.
+- `packages/company-runtime/README.md`, `docs/V0.1_READINESS.md`, `docs/WORK_LOG.md`: 의미·예시·한계와 실제 Provider 단계 성공/전체 완료 실패, 이번 자동 검증 결과를 구분해 기록했다.
+
+**변경하지 않은 경계:** `kernel.ts`와 `unresolved.length === 0`, R2 independent review 의무, R3 Approval, QUICK/R0/R1 및 STANDARD/R1 completion semantics, Policy/StateStore/계약 schema. 실제 미해결 문제는 빈 배열로 강제 변환하지 않는다. 구현 문제와 섞인 문장·알려지지 않은 표현은 제출 피드백을 놓칠 수 있지만 그대로 남아 최종 guard가 차단한다. Reviewer PASS 뒤 handoff를 필터링하거나 수정하는 단계는 없다. 기존 시간·턴·취소·cleanup/lease와 RC-04 evidence retry는 유지한다.
+
+### 이번 검증 명령·실제 결과
+
+```sh
+# packages/coding-agent: 수정한 두 파일 targeted
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-r2.test.ts
+
+# packages/company-runtime: S0~S6/RC 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent: timeout/evidence/RC-01 포함 통합 및 기존 Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- 수정한 두 파일 최초 targeted: **2개 파일·128개 PASS**. 신규 25개가 포함되며 이번 작업의 테스트 실패는 없었다.
+- 전체 targeted: Runtime **17개 파일·497개**, 관련 coding-agent **9개 파일·345개**, 추가 기존 Pi **4개 파일·59개**, 합계 **30개 파일·901개 PASS**. LOG-016의 876개는 과거 결과이며 합산하지 않는다. 기존 S6 lifecycle/lease와 R3·QUICK·STANDARD 회귀도 이번에 다시 실행했다.
+- root `npm run check`: **PASS**. 최초 Biome이 이번 변경 파일 3개 format을 정리했고 최종 재실행은 자동 수정 없이 통과했다. TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke도 통과했다. formatter 이후 전체 targeted를 실행했다.
+- `git diff --check`: **PASS**. Kernel diff가 없음을 확인했다. 실제 API/유료 호출·interactive smoke·전체 suite/build·다른 OS는 이번에 실행하지 않았다.
+
+### 제한·다음 작업·커밋
+
+- 검출은 보수적인 알려진 영어 문구 피드백이며 범용 자연어 의미 판별기가 아니다. 놓친 다른 표현은 기존 완료 가드에서 계속 BLOCKED될 수 있다. 반대로 stage 이름만으로 표현한 실제 미구현 문제라면 구체적 문제로 수정 제출해야 하며 자동 삭제하지 않는다.
+- 실제 구현 완료/요구사항 충족은 모델 진술만으로 증명되지 않으며 독립 review·필수 check·fresh evidence가 여전히 필요하다. 이번 수정 후 actual GPT COMPLETE는 미검증이다.
+- **다음 작업:** 같은 실제 RC fixture/prompt/model의 새 run에서 올바른 handoff 또는 Tool error 후 수정, Reviewer PASS·TEST·COMPLETE를 확인한다. 기존 실패 run/state는 변경하지 않는다.
+- **커밋·푸시:** 하지 않음. LOG-016 timeout 변경과 이번 handoff 변경을 작업 트리에 유지한다.
+
+---
+
+## LOG-018 — RC-05: R3 승인 요청과 승인 권한의 prompt/tool 의미 분리
+
+- **기록일:** 2026-09-16 (KST)
+- **상태:** 구현·자동 회귀 완료, 수정 후 실제 GPT RC-05 재실행 미검증
+- **목적:** 실제 GPT R3 run에서 Human Approval UI가 나타나지 않은 문제에 대해 모순된 역할 안내를 수정한다. 새로운 승인 권한이나 실행 경로는 추가하지 않는다.
+- **시작 상태:** `devlop`, HEAD `d4d9ff4c0`; LOG-016 timeout과 LOG-017 unresolved 코드·테스트·문서가 미커밋 상태였다. 모두 보존하고 함께 회귀를 실행했다.
+
+### 실제 발견·원인과 해결
+
+사용자는 실제 GPT RC-05에서 `Delete file obsolete.txt`를 실행했지만 Human Approval UI가 나타나지 않고 BLOCKED됐다고 보고했다. 공통 Developer system prompt는 `approval ... is available`을 부정하는 반면 R3 문구는 `runtime_delete ... after explicit human approval`이라고 안내했다. 이는 승인을 요청할 방법이 없거나 별도 승인이 먼저 있어야 tool을 호출할 수 있다는 혼동을 만든다.
+
+기존 코드와 테스트를 확인하면 Developer가 별도 approval tool을 가질 필요가 없다. `runtime_delete`가 현재 scope/경로/config를 검사한 뒤 `onApprovalRequested`를 호출하고 Runtime이 WAITING_APPROVAL/PENDING을 저장하여 ApprovalPort/Host UI에 전달한다. 사용자 결정에 따른 exact grant를 검사한 뒤에만 실제 삭제·consumption을 진행한다. 따라서 guard나 승인 UI 구현을 완화하지 않고 **호출이 승인 요청을 시작한다는 사실**을 prompt/tool 설명에 일치시켰다. 사용자 보고 외 실제 모델 전체 로그나 비용·지연은 확인하지 않았으며 추정하지 않는다.
+
+### 변경 파일
+
+- `packages/company-runtime/src/agent-runner.ts`: 공통 문구를 shell/자동 context 부재와 직접 승인·우회·workflow 제어 권한 부재로 분리했다. R3 Developer에만 `runtime_delete` 호출 → Runtime 승인 요청, 별도 approval tool/prior grant 불필요, WAITING_APPROVAL에서 Deny/Approve once, tool 확인 전 승인 획득 주장 금지, 거절/만료 후 우회·재시도 금지를 안내한다. 일반 코드 mutation 안내 대신 한정 deletion을 지시한다. R3 Reviewer는 읽기 전용 handoff/diff/evidence 리뷰만, R0/R1/R2는 승인 요청·destructive 도구 미제공을 명시한다. 공통 unresolved 설명의 모호한 'permitted tool로 먼저 승인 획득' 문장은 R3의 구체적 흐름으로 대체하되 실제 미완료 blocker 보존 의미는 유지한다.
+- `packages/company-runtime/src/agent-tools.ts`: `runtime_delete` description만 같은 요청/대기/삭제 순서로 명확히 했다. 실행 함수·입력 schema·tool 등록 조건·Policy gate·callback·fingerprint/expiry 재검사·unlink·consumption은 이번 작업에서 변경하지 않았다.
+- `packages/coding-agent/test/suite/company-runtime-approval.test.ts`: RC-05 신규 8개. approve/deny/timeout 3개가 실제 SDK/faux의 prompt·tool 설명·도구 목록을 검증하고 ApprovalPort 진입 전 미승인·파일 존재, 진입 시 WAITING_APPROVAL/PENDING, 반환 뒤 결과를 확인한다. 위조 승인 인자 1개와 QUICK R0/R1·STANDARD R1/R2의 destructive 도구 미노출 및 실제 호출 거부 4개를 추가했다. 기존 Host Deny/Approve once 테스트는 selection 시 WAITING_APPROVAL/PENDING·파일 존재·Deny 기본값을 명시적으로 확인하도록 강화했다.
+- `packages/company-runtime/README.md`, `docs/V0.1_READINESS.md`, `docs/WORK_LOG.md`: 요청 권한과 승인 권한의 차이, 실제 GPT 문제와 자동 검증 범위·후속 RC gate를 기록했다.
+
+**유지한 경계:** Developer에게 승인 권한/approval tool을 주지 않는다. R3 preselected scope/actionDigest/configDigest/fingerprint/TTL/one-shot/state와 Kernel completion guard는 그대로다. Deny/timeout은 삭제 없이 BLOCKED, 유효한 Approve once만 한 파일 삭제, 독립 review/check 뒤에만 완료 가능하다. R0/R1/R2에 R3 기능을 노출하지 않고 R3 Reviewer도 delete tool을 갖지 않는다. 사용자 fixture·prompt/model·RC 요청·기존 run/state는 변경하지 않았다.
+
+### 이번 검증 명령·실제 결과
+
+```sh
+# packages/coding-agent: 수정 전 새 prompt 계약 테스트, 수정 후 전체 approval suite
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-approval.test.ts -t 'RC-05'
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-approval.test.ts
+
+# packages/company-runtime: S0~S6/RC 및 승인 guard 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent: 전체 Runtime/RC 및 관련 Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+```
+
+- 수정 전 신규 RC-05 테스트: **7 FAIL / 1 PASS / 기존 43개 필터 제외**. 기존 prompt가 새 권한/요청 설명 계약을 만족하지 않아 assertion이 실패했다. 승인 인자 위조 거부는 기존에도 통과했다. 이 결과는 실제 LLM의 자연어 판단을 재현한 증거가 아니라 prompt/tool 계약 회귀다.
+- 수정 후 approval suite: **51개 PASS**. 이후 Host selection 검사 강화와 formatter를 적용하고 전체 targeted를 다시 실행했다.
+- 최종 **30개 파일·909개 PASS**: Runtime 17개 파일·497개, 관련 coding-agent 9개 파일·353개, 추가 Pi 4개 파일·59개. 신규 8개이며 LOG-017의 901개와 중복 합산하지 않는다. 기존 승인 생략·다른 경로·재사용·변조 binding·만료·늦은 응답·승인 중 lifecycle/cleanup 회귀도 이번에 다시 통과했다.
+- root `npm run check`: **PASS**, 최초 Biome이 이번 approval test 파일 1개 format을 정리했고 최종 재실행은 자동 수정 없이 통과했다. TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함.
+- `git diff --check`: **PASS**. 실제 API/유료 호출·interactive smoke·전체 suite/build·다른 OS 검증은 이번에 하지 않았다.
+
+### 한계·다음 작업·커밋
+
+- prompt 명확화가 모든 실제 모델의 도구 선택을 보장하지 않는다. 실제 GPT RC-05 재실행은 아직 미검증이며 이번 faux/Host selection 통합은 실제 TUI 표시 확인과 구분한다.
+- **다음 작업:** 같은 실제 `Delete file obsolete.txt` 요청으로 새 run에서 runtime_delete 호출과 Human Approval UI 표시를 확인한다. Deny/timeout 파일 유지 및 Approve once exact 삭제·consumption·후속 review/check를 별도 검증한다. 이전 BLOCKED run을 재작성하지 않는다.
+- **커밋·푸시:** 하지 않음. 앞선 timeout/handoff 수정과 이번 prompt 변경을 작업 트리에 유지한다.
+
+---
+
+## LOG-019 — RC-04/RC-05 누적 수정 커밋·푸시 준비
+
+- **기록일:** 2026-09-16 15:25 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-016~018의 worker timeout·Developer unresolved·R3 승인 요청 prompt 수정과 테스트·문서를 함께 게시하기 위한 검증을 완료했다.
+- **변경 파일:** 앞선 세 작업에서 변경한 Runtime 소스 5개, Runtime 테스트 2개, coding-agent suite 4개(신규 timeout suite 포함), README/readiness/작업 이력 3개로 총 14개 파일. 다른 변경이나 lockfile은 포함하지 않는다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check` PASS, `git status --short --branch`·변경 목록·기존 staged 변경 없음 확인. 테스트는 이번 커밋 준비에서 다시 실행하지 않았으며 LOG-018의 30개 파일·909개 PASS는 직전 구현 검증 결과다.
+- **문제·해결:** 추가 문제 없음. Kernel/Policy/Approval/StateStore의 완료·승인 guard를 바꾸지 않은 누적 수정 범위를 유지한다. 과거 로그의 당시 미커밋 상태는 그대로 보존한다.
+- **남은 제한·다음 작업:** 실제 GPT RC-04 수정 후 COMPLETE와 RC-05 승인 UI 재검증은 여전히 미완료다. 명시적 14개 경로를 스테이징해 커밋한 뒤 `origin/devlop`에 푸시하고 로컬/원격 HEAD 일치 및 작업 트리를 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 예정 메시지는 `fix(coding-agent): clarify runtime worker limits and approval semantics`이며 실제 커밋 ID·푸시 결과는 Git 이력과 최종 응답으로 보고한다.
 
 ---
 

@@ -391,6 +391,105 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		},
 	);
 
+	// RC-04: only known Developer submission mistakes are recoverable, not execution/Policy failures.
+	it.each([
+		" Reviewer PASS pending ",
+		"SELF-CHECK needed!",
+		"final TEST remains pending",
+		"Human Approval is still pending.",
+	])("RC-04 corrects a whole-entry obligation variant in the same Developer session: %s", async (obligation) => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, unresolved: [obligation] }), {
+				stopReason: "toolUse",
+			}),
+			(context) => {
+				expect(context.messages.at(-1)).toMatchObject({
+					role: "toolResult",
+					toolName: "submit_handoff",
+					isError: true,
+				});
+				expect(JSON.stringify(context.messages.at(-1))).toContain("Handoff unresolved validation failed");
+				expect(dispose).not.toHaveBeenCalled();
+				return submitHandoff();
+			},
+		]);
+		expect(await executor.execute(developer())).toEqual({ role: "Developer", handoff });
+		expect(workers).toHaveLength(1);
+		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
+		expect(dispose).toHaveBeenCalledTimes(1);
+	});
+
+	it.each(["no-resubmission", "turn-limit", "cancel", "timeout", "stale-identity", "forbidden-tool", "mixed-submit"])(
+		"RC-04 handoff correction does not bypass %s termination",
+		async (mode) => {
+			const controller = new AbortController();
+			const runner = await PiAgentExecutor.create({
+				...options,
+				maxTurns: mode === "turn-limit" ? 1 : 32,
+				timeoutMs: mode === "timeout" ? 250 : 3000,
+			});
+			harness.setResponses([
+				fauxAssistantMessage(
+					fauxToolCall("submit_handoff", { ...handoff, unresolved: ["Independent Reviewer PASS is required"] }),
+					{ stopReason: "toolUse" },
+				),
+				async (_context, streamOptions) => {
+					if (mode === "cancel") controller.abort();
+					if (mode === "timeout")
+						await new Promise<void>((resolve) => {
+							if (streamOptions?.signal?.aborted) resolve();
+							else streamOptions?.signal?.addEventListener("abort", () => resolve(), { once: true });
+						});
+					if (mode === "no-resubmission") return fauxAssistantMessage("Done");
+					if (mode === "stale-identity")
+						return fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, revision: 1 }), {
+							stopReason: "toolUse",
+						});
+					if (mode === "forbidden-tool")
+						return fauxAssistantMessage(
+							fauxToolCall("runtime_write", { path: ".ai/state.json", content: "forbidden" }),
+							{ stopReason: "toolUse" },
+						);
+					if (mode === "mixed-submit")
+						return fauxAssistantMessage(
+							[fauxToolCall("submit_handoff", handoff), fauxToolCall("runtime_read", { path: "src/app.ts" })],
+							{ stopReason: "toolUse" },
+						);
+					return submitHandoff();
+				},
+			]);
+			await expect(runner.execute({ ...developer(), signal: controller.signal })).rejects.toThrow(
+				mode === "timeout" ? "timed out" : undefined,
+			);
+			expect(workers).toHaveLength(1);
+			expect(dispose).toHaveBeenCalledTimes(1);
+			expect(runner.safeToRelease).toBe(true);
+			expect(readFileSync(join(workspace, "src/app.ts"), "utf8")).toBe("original\n");
+		},
+	);
+
+	it.each(["R0", "R1"] as const)(
+		"RC-04 Developer feedback does not rewrite QUICK/%s Executor unresolved",
+		async (risk) => {
+			const scope = { risk, targetPath: risk === "R0" ? null : "src/app.ts" };
+			const runner = await PiAgentExecutor.create({ ...options, quickScope: scope });
+			const result = {
+				...handoff,
+				role: "Executor",
+				unresolved: ["SELF_CHECK is required."],
+				requirements: [{ requirement: "Fix bug", status: "MET", explanation: "Fixture" }],
+			};
+			harness.setResponses([
+				fauxAssistantMessage(fauxToolCall("submit_handoff", result), { stopReason: "toolUse" }),
+			]);
+			expect(await runner.execute({ ...developer(), role: "Executor", profile: "coding", scope })).toEqual({
+				role: "Executor",
+				handoff: result,
+			});
+			expect(harness.faux.state.callCount).toBe(1);
+		},
+	);
+
 	it.each([
 		"../outside.ts",
 		"absolute",

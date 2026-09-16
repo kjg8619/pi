@@ -143,6 +143,30 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		expect(host.models).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("Preflight cancelled"), "warning");
 	});
+	it("shows the effective worker timeout without starting a worker", async () => {
+		await mkdir(join(cwd, ".ai"));
+		await writeFile(join(cwd, ".ai/config.yaml"), `${config}agents: { worker_timeout_ms: 240000 }\n`);
+		const host = commands();
+		await host.call("workflow", "config");
+		expect(notify).toHaveBeenLastCalledWith(
+			expect.stringContaining("Worker timeout: 240000ms per role invocation"),
+			"info",
+		);
+		expect(host.models).not.toHaveBeenCalled();
+	});
+	it("invalid worker timeout fails before confirmation, models or writer acquisition", async () => {
+		await mkdir(join(cwd, ".ai"));
+		await writeFile(join(cwd, ".ai/config.yaml"), `${config}agents: { worker_timeout_ms: 600001 }\n`);
+		const host = commands();
+		await host.call("workflow", "run Fix bug");
+		await vi.waitFor(() =>
+			expect(notify).toHaveBeenCalledWith(expect.stringContaining("Invalid runtime config"), "error"),
+		);
+		expect(confirm).not.toHaveBeenCalled();
+		expect(host.models).not.toHaveBeenCalled();
+		expect(await readdir(join(cwd, ".ai"))).toEqual(["config.yaml"]);
+	});
+
 	it("rejects non-UI modes and a busy parent", async () => {
 		const host = commands();
 		await expect(host.call("state", "", { ...context(), hasUI: false })).rejects.toThrow("notification-capable UI");

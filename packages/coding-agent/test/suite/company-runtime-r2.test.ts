@@ -68,6 +68,13 @@ function handoff(context: Context) {
 		{ stopReason: "toolUse" },
 	);
 }
+function handoffWithUnresolved(unresolved: string[]) {
+	return (context: Context) => {
+		const response = handoff(context);
+		for (const part of response.content) if (part.type === "toolCall") part.arguments.unresolved = [...unresolved];
+		return response;
+	};
+}
 function review(verdict: Review["result"] = "PASS") {
 	return (context: Context) => {
 		const request = input(context);
@@ -303,6 +310,125 @@ describe("S5B STANDARD/R2 with actual file Policy/checks and independent faux re
 		expect(events.filter((event) => event.type === "AgentSessionCreated")).toHaveLength(2);
 		expect(events.filter((event) => event.type === "RunCompleted")).toHaveLength(1);
 		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+	});
+
+	// RC-04: downstream obligations must be corrected before accepting the immutable Developer handoff.
+	it.each([
+		"Independent Reviewer PASS is required and remains pending.",
+		"Independent Reviewer PASS is required",
+		"SELF_CHECK is required.",
+		"TEST is required.",
+		"Human Approval is required.",
+	])(
+		"RC-04 rejects downstream unresolved %s, then completes only after resubmission and independent review",
+		async (obligation) => {
+			harness.setResponses([
+				edit(manifests[0]),
+				edit(manifests[1]),
+				(context) => {
+					expect(context.systemPrompt).toContain("Runtime-owned obligations enforced by Kernel/Workflow");
+					expect(context.systemPrompt).toContain("Never hide real blockers");
+					return handoffWithUnresolved([obligation])(context);
+				},
+				(context) => {
+					expect(context.messages.at(-1)).toMatchObject({
+						role: "toolResult",
+						toolName: "submit_handoff",
+						isError: true,
+					});
+					expect(JSON.stringify(context.messages.at(-1))).toContain(
+						"Handoff unresolved validation failed: unresolved[0]",
+					);
+					expect(JSON.stringify(context.messages.at(-1))).toContain(
+						"Keep every real implementation/requirement problem",
+					);
+					const current = state().runs[0];
+					expect(current).toMatchObject({ phase: "IMPLEMENT", status: "RUNNING", revisionCycle: 0 });
+					expect(current.handoff).toBeUndefined();
+					expect(current.verification).toEqual([]);
+					expect(current.roleSessionRefs.map((ref) => ref.role)).toEqual(["Developer"]);
+					expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
+					return handoff(context);
+				},
+				review(),
+			]);
+			const report = await create().execute();
+			expect(report.error).toBeUndefined();
+			expect(report.run).toMatchObject({ status: "COMPLETED", phase: "COMPLETE", risk: "R2", revisionCycle: 0 });
+			expect(report.run?.handoff?.unresolved).toEqual([]);
+			expect(report.run?.review?.result).toBe("PASS");
+			expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+			expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Developer", "Reviewer"]);
+			expect(new Set(report.run?.roleSessionRefs.map((ref) => ref.sessionId)).size).toBe(2);
+			expect(events.filter((event) => event.type === "AgentSessionCreated")).toHaveLength(2);
+			expect(events.filter((event) => event.type === "RunCompleted")).toHaveLength(1);
+			expect(state().runs[0]).toEqual(report.run);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		},
+	);
+
+	it.each([
+		"Required dependency migration is not implemented.",
+		"TEST is required because the new dependency API is not implemented.",
+		"Independent Reviewer PASS is required and remains pending. The migration is incomplete.",
+		"Human Approval was denied; the required deletion was not executed.",
+		"A later independent review is still needed.",
+	])("RC-04 preserves real or ambiguous unresolved text and blocks despite Reviewer PASS: %s", async (problem) => {
+		harness.setResponses([edit(manifests[0]), edit(manifests[1]), handoffWithUnresolved([problem]), review()]);
+		const report = await create().execute();
+		expect(report.run).toMatchObject({ status: "BLOCKED", phase: "COMPLETE", risk: "R2" });
+		expect(report.error).toBe("Handoff has the wrong task or unresolved work");
+		expect(report.run?.handoff?.unresolved).toEqual([problem]);
+		expect(report.run?.review?.result).toBe("PASS");
+		expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+		expect(report.partialChanges).toBe(true);
+		expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
+		expect(state().runs[0]).toEqual(report.run);
+		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+	});
+
+	it("RC-04 mixed submission retries without dropping the actual blocker", async () => {
+		const blocker = "Required dependency migration is not implemented.";
+		harness.setResponses([
+			edit(manifests[0]),
+			edit(manifests[1]),
+			handoffWithUnresolved([blocker, "SELF_CHECK is required."]),
+			(context) => {
+				expect(context.messages.at(-1)).toMatchObject({ role: "toolResult", isError: true });
+				expect(JSON.stringify(context.messages.at(-1))).toContain("unresolved[1]");
+				expect(state().runs[0].handoff).toBeUndefined();
+				return handoffWithUnresolved([blocker])(context);
+			},
+			review(),
+		]);
+		const report = await create().execute();
+		expect(report.run?.status).toBe("BLOCKED");
+		expect(report.error).toContain("unresolved work");
+		expect(report.run?.handoff?.unresolved).toEqual([blocker]);
+		expect(report.run?.review?.result).toBe("PASS");
+		expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+		expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
+	});
+
+	it("RC-04 Kernel still rejects a known obligation if a custom adapter bypasses submit validation", async () => {
+		const execute = PiAgentExecutor.prototype.execute;
+		const obligation = "Independent Reviewer PASS is required and remains pending.";
+		vi.spyOn(PiAgentExecutor.prototype, "execute").mockImplementation(async function (
+			this: PiAgentExecutor,
+			request,
+		) {
+			const result = await execute.call(this, request);
+			if (result.role === "Developer") result.handoff.unresolved = [obligation];
+			return result;
+		});
+		harness.setResponses([edit(manifests[0]), edit(manifests[1]), handoff, review()]);
+		const report = await create().execute();
+		expect(report.run?.status).toBe("BLOCKED");
+		expect(report.run?.handoff?.unresolved).toEqual([obligation]);
+		expect(report.run?.review?.result).toBe("PASS");
+		expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+		expect(report.error).toContain("unresolved work");
+		expect(events.some((event) => event.type === "RunCompleted")).toBe(false);
 	});
 
 	it("REVISE requires fresh Developer and Reviewer sessions for the next attempt", async () => {
