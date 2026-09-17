@@ -43,6 +43,8 @@ beforeEach(async () => {
 	await cp(join(packageRoot, "src"), dirname(extension), { recursive: true });
 	await symlink(join(repository, "node_modules"), join(checkout, "node_modules"));
 	await symlink(process.execPath, join(bin, "node"));
+	await mkdir(join(root, ".weavra"), { mode: 0o700 });
+	await mkdir(join(root, ".weavra/agent"), { mode: 0o700 });
 	// A local CLI process fixture, not a Pi build. The real Extension is checked through the public loader below.
 	await writeFile(
 		cli,
@@ -95,7 +97,7 @@ describe("Weavra fork-local launcher (POSIX)", () => {
 				"$(touch marker); *",
 			],
 		},
-	])("uses the local CLI without global Pi and preserves cwd/argv/env: $args", ({ args }) => {
+	])("uses the local CLI without global Pi, preserves cwd/argv and isolates agent dir: $args", ({ args }) => {
 		const result = run(args);
 		expect(result.error).toBeUndefined();
 		expect(result.status).toBe(0);
@@ -106,7 +108,7 @@ describe("Weavra fork-local launcher (POSIX)", () => {
 			args: ["-e", extension, ...args],
 			marker: "unchanged",
 			home: root,
-			agentDir: join(root, "existing agent dir"),
+			agentDir: join(root, ".weavra/agent"),
 		});
 	});
 	it.each(["0.1.0", "999.0.0"])("never invokes a global Pi, even with a different version: %s", async (version) => {
@@ -163,7 +165,7 @@ describe("Weavra fork-local launcher (POSIX)", () => {
 		);
 		const result = spawnSync(launcher, [], {
 			cwd,
-			env: { PATH: `${bin}:/usr/bin:/bin` },
+			env: { PATH: `${bin}:/usr/bin:/bin`, HOME: root },
 			input: "unchanged stdin\n",
 			encoding: "utf8",
 			timeout: 10_000,

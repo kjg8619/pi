@@ -14,6 +14,12 @@ fail() {
   exit 1
 }
 
+# Product commands are exact launcher-owned invocations, never Pi prompts/options.
+if [[ "${1-}" = setup || "${1-}" = doctor ]]; then
+  (( $# == 1 )) || fail "setup/doctor cannot be combined with Pi arguments or worktree options."
+  exec node "$DIRECTORY/../src/launcher-home.ts" "$1"
+fi
+
 WORKTREE_NAME=""
 WORKTREE_MODE=""
 PI_ARGS=()
@@ -30,6 +36,9 @@ while (( $# )); do
       [[ -z "$WORKTREE_MODE" ]] || fail "choose only one of --worktree, --worktree-open, or --worktree-list."
       WORKTREE_MODE="$1"
       shift
+      ;;
+    setup|doctor)
+      fail "setup/doctor must be used alone. Use -- for a literal Pi prompt."
       ;;
     --)
       PI_ARGS+=("$@")
@@ -63,6 +72,10 @@ if [[ ! -f "$PI" || ! -r "$PI" || ! -x "$PI" ]]; then
   printf 'Weavra: fork-local Pi build is missing or not executable: %s\nBuild from this checkout: cd %q && npm install --ignore-scripts && npm run build\nNo global Pi fallback.\n' "$PI" "$CHECKOUT" >&2
   exit 1
 fi
+
+# Resolve and validate before creating a worktree. Never bootstrap or fall back to Pi's home.
+WEAVRA_AGENT_DIR="$(node "$DIRECTORY/../src/launcher-home.ts" launch)" || exit 1
+[[ -n "$WEAVRA_AGENT_DIR" && "$WEAVRA_AGENT_DIR" = /* && "$WEAVRA_AGENT_DIR" != *$'\n'* && "$WEAVRA_AGENT_DIR" != *$'\r'* ]] || fail "invalid Weavra agent directory."
 
 if [[ "$WORKTREE_MODE" = --worktree-open ]]; then
   TARGET="$(node "$DIRECTORY/../src/launcher-worktrees.ts" open "$WORKTREE_NAME")" || exit 1
@@ -140,5 +153,8 @@ elif [[ "$WORKTREE_MODE" = --worktree ]]; then
   cd -- "$TARGET" || fail "cannot enter created worktree; no cleanup was performed."
 fi
 
+# Isolate child Pi config/auth/session roots; retain argv including explicit --session-dir/--session.
+export PI_CODING_AGENT_DIR="$WEAVRA_AGENT_DIR"
+unset PI_CODING_AGENT_SESSION_DIR
 # No shell re-parsing, proxy process, signal interception, or global Pi fallback.
 exec "$PI" -e "$EXTENSION" "$@"

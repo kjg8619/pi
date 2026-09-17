@@ -37,11 +37,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Weavra Worktree Launcher V1 | 완료 / 커밋·푸시 | `965240041`에 반영. create-only·frozen HEAD·외부 경로·충돌/dirty 거부·자동 정리 없음. LOG-028 당시 34개 파일·1,040개 PASS |
 | Weavra Worktree Open/List | 완료 / 커밋·푸시 | `add45781d`에 반영. Git 등록 기반 open-only/list·dirty 허용·Pi argv 전달. LOG-030 당시 34개 파일·1,098개 PASS |
 | V0.2A Read-only DAG Projection | 완료 / 커밋·푸시 | `b40c016d3`에 반영. 순수 DTO/ASCII·attempt·R3 detail·UNKNOWN. LOG-032 당시 36개 파일·1,168개 PASS |
-| V0.2B Read-only TUI DAG Viewer | 완료 / 게시 승인·검증 완료(LOG-035) | 동일 DTO의 정적 overlay·navigation/close·lifecycle 격리. LOG-034 자동 38개 파일·1,231개 및 실제 80×24 TUI smoke PASS |
+| V0.2B Read-only TUI DAG Viewer | 완료 / 커밋·푸시 | `0834683bd`에 반영. 정적 overlay·navigation/close. LOG-034 당시 38개 파일·1,231개 및 실제 TUI smoke PASS |
+| V0.2C Product Isolation / Setup / Doctor | 완료 / 사용자 실행 확인·게시 승인(LOG-038) | `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.2B — Read-only TUI DAG Viewer**다. `/graph` ASCII와 V0.2A GraphProjection은 유지하고 `/graph view [latest|runId]`로 같은 DTO를 정적 TUI overlay에 표시한다. Viewer는 navigation/close만 하며 Runtime을 움직이지 않는다. Kernel/Workflow/Policy/Approval/StateStore/RuntimeEvent/Status Projection·Worktree Launcher·worker 도구와 prompt는 변경하지 않았다. 이번 자동 targeted는 **38개 파일·1,231개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-034). 실제 source Pi의 80×24 TUI에서 QUICK/STANDARD/REVISE/R3, resize/scroll/close·editor/footer 복원을 확인했다. live update·build·실제 bundled 배포물·유료 GPT RC는 이번 범위에 포함하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.2C — Product Isolation / Setup / Doctor**다. launcher가 기존 Pi와 Weavra의 기본 user-level config/auth/session 경로를 분리한다. setup은 파일별 명시적 동의와 no-overwrite import, doctor는 로컬 read-only 진단이다. `.ai` Runtime authority와 Kernel/Workflow/Policy/Approval/Verification/Graph/Viewer/Status 및 worktree create/open/list 의미는 유지한다. 이번 자동 targeted는 **42개 파일·1,402개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-037). 임시 HOME에서 fake Pi 설정 → 실제 launcher setup/doctor → 기존 built fork-local Weavra TUI 시작 및 `/graph`/`/state`/`/quit`를 확인했다. 실제 사용자 HOME은 수정하지 않았고 build·유료 GPT RC는 재실행하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -1852,6 +1853,94 @@ bash -n packages/company-runtime/bin/weavra
 - **검증 명령·실제 결과:** rebase 후 `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. `git status --short --branch`에서 원격 대비 V0.2B 커밋 1개 선행·작업 트리 clean을 확인했다. 테스트/TUI/실제 Provider는 재실행하지 않았으며 LOG-034 결과와 구분한다.
 - **남은 제한·다음 작업:** 기존 정적 viewer/플랫폼/보안 검증 한계를 유지한다. 이 기록을 미게시 V0.2B 커밋에 포함하고 일반 push 후 로컬·원격 HEAD 일치와 RC 태그 불변을 확인한다.
 - **커밋 상태:** 최초 커밋은 rebase로 교체됐으며, 이 항목 작성 시 최종 기록 반영·푸시 직전이다. 최종 SHA와 실제 push 결과는 Git 이력 및 최종 응답으로 보고한다.
+
+---
+
+## LOG-037 — V0.2C: Product Isolation / Setup / Doctor
+
+- **기록일:** 2026-09-17 14:44 (KST)
+- **상태:** 구현·자동 회귀·임시 HOME 실제 launcher/TUI smoke 완료 / 미커밋
+- **목적:** 같은 머신의 기존 Pi와 Weavra가 기본 auth/settings/session을 섞지 않도록 user-level 제품 영역을 분리한다. 프로젝트 `.ai`는 기존 Runtime source로 유지한다.
+- **시작 상태:** `devlop` clean, HEAD `0834683bd1c43cf1442f37be1db478ba004b53fb`. LOG-036의 V0.2B는 원격 문서 커밋 위로 충돌 없이 rebase 후 이 커밋으로 게시됐다. 안정 태그 object `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c` 및 peeled commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다.
+
+### Pi 경로/첫 실행 조사와 선택
+
+- `config.ts`의 공식 `getAgentDir()`는 `PI_CODING_AGENT_DIR`을 우선 사용하고 auth/models/settings/themes/prompts/tools/bin/sessions가 그 경로 아래로 파생된다. `main.ts`는 SessionManager 생성 전에 CLI sessionDir → 환경 sessionDir → startup settings.sessionDir를 선택하고, 없으면 기존 SessionManager가 agent/sessions/<encoded-cwd>를 사용한다.
+- `cli/startup-ui.ts`의 `shouldRunFirstTimeSetup()`은 custom agent dir override가 있으면 false다. `main.ts`의 bootstrap Settings/Migrations는 실제 Pi 시작 시 실행되므로 launcher의 setup/doctor가 이 API를 import하면 user-level mutation을 유발할 수 있다.
+- 따라서 **A: 명시적 setup**을 선택했다. Weavra agent dir가 없으면 `Weavra has not been set up. Run: weavra setup`으로 종료한다. worktree 생성보다 먼저 검사하며 기존 Pi 경로 fallback은 없다. 준비된 private dir에 auth가 없어도 Pi `/login`을 위해 시작할 수 있다. doctor READY는 인증 성공이 아니라 로컬 실행 조건만 뜻한다.
+
+### 구현·변경 파일
+
+- 신규 `packages/company-runtime/src/launcher-home.ts`: Node built-in만 사용하는 launcher 전용 helper. `resolveWeavraHome`, `prepareLaunch`, `setupWeavra`, `doctorWeavra`, 제한 import 함수가 경로/설치/진단을 소유한다. Runtime/Extension에서 import하지 않는다.
+- 기본 home `~/.weavra`, effective agent dir `$WEAVRA_HOME/agent`. 절대 경로·tilde override·공백/한글을 지원하고 cwd 상대/줄바꿈/빈 override는 거부한다. 기존 경로 조상의 canonical 해석으로 Pi home과 같은/상위/하위 alias를 차단한다. custom inherited Pi dir와의 겹침도 보수적으로 검사하되 Weavra child 자체 경로 재진입은 허용한다. product home/agent/주요 하위 디렉터리는 실제 private directory여야 한다.
+- `packages/company-runtime/bin/weavra`: setup/doctor 단독 명령 dispatch와 worktree mutation 전 home 검사, child 직전 `PI_CODING_AGENT_DIR` override 및 `PI_CODING_AGENT_SESSION_DIR` unset만 추가했다. cwd·나머지 환경·argv/stdio/exit/signal·동일 checkout의 CLI/Extension 경로를 유지한다. setup/doctor와 Pi/worktree 옵션 혼합은 거부하고 literal prompt는 `--` 뒤에 전달한다. 읽기 전용 worktree-list는 setup 없이 기존대로 동작한다.
+- setup은 home/agent와 sessions/themes/prompts/tools/bin을 0700으로 생성하며 기존 권한을 자동 chmod하지 않는다. Pi는 기본 `~/.pi/agent`의 auth/models/settings 3개만 read-only 후보 탐색한다. `[x]`는 존재 표시일 뿐 동의가 아니며 파일별 기본 No에 명시적 y/yes만 import한다. settings는 Pi-specific extension/path/command/sessionDir 경고 후 선택적으로 가져오며 내용은 자동 변환하지 않는다.
+- import는 non-symlink/single-link regular UTF-8 JSON object(1 MiB 이하)를 읽는다. 0600 임시 파일에 write/fsync 후 `link`로 no-clobber publication하고 임시 이름만 제거한다. POSIX rename이 기존 대상을 덮어쓰는 경합을 피하기 위한 선택이다. 기존 file/directory/symlink 대상은 SKIP이고 force/자동 overwrite는 없다. 실패/동시 대상 생성에서도 원본 및 기존 대상은 보존하며 credential 값이나 원문 parse 오류는 출력하지 않는다.
+- doctor는 checkout/build/Extension, Node 최소 버전/Git version, effective home/agent, private·readable/writable 디렉터리·Pi 경로 격리, auth 존재·JSON/권한, models/settings JSON 및 session 기본값을 PASS/WARN/FAIL로 표시한다. auth/models/settings 없음은 WARN, 경로/build/권한/손상 JSON 등 필수 실패는 non-zero다. READY는 local checks only, Provider readiness not verified다. settings.sessionDir이 있으면 값 자체는 표시하지 않고 override 경고한다.
+- doctor는 파일 생성/chmod/repair/credential refresh/Provider/network/session/Git mutation/`.ai` 생성이 없다. Git은 trace/config 주입을 상속하지 않는 제한 환경의 `git --version`만 사용한다.
+- 신규 `test/launcher-home.test.ts` **57개**: 임시 HOME·fake credential만 사용하며 default/custom 경로, first-run, inherited env 분리, 명시적 import/skip/복사 실패·동시 대상 생성·unsafe 경로·secret 미출력, doctor 읽기 전용 및 실제 Pi SessionManager 경로/continue를 검증한다.
+- `test/launcher.test.ts`, `test/worktree.test.ts`: 기존 process fixture에 private Weavra home/helper를 준비하고 agentDir 기대값만 새 제품 계약에 맞췄다. 기존 argv/stdio/exit/signal/create-only/open/list/global Pi trap·source 보호 assertions는 보존했다. stdin 회귀 fixture에도 임시 HOME을 명시했다.
+- `packages/coding-agent/test/suite/company-runtime-workflow.test.ts`: 기존 launcher-created worktree/faux SDK 통합 fixture에 helper 및 private home 준비만 추가했다. Runtime 실행/완료/취소 assertions는 유지한다.
+- `README.md`, `packages/company-runtime/README.md`: Pi/Weavra/.ai 역할·setup/doctor·migration 제한·명시적 session precedence·default 격리 한계를 설명했다. `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`는 V0.2B 기준선과 V0.2C 실제 구현 범위를 갱신하고 LSP/QA evidence/stale-project diagnosis를 후속으로 구분했다. `docs/WORK_LOG.md`는 현재 요약과 이 항목. 총 **10개 파일** 변경이다.
+
+### 의미·안전 경계
+
+- `~/.weavra`는 사용자 설정/인증/session 영역이고 `.ai`는 각 project/worktree의 Runtime state/evidence다. 한 worktree마다 user agent dir를 만들지 않으며 기존 Pi cwd partitioning을 사용한다.
+- `Existing Pi sessions were not imported automatically.`를 setup에서 명시한다. 이전 Pi/과거 Weavra 대화를 구분할 수 없어 bulk migration을 하지 않는다. 새 `--continue`는 새 Weavra 영역을 보며, 사용자가 지정한 `--session`/`--session-dir` 및 settings의 명시적 override는 기존 Pi 규칙을 따른다. WEAVRA_SESSION_DIR는 추가하지 않았다.
+- Kernel/Workflow/Policy/Approval/Verification/StateStore/RuntimeEvent/Graph/Viewer/Status·worker 도구/prompt와 worktree 생성/등록 조회 본문은 불변이다. Pi Core/name/branding/auth format·dependency/lockfile·global Pi command/PATH/shell rc는 수정하지 않았다.
+- 격리는 user-level **기본 저장 경로**에 한정된다. 명시적 settings import/project `.pi`/session 경로·Provider 환경변수·실행 코드 전체를 sandbox하지 않는다. 의도적으로 기존 Pi 경로를 가리키는 settings/path를 import하면 공유될 수 있으므로 별도 경고와 사용자 검토가 필요하다. 악성 외부 파일 교체를 OS 수준으로 막는 기능이나 다중 파일 transaction/전원 장애 내구성은 아니다.
+
+### 자동 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime — setup/doctor + 기존 V0.2A/B/S0~S6/RC/launcher/status/worktree
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/launcher-home.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/graph.test.ts test/graph-command.test.ts test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent — Runtime/RC/Status·Pi 회귀 + 관련 argv/session 회귀
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts test/args.test.ts test/sdk-session-manager.test.ts test/session-manager/file-operations.test.ts
+
+# root
+npm run check
+bash -n packages/company-runtime/bin/weavra
+git diff --check
+```
+
+- 환경: Darwin arm64, Node `v26.7.0`. 최종 **Runtime 25개 파일·833개 + coding-agent 17개 파일·569개 = 42개 파일·1,402개 PASS**, 실패/skip 0. 기존 1,231개 + 신규57개 + 관련 Pi 추가114개다. LOG-034 결과는 당시 기록이며 이번에 기존 targeted를 모두 재실행했다.
+- 초기 home/launcher **2개 파일·71개 PASS**, 실제 SessionManager 경로/continue 보완 뒤 home **52개 PASS**, launcher/home/worktree **3개 파일·185개 PASS**를 확인했다. 이후 root path·first-run worktree·destination 종류 5개를 보완한 최종 home57개가 전체 회귀에 포함된다. 테스트 실패는 없었다.
+- 실제 별도 child에서 기존 Pi SessionManager의 create/continueRecent를 사용하여 Weavra agent/sessions 아래 경로, 동일 cwd의 ID 재사용, 다른 cwd의 partition 분리, explicit session-dir를 검증했다. 해당 SDK session probe는 실제 Provider 추론이 아니다. 기존 Pi bytes/modes와 session 파일 목록은 그대로였다.
+- `npm run check`: 최종 PASS, TypeScript/deps/entry graphs/shrinkwrap/install-lock/browser smoke 포함. 초기 import 함수의 catch/finally 경로 TS2366을 명시적 never-return으로 정리했고 test 문자열 결합 info 1건은 template literal로 수정했다. 검사 완화는 없다. 최종 formatter 후 전체 targeted를 실행했으며 warning/info/error가 없다. `bash -n`, `git diff --check`: PASS.
+
+- 최종 문서 기록 후 root `npm run check`를 다시 실행해 자동 수정 없이 PASS했다. `bash -n`, `git diff --check`와 임시 Python 검사도 PASS했다. 정확한 10개 변경 파일, Runtime/Extension/Graph/Viewer/Status/Pi Core·dependency 불변, worktree 실행 본문과 LOG-001~036 보존, 문서 fence/공백, HEAD/RC 태그 불변 및 실제 project `.ai` 부재를 확인했다. 최종 검사 script는 제거했다.
+
+### 실제 임시 HOME smoke
+
+- 실제 사용자 HOME이 아닌 고유 `/tmp` 아래 fake `~/.pi/agent` auth/models/settings/session fixture를 만들었다. 인증 값은 가짜이며 출력하지 않았다. 실제 launcher로 `weavra setup`을 실행하여 auth/models에 yes, settings에 no를 입력했고 새 Weavra dir·0600 auth 및 empty sessions를 확인했다.
+- 같은 임시 HOME으로 실제 `weavra doctor`: exit 0, checkout/build/Extension·Node `26.7.0`·Git `2.54.0`·home/dir/JSON PASS, settings 없음 WARN, local READY를 확인했다. 이는 현재 PATH의 Git이며 자동 fixture는 `/usr/bin` Git도 사용한다.
+- interactive-testing 지침에 따라 tmux **80×24**와 credential 없는 `env -i`, inherited Pi agent/session 변수를 fake Pi로 고정한 상태에서 **기존 built fork-local CLI를 실제 launcher로 실행**했다. offline/telemetry off/명시적 Weavra Extension·no-session·no 자동 리소스 로딩으로 `/graph`, `/state`, `/quit`를 확인했다. Model 미설정/offline fd 경고는 예상된 결과였고 Provider는 호출하지 않았다.
+- 기존 fake Pi auth/models/settings/session의 SHA-256·permissions와 전체 목록은 전후 동일했다. 새 Pi settings는 `~/.weavra/agent/settings.json`에만 생성됐고 기존 session은 복사되지 않았으며 project `.ai`도 없었다. 검사 script PASS 후 tmux·임시 HOME/fixture/script를 제거했다. 사용자 실제 `~/.pi`/`~/.weavra`는 테스트로 읽어 복사하거나 수정하지 않았다.
+- build를 새로 실행하지 않았다. 이번 smoke는 현재 checkout에 이미 있던 built CLI의 실제 startup/명령 연결 검증이며 real-Provider RC나 전체 배포물/플랫폼 검증은 아니다.
+
+### 남은 제한·다음 작업·커밋
+
+- JSON object 검사만 하며 auth 유효성/원격 모델 가용성·network refresh는 doctor에서 확인하지 않는다. auth가 없어도 로컬 READY일 수 있으므로 Weavra `/login` 또는 explicit import가 필요하다.
+- 외부 프로세스의 syscall 사이 변경·악성 user-owned extension/명시적 path override는 sandbox하지 않는다. 기존 broad permissions/링크/손상 config는 자동 repair하지 않으므로 수동 검토가 필요하다. session bulk migration/cloud sync/keychain/auto update/Hash-Anchored Edit/LSP/QA Evidence bundle은 구현하지 않았다.
+- Runtime semantics 불변이므로 실제 GPT RC-01~08/DeepSeek·유료 Provider는 재실행하지 않았다. 전체 upstream suite/e2e·다른 OS/Node/파일시스템은 미검증이다.
+- **다음 작업:** 사용자가 실제 환경에서 직접 `weavra setup` → candidate별 동의 → `weavra doctor`를 실행한다. 에이전트가 실제 HOME에서 자동 setup/import하지 않는다. 이후 Weavra 안의 `/login` 또는 설정을 확인하고 필요한 과거 session만 명시적으로 연다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음. `weavra-v0.1-rc1`은 그대로 유지한다.
+
+---
+
+## LOG-038 — V0.2C 사용자 실행 확인 및 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 15:03 (KST)
+- **상태·목적:** 사용자의 정상 실행 보고와 커밋·푸시 요청에 따라 V0.2C 게시 전 검증을 완료했다.
+- **사용자 확인:** 사용자가 실행이 잘 되는 것 같다고 보고했다. 구체적인 setup/import/doctor 출력·사용한 모델·session 선택 결과는 전달되지 않았으므로 전체 사용자 환경/Provider RC PASS로 확대하지 않는다. 에이전트가 실제 사용자 HOME에 setup을 실행한 것은 아니다.
+- **변경 파일:** `README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WORK_LOG.md`, `packages/company-runtime/README.md`, `packages/company-runtime/bin/weavra`, 같은 패키지의 `src/launcher-home.ts`, `test/launcher-home.test.ts`, `test/launcher.test.ts`, `test/worktree.test.ts`, `packages/coding-agent/test/suite/company-runtime-workflow.test.ts` 총 10개. 이번 준비에서는 현재 요약과 이 항목만 갱신했다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 없음. `bash -n packages/company-runtime/bin/weavra`, `git diff --check` PASS. `git status --short --branch`와 diff 목록에서 대상 외 변경·기존 staged 변경이 없음을 확인했고 HEAD/RC tag object/peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 자동 42개 파일·1,402개 PASS 및 임시 HOME의 실제 launcher/TUI smoke는 LOG-037 구현 당시 결과다. 이번 커밋 준비에서는 테스트/build/실제 Provider/TUI를 재실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 10개 경로만 stage하며 일반 commit/push를 사용한다. Runtime 의미/Pi Core·dependency/lockfile은 그대로다.
+- **남은 제한·다음 작업:** 기존 default 경로 격리·명시적 설정 override·session bulk migration 미지원 및 플랫폼/Provider 미검증 한계를 유지한다. 게시 후 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): isolate Weavra home and add setup and doctor`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

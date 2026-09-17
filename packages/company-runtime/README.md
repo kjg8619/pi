@@ -14,6 +14,8 @@ Host 독립 Kernel, StateStore·Policy, 독립 Pi SDK 역할에 실제 Git evide
 npm install --ignore-scripts
 npm run build
 npm link --workspace packages/company-runtime --ignore-scripts
+weavra setup
+weavra doctor
 cd /absolute/path/to/my-project
 # 현재 workspace에서 실행
 weavra
@@ -23,7 +25,7 @@ weavra --help     # fork-local Pi 도움말
 weavra --version  # fork-local Pi 버전; Weavra 버전은 /workflow help
 ```
 
-Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/coding-agent/dist/bundle/cli.js`와 Extension 절대경로를 구하고 `exec <local-cli> -e <extension> <args>`로 실행한다. 기본 실행은 cwd·환경·인수·stdio·종료 코드/시그널을 유지한다. PATH의 `pi`를 조회하거나 fallback으로 실행하지 않는다. local build가 없거나 실행 불가하면 checkout의 install/build 명령을 안내하고 실패한다. checkout/Pi 소스·의존성 갱신 후에는 재빌드해야 하며 자동 freshness 검사·자동 build는 없다.
+Bash wrapper가 npm link symlink를 해석하여 같은 checkout의 `packages/coding-agent/dist/bundle/cli.js`와 Extension 절대경로를 구하고 `exec <local-cli> -e <extension> <args>`로 실행한다. 기본 실행은 cwd·인수·stdio·종료 코드/시그널을 유지하고, user-level agent/session 환경만 아래 V0.2C 격리 규칙으로 변경한다. PATH의 `pi`를 조회하거나 fallback으로 실행하지 않는다. local build가 없거나 실행 불가하면 checkout의 install/build 명령을 안내하고 실패한다. checkout/Pi 소스·의존성 갱신 후에는 재빌드해야 하며 자동 freshness 검사·자동 build는 없다.
 
 `pi`는 사용자가 기존에 설치한 executable/symlink 그대로이고 `weavra`만 fork-local CLI를 사용하므로 서로 다른 Pi 버전과 공존할 수 있다. 위 workspace 한정 link는 `weavra`만 제공하며 **coding-agent 패키지 자체를 global link하지 않는다.** Pi Core/bin·Status Projection·Runtime 의미는 바꾸지 않는다. Windows는 지원하지 않는다.
 
@@ -53,7 +55,25 @@ weavra --worktree-list
 - list는 해당 Git repository의 `refs/heads/weavra/*`만 NAME/BRANCH/PATH/STATUS로 출력하고 Pi/Extension/`.ai`/session을 로드하지 않는다. 따라서 local Pi build는 없어도 되지만 Node/Git/helper는 필요하다. 추가 Pi 인수는 거부한다. `OK`는 metadata 정상이지 clean이나 Runtime COMPLETE가 아니다. `LOCKED`는 정상 등록이면 open 가능하고, `PRUNABLE`/`MISSING/BROKEN`/`BROKEN`/`AMBIGUOUS`는 점검 대상으로 표시할 뿐 수정하지 않는다.
 - tab/newline/control 문자는 목록에서 escape한다. 줄바꿈 경로·최종 디렉터리 symlink는 open에서 거부한다. 성공 안내는 stderr, 이후 fork-local Pi는 기존 exec/stdio/exit/signal 계약 그대로다. global Pi fallback은 없다.
 
-설정/인증/session 디렉터리는 아직 공유한다. 기본 `~/.pi` 및 `PI_CODING_AGENT_DIR` 등 환경변수를 그대로 전달하며 Weavra 전용 디렉터리 분리는 별도 설계 항목이다.
+### V0.2C Product home / setup / doctor
+
+```text
+Pi: ~/.pi/agent
+Weavra: ~/.weavra/agent           # 또는 $WEAVRA_HOME/agent
+Runtime: <project>/.ai            # user config와 별개
+```
+
+`src/launcher-home.ts`는 Node built-in만 사용하는 launcher 전용 helper다. Runtime/Extension에서 import하지 않는다. `resolveWeavraHome`, `prepareLaunch`, `setupWeavra`, `doctorWeavra`가 경로/설치/진단을 담당하고 Bash wrapper는 환경과 argv/exec 연결만 담당한다. `WEAVRA_HOME`은 절대 경로 또는 `~/...`를 받고 cwd 상대/줄바꿈 경로를 거부한다. Pi 영역과의 lexical/canonical overlap, product 디렉터리 symlink/비공개 권한 오류도 fail-closed다.
+
+- `weavra setup`: 프로젝트/build 없이 실행. home/agent와 sessions/themes/prompts/tools/bin 디렉터리를 mode 0700으로 준비한다. 기존 디렉터리를 chmod하지 않는다. 기본 `~/.pi/agent`에서 auth/models/settings 파일만 read-only 후보 탐색하고 파일별 기본 No 동의를 받는다. settings는 extension/path/command/sessionDir 경고 후 optional import다. 기존 대상은 SKIP하며 overwrite/force가 없다.
+- import는 regular·non-symlink·single-link UTF-8 JSON object, 최대 1 MiB로 제한한다. 임시 0600 파일 write/fsync 후 atomic link(no-clobber)로 공개하고 임시 이름만 제거한다. rename이 기존 파일을 덮어쓸 수 있는 경합을 피한다. source/기존 대상 bytes와 permissions는 변경하지 않고 오류에도 credential 내용을 노출하지 않는다. 다중 파일 transaction이나 외부 syscall 경합/전원 장애 내구성까지 보장하지 않는다.
+- 기존 Pi sessions는 import하지 않는다. `Existing Pi sessions were not imported automatically.`를 항상 안내한다. Pi/과거 Weavra session 식별·bulk migration·별도 registry는 후속 범위다. 사용자의 명시적 `--session <path|id>`는 차단하지 않는다.
+- 일반 실행은 준비된 Weavra agent dir를 요구한다. 없으면 `Run: weavra setup`으로 종료하며 worktree mutation보다 먼저 검사한다. Pi의 `shouldRunFirstTimeSetup()`은 custom agent override에서 false이므로 이 명시적 setup을 선택했다. auth가 없더라도 준비된 디렉터리에서는 `/login`을 위해 실행 가능하다. 손상 JSON/unsafe auth 권한 등은 실행 전에 거부한다.
+- child 직전에 `PI_CODING_AGENT_DIR=<canonical Weavra agent dir>`로 override하고 inherited `PI_CODING_AGENT_SESSION_DIR`을 제거한다. Pi의 `--session-dir` > settings.sessionDir > default agent/sessions/cwd 규칙은 유지하며 `WEAVRA_SESSION_DIR`는 추가하지 않았다. home은 worktree별로 만들지 않고 Pi의 cwd partitioning을 그대로 쓴다. settings import가 명시적 path override를 포함하면 doctor가 경고하며 자동 수정하지 않는다.
+- `weavra doctor`: local checkout/build/Extension·Node/Git, home/agent·읽기/쓰기/private 권한·Pi와 격리, auth 존재/JSON·models/settings JSON, session 기본값을 PASS/WARN/FAIL로 출력한다. WARN-only는 0, 필수 FAIL은 non-zero다. missing auth/models/settings는 WARN이며 READY는 원격 인증/Provider/workflow 성공 판정이 아니다. JSON 값·token/parse 원문 오류는 출력하지 않는다.
+- doctor는 mkdir/chmod/repair/auth refresh/Provider/network/session 생성/Git mutation/`.ai` 생성을 하지 않는다. Git은 제한된 환경의 `git --version`만 실행한다. setup/doctor는 단독 명령이며 다른 Pi/worktree 인수 혼용은 거부한다. `--` 뒤 literal prompt는 기존 Pi로 전달한다. read-only worktree-list는 setup 전에도 사용 가능하다.
+
+직접 local CLI에 `-e`를 주는 아래 고급 실행은 launcher를 우회하므로 이 product home 격리를 자동 적용하지 않는다. 기본 사용은 `weavra`를 권장한다. 격리는 user-level default 경로에 한정되며 명시적 settings/session override·프로젝트 `.pi`·Provider 환경변수/실행 코드 전체를 sandbox하지 않는다. 기존 Pi 파일·global pi/PATH/shell rc를 수정하지 않고 Runtime `.ai` authority와 의미도 그대로 유지한다.
 
 같은 local CLI에 명시적으로 로드할 수도 있다(아래는 저장소 루트 기준).
 
@@ -504,6 +524,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/launcher-home.test.ts test/launcher.test.ts test/worktree.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/host-boundary.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 

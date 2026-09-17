@@ -3,8 +3,8 @@
 - 작성일: 2026-09-17 (KST)
 - 대상: Weavra `devlop`
 - 목적: OMP와 OMO Native(Senpi)에서 검증된 아이디어를 조사하고, Weavra의 현재 안전성·상태·검증 철학을 유지하면서 가져올 가치가 있는 기능을 우선순위화한다.
-- 성격: **기능 도입 설계 후보 문서**. 이 문서에 적힌 항목은 구현 완료를 의미하지 않는다.
-- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection까지 완료된 상태를 기준으로 한다. V0.2B TUI DAG Viewer는 별도 작업 범위다.
+- 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
+- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection 및 V0.2B 정적 TUI Viewer. V0.2C Product Isolation/setup/doctor 구현 범위는 §15 및 WORK_LOG LOG-037에 기록한다.
 
 > 핵심 원칙: OMP/OMO의 기능을 그대로 복제하지 않는다. Weavra가 이미 가진 `Kernel → Policy → Verification → Review/Approval → State` 경계를 유지하면서, 필요한 개념만 작은 Port/Adapter 또는 read-only projection으로 흡수한다.
 
@@ -71,7 +71,7 @@ Durable State + Read-only Observation
 
 | 후보 | 적합도 | 권장 시점 | 도입 방식 |
 |---|---:|---|---|
-| Weavra 전용 setup / agent-dir 분리 | ★★★★★ | V0.2B 이후 | 제품/Host 레이어 |
+| Weavra 전용 setup / agent-dir 분리 | ★★★★★ | V0.2C 구현 | launcher/helper; §15 참조 |
 | Hash-Anchored Edit | ★★★★★ | V0.3A | 제한 mutation primitive |
 | LSP Diagnostics / Navigation | ★★★★★ | V0.3B | read-only Verification/Code Intelligence |
 | QA Evidence / Doctor | ★★★★★ | V0.3C | 검증/제품 운영 레이어 |
@@ -99,11 +99,11 @@ pi      → 기존 Pi
 weavra  → fork-local Pi + Weavra Runtime
 ```
 
-하지만 기본 설정/인증/session은 아직 Pi 경로를 공유한다.
+이 문서의 최초 작성 당시에는 기본 설정/인증/session을 Pi 경로와 공유했다. V0.2C에서는 아래 분리를 구현했다. 상세한 실제 범위/한계는 §15를 따른다.
 
-## 제안
+## 디렉터리 경계
 
-장기적으로:
+V0.2C 기본값:
 
 ```text
 ~/.pi/
@@ -142,8 +142,8 @@ weavra doctor
 - model/auth readiness
 - Git version
 - Node version
-- optional LSP availability
-- stale lock/unsafe project 상태는 진단만 하고 자동 수정하지 않음
+- optional LSP availability는 후속 후보(V0.2C 미구현)
+- stale lock/unsafe project 진단은 후속 후보(V0.2C는 프로젝트 없이 user-level 경로와 실행 파일만 검사)
 
 ## 도입 조건
 
@@ -720,14 +720,17 @@ COMPLEX / Planner / Execution DAG / Parallel Agents
 
 ## V0.2C — Product Isolation
 
-DoD 후보:
+2026-09-17 구현 범위(검증 상세: [WORK_LOG LOG-037](WORK_LOG.md#log-037--v02c-product-isolation--setup--doctor)):
 
-- `weavra setup`
-- `weavra doctor`
-- canonical `~/.weavra/agent`
-- 기존 Pi와 session/auth/settings 충돌 없음
-- import는 explicit consent
-- launcher/session smoke
+- 기본 `WEAVRA_HOME=~/.weavra`, effective agent dir `$WEAVRA_HOME/agent`. 절대/tilde override, Pi와 lexical/canonical 경로 격리. launcher는 child의 `PI_CODING_AGENT_DIR`을 덮어쓰고 inherited `PI_CODING_AGENT_SESSION_DIR`은 제거한다.
+- `weavra setup`: 프로젝트/build 없이 private 디렉터리 생성. 기본 Pi agent dir의 auth/models/settings 3개만 read-only 탐색하고 파일별 기본 No 동의로 import한다. settings는 extension/path/sessionDir 경고 후 optional import. 대상이 있으면 SKIP, force/자동 migration은 없다.
+- 복사는 regular/single-link UTF-8 JSON object만 허용한다. 0600 temp write/fsync → atomic no-clobber link publication → temp 제거로 기존 대상을 덮어쓰지 않는다. 디렉터리 0700을 사용하고 기존 권한은 자동 변경하지 않는다.
+- first run은 명시적 setup 방식(A)이다. Pi 자체 first-time setup은 custom agent dir에서 생략되므로 Weavra 미설정이면 `Run: weavra setup`으로 실패한다. auth 부재는 Weavra `/login`으로 해결할 수 있다.
+- `weavra doctor`: checkout/build/Extension·Node/Git·home/agent 권한/격리·auth/models/settings JSON·session 기본 해석을 read-only 검사한다. WARN-only exit 0, 필수 FAIL non-zero. READY는 로컬 조건이며 auth refresh/Provider/network 검증은 하지 않는다. credential 값은 출력하지 않는다.
+- 기존 Pi session 전체는 자동 import하지 않는다. 새 `--continue`는 Weavra의 cwd partition을 사용하고, 명시적 Pi `--session`/`--session-dir`은 보존한다. optional settings의 sessionDir은 경고할 뿐 재작성하지 않는다.
+- `.ai`는 계속 프로젝트 Runtime state/evidence이며 user-level config로 쓰지 않는다. setup/doctor는 Runtime/Extension에서 import되지 않는 별도 launcher helper다.
+- 임시 HOME의 fake Pi → setup → doctor → 실제 fork-local Weavra startup/명령 smoke 및 SessionManager 경로/continue 검증을 수행한다. 사용자 실제 HOME은 테스트로 수정하지 않는다.
+- QA evidence bundle/LSP availability/프로젝트 stale-lock 진단, keychain, cloud sync, auto update, auth format 변경, bulk session migration은 미구현이며 후속 후보로 유지한다. 명시적 settings/project/session override와 임의 실행 코드에 대한 OS sandbox는 아니다.
 
 ## V0.3A — Anchored Edit
 

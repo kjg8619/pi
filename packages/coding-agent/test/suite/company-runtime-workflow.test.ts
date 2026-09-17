@@ -248,6 +248,12 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 			])
 				mkdirSync(join(checkout, directory), { recursive: true });
 			copyFileSync(new URL("../../../company-runtime/bin/weavra", import.meta.url), launcher);
+			copyFileSync(
+				new URL("../../../company-runtime/src/launcher-home.ts", import.meta.url),
+				join(checkout, "packages/company-runtime/src/launcher-home.ts"),
+			);
+			mkdirSync(join(agentDir, ".weavra"), { mode: 0o700 });
+			mkdirSync(join(agentDir, ".weavra/agent"), { mode: 0o700 });
 			chmodSync(launcher, 0o755);
 			writeFileSync(join(checkout, "packages/company-runtime/src/extension.ts"), "// CLI path fixture\n");
 			// Only the CLI process is a fixture. Below, actual SDK/faux workers, Git checks,

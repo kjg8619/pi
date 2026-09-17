@@ -125,6 +125,9 @@ beforeEach(async () => {
 	await symlink(process.execPath, join(bin, "node"));
 	await copyFile(join(packageRoot, "bin/weavra"), launcher);
 	await copyFile(join(packageRoot, "src/launcher-worktrees.ts"), join(dirname(extension), "launcher-worktrees.ts"));
+	await copyFile(join(packageRoot, "src/launcher-home.ts"), join(dirname(extension), "launcher-home.ts"));
+	await mkdir(join(root, ".weavra"), { mode: 0o700 });
+	await mkdir(join(root, ".weavra/agent"), { mode: 0o700 });
 	await chmod(launcher, 0o755);
 	await writeFile(extension, "// Launcher path fixture; Runtime behavior uses the existing faux suites.\n");
 	// This executable checks the process boundary, not actual Pi/Provider behavior.
@@ -265,7 +268,7 @@ describe("Weavra isolated worktree launcher (POSIX)", () => {
 			args: ["-e", extension, ...args.slice(0, 2), ...args.slice(4)],
 			marker: env.WEAVRA_MARKER,
 			home: root,
-			agentDir: env.PI_CODING_AGENT_DIR,
+			agentDir: join(root, ".weavra/agent"),
 		});
 		expect(result.stdout.endsWith("unchanged input\n")).toBe(true);
 		expect(result.stderr).toContain(
@@ -526,7 +529,7 @@ describe("Weavra existing worktree open and read-only discovery", () => {
 			args: ["-e", extension, ...args],
 			marker: env.WEAVRA_MARKER,
 			home: root,
-			agentDir: env.PI_CODING_AGENT_DIR,
+			agentDir: join(root, ".weavra/agent"),
 		});
 		expect(result.stderr).toContain("Weavra worktree opened");
 		expect(await snapshot([source, target()])).toEqual(before);
