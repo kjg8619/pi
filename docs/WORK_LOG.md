@@ -39,11 +39,11 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.2A Read-only DAG Projection | 완료 / 커밋·푸시 | `b40c016d3`에 반영. 순수 DTO/ASCII·attempt·R3 detail·UNKNOWN. LOG-032 당시 36개 파일·1,168개 PASS |
 | V0.2B Read-only TUI DAG Viewer | 완료 / 커밋·푸시 | `0834683bd`에 반영. 정적 overlay·navigation/close. LOG-034 당시 38개 파일·1,231개 및 실제 TUI smoke PASS |
 | V0.2C Product Isolation / Setup / Doctor | 완료 / 커밋 확인 | `e7f37f777`에 반영. `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
-| V0.3A Hash-Anchored Edit | 구현·자동 회귀 완료 / 게시 승인(LOG-040)·Provider smoke 미실행 | optional anchored read/edit·full-file stale guard·동일 FD apply. LOG-039 자동 44개 파일·1,470개 PASS |
+| V0.3A Hash-Anchored Edit | 구현 게시·한정 Provider smoke PASS / evidence 게시 승인(LOG-042) | `473256de6`에 반영. LOG-039 자동 44개 파일·1,470개 PASS. LOG-041 실제 `codex-lb/gpt-6-astra` duplicate-second·stale 거부 2건 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.3A — Hash-Anchored Edit**다. 기존 read/edit에 optional anchor/full-file digest precondition을 추가했으며 QUICK/R1 단일 파일 편집에서 우선 권장한다. 오래된 generation은 Policy ALLOW 뒤 재읽기에서 STALE_ANCHOR/0-byte mutation으로 거부한다. exact edit/runtime_write와 Kernel/Workflow/Policy/Approval/Verification/Reviewer/Graph/Viewer/Status/Worktree/Product Isolation 의미는 유지한다. 이번 자동 targeted는 **44개 파일·1,470개 PASS**이며 root check/bash 구문/diff 검사는 PASS다(LOG-039). 실제 Provider small-edit smoke·TUI/build·전체 GPT RC는 이번에 재실행하지 않았다. V0.2C의 42개 파일·1,402개 및 임시 HOME launcher/TUI smoke는 LOG-037 당시 결과로 구분한다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.3A — Hash-Anchored Edit의 실제 Provider smoke**까지 완료했다. 기존 read/edit에 optional anchor/full-file digest precondition을 추가했으며 QUICK/R1 단일 파일 편집에서 우선 권장한다. 오래된 generation은 Policy ALLOW 뒤 재읽기에서 STALE_ANCHOR/0-byte mutation으로 거부한다. exact edit/runtime_write와 Kernel/Workflow/Policy/Approval/Verification/Reviewer/Graph/Viewer/Status/Worktree/Product Isolation 의미는 유지한다. 자동 **44개 파일·1,470개 PASS** 및 root check는 LOG-039/040 당시 결과다. 이번 LOG-041은 사용자 fixture의 임시 복제본과 `codex-lb/gpt-6-astra`로 두 번째 occurrence만 수정→QUICK COMPLETE, 외부 변경 뒤 old anchor→STALE_ANCHOR/bytes 보존을 실제 검증했다. 후자는 거부 확인 뒤 테스트가 취소했으며 Provider의 후속 복구는 검증하지 않았다. Runtime 코드·원본 fixture·개인 설정은 불변이고 TUI/build·전체 GPT RC/targeted suite는 이번에 재실행하지 않았다. V0.2C의 42개 파일·1,402개 및 임시 HOME launcher/TUI smoke는 LOG-037 당시 결과로 구분한다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -2020,6 +2020,68 @@ bash -n packages/company-runtime/bin/weavra
 - **문제·해결:** 추가 문제 없음. 명시적 11개 경로만 stage하고 일반 commit/push를 사용한다. dependency/lockfile 변경 및 검사 우회는 없다.
 - **남은 제한·다음 작업:** 실제 Provider anchored 선택은 미검증이며 runtime_write/legacy exact edit 보호 범위와 외부 최종 syscall race 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add stale-safe Weavra hash-anchored edits`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-041 — V0.3A: 실제 Provider duplicate-second / stale-anchor smoke
+
+- **기록일:** 2026-09-17 15:56 (KST). 실제 Provider 실행 15:50–15:51 KST.
+- **상태:** 요청된 두 시나리오 PASS / 문서 미커밋.
+- **목적:** 실제 모델이 anchored mode를 선택하여 두 번째 occurrence만 수정하고, read 뒤 외부 변경이 있으면 old anchor가 STALE_ANCHOR로 거부되는지 확인한다.
+- **시작 상태:** `devlop` clean, HEAD/origin `473256de6310c7698eb888a9ae999b338bce0854`. LOG-040 뒤 V0.3A는 이 커밋으로 게시됐다. 사용자 `weavra-rc-fixture`도 `rc-gpt-stale`, HEAD `5914c8b85433066b2133e3e2fdf3ff359ae09be9`, clean이었다.
+
+### 실행 환경·격리·변경 파일
+
+- 원본 fixture와 user-level 설정은 읽기만 했다. private `/tmp/weavra-v03a-provider.9DeEvH` 아래 `git clone --local --no-hardlinks` 복제본 두 개에 synthetic `src/duplicate.js`와 exact postcondition test를 추가하고 **복제본 안에서만** fixture baseline commit을 만들었다. 원본 Git HEAD/branch/index/추적 bytes/status는 전후 동일했다.
+- 실제 `.ai/config.yaml`의 coding profile **`codex-lb / gpt-6-astra`**, 기존 Weavra models/auth를 사용했다. 실제 worker thinking은 **medium**, 기본 180초·32-turn 예산이다. 별도 credential 복사/출력 없이 model cache와 worker session만 임시 위치로 분리했고 auth/models/settings bytes 불변을 확인했다.
+- macOS/Darwin arm64·Node `v26.7.0`. 현재 Runtime TypeScript + 기존 built Pi SDK로 실제 `StandardWorkflow/PiAgentExecutor/Kernel/Policy/StateStore/Git/Verifier`를 실행했다. faux Provider나 TUI/launcher 검증이 아니며 build를 새로 실행하지 않았다.
+- 임시 SDK harness는 session 이벤트를 관찰했다. 두 번째에만 read 성공 직후 별도 `/bin/cp` 프로세스로 unrelated comment를 추가하고, edit 오류/외부 bytes 확인 **뒤** run을 취소했다. 도구 구현/schema/Provider 응답/Runtime prompt·권한을 교체하거나 hash를 모델 대신 계산하지 않았다.
+- 영구 변경은 문서 **5개**뿐이다: 신규 `docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md`, 기존 `README.md`, `packages/company-runtime/README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WORK_LOG.md`. 앞선 LOG의 미실행 기록은 당시 사실로 보존하고 현재 상태만 갱신했다. Runtime/Pi 소스·테스트·dependency/lockfile 변경은 없다.
+
+### 실제 결과
+
+1. **Duplicate-second PASS**: goal에는 도구/anchor 지시 없이 두 번째 `teh`만 수정하도록 요청했다. 모델은 anchored read → 6행 token/fileDigest를 그대로 복사한 anchored edit(`teh`→`the`) → anchored read → handoff를 선택했다. 첫 번째 occurrence와 다른 모든 bytes 불변, `runtime_write` 미사용, R1/ALLOW/SUCCEEDED, Executor 1개·Reviewer 없음, SELF_CHECK/TEST 각각 6개 test PASS·exit 0·COMPLETED, lock 없음이다. Run `d67b12c2-4d61-44a2-8244-c6ddecbcf19a`, 25,015ms, Provider usage 6,654 tokens(input 6,248/output 406).
+2. **Stale-anchor PASS**: 같은 goal로 anchored read 후 외부 프로세스가 comment를 추가했다. 모델은 이전 6행 token/digest로 두 번째 return 행을 수정하려 했고 **`STALE_ANCHOR: file generation mismatch`**를 받았다. Policy R1/ALLOW 뒤 action FAILED, 성공 mutation 0개, 거부 직후와 cleanup 뒤 전체 파일이 외부 bytes와 동일했다. 결과 확인 후 harness가 명시적으로 취소하여 최종 CANCELLED·checks 미실행·lock 없음이다. Run `1a8da870-847b-4a32-8d69-25db6e7c6602`, 11,121ms, Provider usage 2,741 tokens(input 2,579/output 162). stale 자체가 CANCELLED를 결정했다거나 모델이 후속 복구했다고 주장하지 않는다.
+
+두 시나리오의 Provider tool-call 응답은 각각 4개/2개다. 두 번째에는 cancellation의 token 0 aborted assistant message가 하나 더 저장됐다. 실제 청구 비용은 미확인이다. run/session ID·file SHA·fixture와 작은 diff·관찰 경계는 위 smoke 문서에 기록하고 credential/전체 대화·reasoning/tool 로그는 복제하지 않았다.
+
+### 이번 검증 명령·결과와 문제 해결
+
+```sh
+node /tmp/weavra-v03a-provider.9DeEvH/smoke.mjs --preflight-only
+node /tmp/weavra-v03a-provider.9DeEvH/smoke.mjs
+node /tmp/weavra-v03a-provider.9DeEvH/verify.mjs
+python3 /tmp/weavra-v03a-provider.9DeEvH/check-docs.py
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- 사전 model mapping/분류/config 로딩: PASS. 실제 smoke 두 건 및 원본 fixture/개인 설정 불변 assertion: PASS.
+- 초기 harness의 goal이 `src/duplicate.js:`처럼 colon을 포함하여 QUICK의 literal-path preflight가 두 번 실패했다. 첫 번째 보고 script는 state 부재를 처리하지 못해 원인을 가렸다. 오류 보고를 보완하고 경로를 독립 token으로 고친 뒤 위 두 실제 run을 실행했다. 초기 실패는 Provider/worker 시작 전이며 Runtime parser나 guard는 변경하지 않았다.
+- 독립 `verify.mjs`가 저장 state/session에서 복사한 token/digest·실제 tool 오류·audit·checks를 대조하고 file SHA/diff·외부 bytes·lock을 재검증: 최종 PASS. 처음 TAP(`# pass 6`)만 예상한 assertion은 Node 26의 spec 출력 prefix 때문에 실패했으며 prefix와 무관하게 pass count를 검사하도록 고쳤다. **Provider 재호출 없이** 같은 저장 evidence로 재검증했다. 실제 check는 처음부터 PASS였다.
+- 문서 상대 링크/fence·이전 LOG 본문 보존·docs-only diff·RC 태그 불변 검사, `git diff --check`, launcher `bash -n`: PASS. 기록 후 동일 문서 검사와 diff/bash 검사를 다시 실행하여 PASS했다.
+- root `npm run check`·전체 targeted·GPT RC-01~08·TUI/build는 재실행하지 않았다. 코드 변경이 없는 한정 smoke/문서 작업이며 LOG-039의 1,470개 PASS를 이번 실행으로 계산하지 않는다.
+
+### 한계·정리·다음 작업·커밋
+
+- 실제 Provider의 stale 후 재읽기/복구는 테스트하지 않았다. 실패 증거 확인 후 취소하여 모델의 재시도나 legacy write가 외부 bytes를 덮지 않게 했다. 이번 취소는 도구의 stale 거부가 끝난 뒤이므로 stale gate를 대신하지 않는다.
+- anchored runtime_edit만 보호한다. runtime_write/legacy edit/trusted checks의 bypass 한계 및 비협조 외부 writer의 최종 syscall race/부분 I/O 실패는 그대로다. 다른 Provider/OS/Node·전체 배포물/모델 품질까지 보장하지 않는다.
+- 결과 확인 후 생성한 임시 fixture/session/harness/검사 script만 정리했고 임시 루트 부재를 확인했다. 사용자 원본 fixture·개인 auth/config·Runtime 상태/태그는 변경하지 않았다.
+- **다음 작업:** 실제 사용에서 anchored preference와 편집 실패 양상을 관찰한다. STANDARD/R2 강제 적용·runtime_write 축소·새 기능은 별도 범위로 유지한다.
+- **커밋·푸시:** 이번 smoke 문서는 하지 않음. 안정 태그 `weavra-v0.1-rc1`은 불변이다.
+
+---
+
+## LOG-042 — V0.3A Provider smoke evidence 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 15:59 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-041의 실제 Provider smoke 결과와 현재 상태 문서를 커밋하고 `origin/devlop`에 게시한다.
+- **변경 파일:** `README.md`, `packages/company-runtime/README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md`, `docs/WORK_LOG.md` 총 5개. 이번 준비에서는 현재 요약과 이 항목만 추가했다. 소스·테스트·dependency/lockfile 변경은 없다.
+- **이번 검증:** `npm run check` 재실행 PASS, Biome 자동 수정 및 warning/info/error 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. `git status --short --branch`, diff와 기존 staged 변경 없음 및 RC tag peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 실제 Provider 두 시나리오 PASS는 LOG-041 당시 결과다. 이번 게시 준비에서는 Provider·targeted tests·TUI/build를 다시 실행하지 않았다. LOG-039의 1,470개 PASS도 과거 구현 검증 결과로 유지한다.
+- **문제·해결:** 추가 문제 없음. 명시적 문서 5개만 stage하고 일반 commit/push를 사용한다. 기존 smoke의 제한과 stale 거부 후 harness cancellation을 그대로 기록한다.
+- **남은 제한·다음 작업:** 실제 모델의 stale 후 복구, 다른 Provider/OS/Node 및 기존 runtime_write/legacy edit 보호 범위 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `docs(coding-agent): record Weavra anchored edit provider smoke`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

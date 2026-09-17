@@ -4,7 +4,7 @@
 - 대상: Weavra `devlop`
 - 목적: OMP와 OMO Native(Senpi)에서 검증된 아이디어를 조사하고, Weavra의 현재 안전성·상태·검증 철학을 유지하면서 가져올 가치가 있는 기능을 우선순위화한다.
 - 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C/V0.3A를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
-- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection, V0.2B 정적 TUI Viewer, V0.2C Product Isolation/setup/doctor. V0.3A optional Hash-Anchored Edit 구현은 §15 및 WORK_LOG LOG-039를 따른다. 실제 Provider anchored smoke는 아직 미검증이다.
+- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection, V0.2B 정적 TUI Viewer, V0.2C Product Isolation/setup/doctor. V0.3A optional Hash-Anchored Edit 구현은 §15 및 WORK_LOG LOG-039를 따른다. `codex-lb / gpt-6-astra`의 한정된 [실제 Provider anchored smoke](WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md) 두 시나리오는 PASS다.
 
 > 핵심 원칙: OMP/OMO의 기능을 그대로 복제하지 않는다. Weavra가 이미 가진 `Kernel → Policy → Verification → Review/Approval → State` 경계를 유지하면서, 필요한 개념만 작은 Port/Adapter 또는 read-only projection으로 흡수한다.
 
@@ -72,7 +72,7 @@ Durable State + Read-only Observation
 | 후보 | 적합도 | 권장 시점 | 도입 방식 |
 |---|---:|---|---|
 | Weavra 전용 setup / agent-dir 분리 | ★★★★★ | V0.2C 구현 | launcher/helper; §15 참조 |
-| Hash-Anchored Edit | ★★★★★ | V0.3A 구현 / Provider smoke 대기 | 기존 read/edit optional mode; §15 참조 |
+| Hash-Anchored Edit | ★★★★★ | V0.3A 구현 / 한정 Provider smoke PASS | 기존 read/edit optional mode; §15 참조 |
 | LSP Diagnostics / Navigation | ★★★★★ | V0.3B | read-only Verification/Code Intelligence |
 | QA Evidence / Doctor | ★★★★★ | V0.3C | 검증/제품 운영 레이어 |
 | AST Edit Preview → Apply | ★★★★☆ | V0.4 전후 | R2 proposal + apply |
@@ -737,7 +737,7 @@ COMPLEX / Planner / Execution DAG / Parallel Agents
 - 기존 actionDigest가 path·anchor·fileDigest·oldText/newText·step·revision을 포함한다. 새 credential/content 로그 저장은 없다. stale는 ALLOW 후 FAILED audit이고, Runtime이 확인한 stale 오류만 같은 세션의 명시적 재읽기를 허용한다. 자동 retry loop나 턴/시간 예산 확대는 없다.
 - QUICK/R1 fixed target에서 anchored preference를 prompt/tool description으로 안내하되 안내를 safety authority로 사용하지 않는다. STANDARD/R2 run binding·Reviewer read-only·R3 approval·Kernel/Verification/Graph/Viewer/Worktree/Product Isolation은 그대로다.
 - **Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** `runtime_write`와 legacy exact edit 우회 가능성은 남는다. 모든 existing-file mutation의 anchored-only 강제는 별도 후속이다.
-- 자동 domain/filesystem/SDK-faux와 기존 targeted regression을 검증한다. 실제 Provider QUICK/R1 small edit 1~2건은 사용자 fixture/모델 선택 후 별도로 확인하며 이번에는 미실행이다. 전체 GPT RC-01~08 재실행은 하지 않는다.
+- 자동 domain/filesystem/SDK-faux와 기존 targeted regression을 검증했다. 후속 [실제 Provider smoke](WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)에서 사용자 fixture의 격리 복제본·기존 `codex-lb / gpt-6-astra`로 두 번째 occurrence만 수정→QUICK COMPLETE 및 외부 변경→old anchor→STALE_ANCHOR/bytes 보존을 확인했다. 두 번째 run은 거부 확인 뒤 테스트가 취소했으며 실제 모델의 후속 복구까지 PASS로 주장하지 않는다. 전체 GPT RC-01~08은 재실행하지 않았다.
 - fuzzy/AST/LSP/rename/formatter/autofix/editor integration/multi-file transaction/auto merge·commit은 추가하지 않는다.
 
 ## V0.3B — LSP

@@ -362,7 +362,7 @@ Policy ALLOW 이후 mutation 직전에 현재 파일을 다시 읽어 **전체 U
 
 **Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** 기존 exact edit와 `runtime_write`, trusted checks, 일반 Pi 도구는 이 보호 대상이 아니다. 모든 existing-file mutation을 anchored-only로 바꾸지는 않았다.
 
-검증과 쓰기는 같은 descriptor에서 중간 JS yield 없이 수행한다. 이는 OS의 atomic compare-and-swap이 아니므로 비협조적인 외부 프로세스의 최종 검사와 쓰기 syscall 사이 경합·쓰기 중 I/O 실패까지 transaction으로 보호하지 않는다. 이미 달라진 generation의 stale 요청은 거부하며, 최종 syscall 경합은 기존 비-sandbox 한계로 남는다. 실제 Provider의 anchored 선택은 아직 미검증이며 자동 SDK/faux 검증과 구분한다.
+검증과 쓰기는 같은 descriptor에서 중간 JS yield 없이 수행한다. 이는 OS의 atomic compare-and-swap이 아니므로 비협조적인 외부 프로세스의 최종 검사와 쓰기 syscall 사이 경합·쓰기 중 I/O 실패까지 transaction으로 보호하지 않는다. 이미 달라진 generation의 stale 요청은 거부하며, 최종 syscall 경합은 기존 비-sandbox 한계로 남는다. `codex-lb / gpt-6-astra`에서 anchored mode 선택·두 번째 중복 위치 수정·외부 변경 뒤 STALE_ANCHOR 거부를 [실제 Provider smoke](docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)로 확인했다. stale run은 거부/bytes 보존 확인 후 테스트가 취소했으며, 실제 모델의 후속 복구나 다른 Provider까지 검증한 것은 아니다.
 
 ## Workflow & Risk
 

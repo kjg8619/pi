@@ -191,7 +191,7 @@ Runtime이 직접 만든 `StaleAnchorError`만 tool call ID에 묶어 runner가 
 
 QUICK/R1 prompt와 edit 설명에 `Existing-file edits should prefer an anchored read followed by anchored edit. If an anchor is stale, re-read the file. Never guess or reconstruct an anchor.`를 넣는다. 이 안내는 권한이 아니며 실제 enforcement는 도구 구현이다. anchored mode는 기존 edit 권한 안에서 optional이고 STANDARD/R2에 강제하지 않는다. QUICK scope와 STANDARD/R2 binding의 분리, Reviewer read-only, R3 삭제·승인, Kernel/Verification/Graph/Viewer/Worktree/Product Isolation 의미는 그대로다.
 
-**Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 실제 사용 검증 뒤 별도 결정한다. 자동 unit/filesystem/SDK-faux 검증과 달리 실제 Provider small-edit smoke는 아직 미실행이다.
+**Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 실제 사용 검증 뒤 별도 결정한다. 자동 unit/filesystem/SDK-faux와 별도로 `codex-lb / gpt-6-astra`의 [실제 Provider smoke](../../docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)에서 anchored mode 선택·두 번째 occurrence만 수정→QUICK COMPLETE와 외부 변경→old anchor→STALE_ANCHOR/bytes 보존을 확인했다. stale run은 실패 확인 뒤 harness가 취소했으며 실제 모델의 stale 후 재읽기/복구는 이번 smoke 범위가 아니다.
 
 ## 설정 schema 1
 
