@@ -79,7 +79,8 @@ Weavra Extension의 소스 TypeScript는 local Pi가 로드하므로 **company-r
 | `/state review [runId]`, `/state decisions [runId] [page]` | 회차별 review / 구조화 운영 결정 |
 | `/team [runId]`, `/risk [runId]` | 역할/profile/session 참조 / 분류·Policy·Approval 상태 |
 | `/state export` | idle/terminal 상태의 운영 결정·check projection을 명시적으로 생성 |
-| `/graph [latest\|runId]`, `/graph help` | V0.2A 읽기 전용 DAG Projection; 실행 기능 없음 |
+| `/graph [latest\|runId]`, `/graph help` | V0.2A 읽기 전용 ASCII snapshot; 실행 기능 없음 |
+| `/graph view [latest\|runId]` | V0.2B 정적 read-only TUI overlay; navigation/close만 지원 |
 
 Factory는 기존 네 명령 및 `/graph`와 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
 
@@ -112,7 +113,28 @@ TUI에서 현재 Host가 소유한 `StandardWorkflow.snapshot`(기존 Kernel sna
 
 `/graph`, `/graph latest`, `/graph <full-run-id>`는 기존 Extension `inspect`와 `FileStateStore.readSnapshot`의 read-only 경계를 공유한다. live owner snapshot 또는 저장 Run만 읽고 lock/repair/recovery/resume, config/model/auth, Provider/Agent, Approval/State 변경, Git 호출을 하지 않는다. missing source/orphan/corrupt state는 이전 graph/export로 대체하지 않는다. source/recorded 정보, 저장 active 상태의 liveness 미확인, local failure/durable status 차이를 기존 조회처럼 알린다. 별도 graph 저장·캐시·polling·RuntimeEvent 재생은 없다.
 
-첫 버전은 호출 시점의 ASCII adjacency 출력이며 자동 갱신 UI가 아니다. 실제 RuntimeEvent 경계의 faux 통합 테스트에서 현재 snapshot을 다시 읽어도 node/edge가 동일하고 조회 중 state bytes·Provider 호출 수·writer 획득 수가 변하지 않음을 검증한다. 그래프는 이벤트 내용을 다음 상태로 해석하지 않는다. **V0.2B TUI Viewer는 이 DTO를 재사용하는 후속 단계**이며 이번에 구현하지 않았다. Scheduler/parallel/dynamic dependencies/node retry/Planner/Lead/COMPLEX/T3Code/Web UI, 기존 Runtime/Status/Worktree semantics 변경은 없다.
+첫 버전은 호출 시점의 ASCII adjacency 출력이며 자동 갱신 UI가 아니다. 실제 RuntimeEvent 경계의 faux 통합 테스트에서 현재 snapshot을 다시 읽어도 node/edge가 동일하고 조회 중 state bytes·Provider 호출 수·writer 획득 수가 변하지 않음을 검증한다. 그래프는 이벤트 내용을 다음 상태로 해석하지 않는다. V0.2B TUI Viewer도 아래와 같이 동일 DTO를 재사용한다. Scheduler/parallel/dynamic dependencies/node retry/Planner/Lead/COMPLEX/T3Code/Web UI, 기존 Runtime/Status/Worktree semantics 변경은 없다.
+
+## V0.2B Read-only TUI Viewer
+
+`/graph`의 ASCII 출력은 유지하며 `/graph view`, `/graph view latest`, `/graph view <runId>`가 같은 `inspect → projectRunGraph()` 결과를 TUI에 표시한다. Viewer는 `ctx.mode === "tui"`에서만 열고 RPC는 `/graph`를 사용한다. project trust/상태 검증 및 로컬 실패·저장 source 구분은 V0.2A와 동일하다.
+
+```text
+Runtime snapshot → GraphProjection (graph.ts, 불변)
+                 → layoutGraphView (graph-view.ts, 순수)
+                 → GraphViewComponent (graph-view-component.ts, Pi TUI)
+```
+
+- `graph-view.ts`는 Graph DTO만 읽는다. 모든 node/status와 edge를 보존하고 기존 edge의 revision/containment 관계에 따라 들여쓰기와 연결선을 계산한다. 폭이 좁으면 한 column으로 줄인다. 새 dependency/step/attempt/실행 상태를 추론하지 않는다.
+- 상태 glyph는 PASS `✓`, RUNNING `●`, PENDING `○`, REVISE `↻`, BLOCKED `!`, FAILED `×`, CANCELLED `-`, SKIPPED `·`, WAITING_APPROVAL/UNKNOWN `?`다. 상태 이름도 함께 표시하고 색상은 Pi theme의 fg palette만 사용한다. R3의 inside IMPLEMENT, APPROVED와 mutation/CONSUMED 구분은 DTO 그대로다.
+- `GraphViewComponent`는 열 때 DTO/context 사본을 보유하고 render마다 현재 terminal size와 theme로 다시 그린다. 공식 `truncateToWidth`로 각 행 폭을 제한하고 세로 offset/page 경계를 resize 때도 clamp한다. overlay는 폭 96%/margin 1, 높이는 terminal 안에서 최대 40행이며 너무 작으면 `/graph` 안내를 표시한다.
+- viewer-local `DEFAULT_APP_KEYBINDINGS`와 주입된 Pi manager의 user bindings로 별도 manager를 만든다. `tui.select.up/down`에 up/k·down/j, `tui.select.cancel`에 escape/q/ctrl+c 기본값을 주고 pageUp/pageDown 및 `tui.altScreen.top/bottom`은 기존 기본값을 사용한다. 명시적 사용자 설정이 우선이며 Pi 전역 manager/config 파일은 수정하지 않는다. key hint도 적용된 binding을 표시한다.
+- 입력은 스크롤/close만 처리한다. Enter/node action/retry/approve/deny/cancel/resume는 없으며 Esc/q는 **viewer만 닫는다**. static snapshot이라 RuntimeEvent listener/polling/timer가 없고, 화면을 다시 열기 전에는 상태를 갱신하지 않는다. `Static snapshot`을 명시하여 현재 실행 보장으로 오인하지 않게 한다.
+- `GraphViewSession`이 공식 `ctx.ui.custom(..., {overlay: true})`와 dispose/close를 소유한다. Extension은 viewer 요청을 reserve하고 lifecycle에서 닫을 뿐 Runtime authority를 전달하지 않는다. pending read/늦은 factory 및 중복 open을 보호하고, viewer close가 실패해도 Runtime cancellation/lease cleanup은 기존대로 진행한다. dispose 후 input/render/invalidate는 redraw나 Runtime 작업을 하지 않는다.
+- editor component/footer/header/status를 교체하지 않는다. 일반 close 뒤 기존 editor text/focus/footer를 유지한다. session lifecycle의 기존 Status clear와 Runtime cancel/cleanup 의미는 바꾸지 않는다. render/theme 오류는 안내 화면으로 격리하며 고장 난 외부 UI의 복원은 best-effort다. 다른 extension의 동시 overlay stack·fullscreen 조합은 미검증이다.
+- package에는 기존 workspace `@earendil-works/pi-tui` 버전 `0.85.1`을 dev dependency로 명시했다. Pi Core/TUI 소스·새 외부 dependency·새 실행/상태 schema 변경은 없다.
+
+새로운 Graph editor/node 실행/drag-drop/zoom/pan/mouse dependency/DAG scheduler/parallel/Planner/Lead/COMPLEX/T3Code/Web UI는 없다. live update는 cleanup과 source authority를 유지하는 별도 후속으로 남긴다.
 
 ## 설정 schema 1
 
@@ -482,7 +504,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
-node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/host-boundary.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/host-boundary.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider

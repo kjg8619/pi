@@ -5,9 +5,15 @@ import { expect, it } from "vitest";
 
 it("keeps Kernel, Policy and Graph import graphs free of Pi, UI, provider and filesystem adapters", () => {
 	const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
-	const pending = ["kernel.ts", "classification.ts", "ports.ts", "events.ts", "policy.ts", "graph.ts"].map((name) =>
-		resolve(sourceRoot, name),
-	);
+	const pending = [
+		"kernel.ts",
+		"classification.ts",
+		"ports.ts",
+		"events.ts",
+		"policy.ts",
+		"graph.ts",
+		"graph-view.ts",
+	].map((name) => resolve(sourceRoot, name));
 	const visited = new Set<string>();
 	while (pending.length) {
 		const path = pending.pop()!;

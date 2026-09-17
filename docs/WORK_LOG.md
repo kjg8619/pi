@@ -36,11 +36,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Fork-local Weavra Launcher | 완료 / 기존 커밋 확인 | `14c3f6992`에 반영. global Pi 의존 제거, 같은 checkout의 built CLI 고정. LOG-025 자동 33개 파일·982개 PASS. 사용자 정상 실행 보고는 LOG-026 참조 |
 | Weavra Worktree Launcher V1 | 완료 / 커밋·푸시 | `965240041`에 반영. create-only·frozen HEAD·외부 경로·충돌/dirty 거부·자동 정리 없음. LOG-028 당시 34개 파일·1,040개 PASS |
 | Weavra Worktree Open/List | 완료 / 커밋·푸시 | `add45781d`에 반영. Git 등록 기반 open-only/list·dirty 허용·Pi argv 전달. LOG-030 당시 34개 파일·1,098개 PASS |
-| V0.2A Read-only DAG Projection | 완료 / 게시 승인·검증 완료(LOG-033) | 순수 Graph DTO/ASCII·`/graph`·attempt 펼치기·R3 내부 detail·UNKNOWN/fail-safe. LOG-032 자동 36개 파일·1,168개 PASS |
+| V0.2A Read-only DAG Projection | 완료 / 커밋·푸시 | `b40c016d3`에 반영. 순수 DTO/ASCII·attempt·R3 detail·UNKNOWN. LOG-032 당시 36개 파일·1,168개 PASS |
+| V0.2B Read-only TUI DAG Viewer | 완료 / 게시 승인·검증 완료(LOG-035) | 동일 DTO의 정적 overlay·navigation/close·lifecycle 격리. LOG-034 자동 38개 파일·1,231개 및 실제 80×24 TUI smoke PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.2A — Read-only DAG Projection**이다. 기존 Run snapshot을 순수 DTO와 ASCII 그래프로 표현하고 `/graph [latest|runId]`를 기존 read-only observation 경계에 연결했다. Node/edge는 실행 authority가 아니며 누락 결과는 UNKNOWN으로 남긴다. Kernel/Workflow/Policy/Approval/StateStore/RuntimeEvent/Status Projection·Worktree Launcher·worker 도구와 prompt는 변경하지 않았다. 이번 자동 targeted는 **36개 파일·1,168개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-032). 실제 bundled CLI/TUI smoke·build·유료 GPT RC는 이번에 재실행하지 않았다. V0.2B TUI Viewer는 V0.2A 안정화 후 동일 DTO를 재사용하는 다음 단계이며 아직 구현하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.2B — Read-only TUI DAG Viewer**다. `/graph` ASCII와 V0.2A GraphProjection은 유지하고 `/graph view [latest|runId]`로 같은 DTO를 정적 TUI overlay에 표시한다. Viewer는 navigation/close만 하며 Runtime을 움직이지 않는다. Kernel/Workflow/Policy/Approval/StateStore/RuntimeEvent/Status Projection·Worktree Launcher·worker 도구와 prompt는 변경하지 않았다. 이번 자동 targeted는 **38개 파일·1,231개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-034). 실제 source Pi의 80×24 TUI에서 QUICK/STANDARD/REVISE/R3, resize/scroll/close·editor/footer 복원을 확인했다. live update·build·실제 bundled 배포물·유료 GPT RC는 이번 범위에 포함하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -1751,6 +1752,106 @@ git rev-parse HEAD weavra-v0.1-rc1 'weavra-v0.1-rc1^{}'
 - **문제·해결:** 추가 문제 없음. 명시적 12개 경로만 stage하고 일반 commit/push를 사용한다. Runtime 실행 의미·Status/Worktree 구현·Pi Core·dependency/lockfile은 그대로다.
 - **남은 제한·다음 작업:** 실제 TUI smoke·플랫폼 미검증 및 누락 과거 결과의 UNKNOWN 한계를 유지한다. 게시 후 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다. V0.2B는 V0.2A 안정화와 별도 승인 후 진행한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add read-only Weavra DAG projection`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. 안정 태그 `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-034 — V0.2B: Read-only TUI DAG Viewer
+
+- **기록일:** 2026-09-17 11:08 (KST)
+- **상태:** 구현·자동 회귀·실제 TUI smoke 완료 / 미커밋
+- **목적:** V0.2A GraphProjection을 그대로 보여주는 읽기 전용 TUI viewer를 추가한다. Viewer는 Runtime 실행/승인 authority가 아니다.
+- **시작 상태:** `devlop` clean, HEAD `b40c016d385b1c28b8f352c9cb99aceffef7c8bf`. LOG-033 뒤 V0.2A가 이 커밋으로 게시됐다. RC tag object `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c` 및 peeled commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 그대로다.
+
+### 문제·설계·구조
+
+ASCII snapshot은 모든 기록을 읽을 수 있지만 긴 revision 이력을 한 화면에서 보기 어렵다. `/graph`/`latest`/`runId` 출력은 유지하고 `/graph view [latest|runId]`만 transient overlay로 연결했다. `Runtime snapshot → 기존 GraphProjection → 순수 layout → Pi TUI Component` 순서이며 양쪽 renderer가 각각 Run 상태를 추론하지 않는다.
+
+- `src/graph.ts`의 DTO/projector/ASCII renderer는 byte 변경 없이 재사용한다. viewer는 같은 node ID/status/edge를 받고 glyph·색상·들여쓰기·스크롤만 계산한다. R3 승인과 mutation은 inside IMPLEMENT인 projection detail이며 APPROVED != mutation success와 UNKNOWN/CONSUMED 의미를 그대로 유지한다.
+- 첫 버전은 **open 시점의 정적 사본**이다. `Static snapshot`을 표시하고 현재 상태를 보려면 닫고 다시 연다. RuntimeEvent subscription/replay/cache DB/polling/timer를 만들지 않아 late event가 viewer 상태를 바꾸지 않는다. Live update는 별도 후속으로 남겼다.
+- 공식 `ctx.ui.custom(..., {overlay:true, overlayOptions:{anchor:"center", width:"96%", maxHeight:"100%", margin:1}})`를 사용한다. Pi Core/TUI 자체, editor component/footer/header/status를 교체하지 않는다.
+- 키는 up/k·down/j, PgUp/PgDn, Home/End, Esc/q/Ctrl+C close만 제공한다. viewer-local `DEFAULT_APP_KEYBINDINGS`와 주입된 manager의 user bindings를 조합하며 Pi 전역 manager/config는 변경하지 않는다. Enter와 node 실행/retry/approve/deny/cancel/resume 메뉴는 없다. Esc/q는 Worker 취소가 아니다.
+- viewport 높이/폭마다 layout·scroll 경계를 갱신하고 공식 truncation으로 display width를 제한한다. 좁은 화면은 단일 column, 너무 작은 화면은 resize 또는 `/graph` 안내다. glyph와 상태 이름을 같이 표시하고 theme fg palette만 사용한다.
+- Extension은 요청/overlay owner를 한 개만 보유한다. lifecycle에서 viewer를 먼저 닫은 뒤 기존 Status clear·Runtime cancel/lease cleanup을 그대로 수행한다. pending read/늦은 factory/중복 open과 dispose 후 입력·render를 보호하며 UI close 실패도 Runtime cleanup을 막지 않는다.
+
+### 변경 파일
+
+- 신규 `packages/company-runtime/src/graph-view.ts`: 순수 row layout, 상태 glyph/label, 제어 문자 escaping. 기존 GraphNode/GraphEdge 참조를 보존하며 Node/edge 상태를 변경하지 않는다.
+- 신규 `src/graph-view-component.ts`: theme/terminal 크기·세로 scroll·navigation/close Component 및 `GraphViewSession` transient owner. runtime port/action은 전달하지 않는다.
+- `src/extension.ts`: 기존 read-only `inspect → projectRunGraph` 결과를 ASCII 또는 viewer로 분기한다. TUI-only/project trust/정확한 run ID/동시 open 검사를 추가하고 기존 lifecycle hook에서 viewer owner만 닫는다. config/Provider/Agent/Git/state writer 경로는 추가하지 않는다.
+- 신규 `test/graph-view.test.ts` **43개**: workflow/risk/revision/R3/terminal/stale/UNKNOWN, 동일 DTO node/edge set, glyph/colorless, 긴 CJK/제어 문자, narrow/resize, scroll 경계, user keybindings, Enter 무동작, theme 실패, static/dispose 경계.
+- 신규 `test/graph-view-command.test.ts` **16개**와 `test/graph-view-harness.ts`: 실제 TuiMainScreen/VirtualTerminal 및 공식 custom bridge 형태로 open/close·editor/footer/focus 보존, state/config/tasks/writer bytes 불변, Provider/writer 0, pending read/factory·lifecycle/UI 실패·중복/malformed/non-TUI를 검증한다. source selection/projector spy로 ASCII와 동일 DTO임도 확인한다.
+- `test/host-boundary.test.ts`: 순수 graph layout도 Kernel/Policy/Graph와 함께 Pi/UI/fs import 경계를 검사한다.
+- `packages/coding-agent/test/suite/company-runtime-status.test.ts` **4개 추가**: 기존 harness/faux의 실제 live Worker를 유지한 채 Esc/q가 viewer만 닫는지, reload/UI close 실패에도 CANCELLED 저장·lock cleanup·다른 status 보존이 유지되는지 확인한다.
+- `packages/company-runtime/package.json`, root `package-lock.json`: 기존 workspace `@earendil-works/pi-tui` `0.85.1` dev dependency 1개를 명시했다. lock diff도 해당 metadata 1줄뿐이며 새 외부 버전/패키지·lifecycle script·shrinkwrap 변경은 없다. `npm install --package-lock-only --ignore-scripts`로 갱신했다.
+- `README.md`, `packages/company-runtime/README.md`: ASCII/viewer 구분, static snapshot·keybinding·작은 화면·lifecycle 및 미지원 범위를 설명한다. `docs/WORK_LOG.md`는 현재 요약과 본 항목을 추가했다. 총 **13개 파일** 변경이다.
+
+### 유지한 의미와 제한
+
+GraphProjection/GraphNode/GraphEdge, Kernel/Workflow/QUICK·STANDARD/R0~R3/Reviewer/Verification/Approval/Policy/StateStore/RuntimeEvent·Status Projection·Worktree Launcher는 변경하지 않았다. worker 도구/prompt/권한·Pi Core/TUI 소스도 그대로다. Graph editor, node action/retry, drag/drop/workflow 편집, scheduler/parallel/dynamic dependency, zoom/pan/mouse dependency, Planner/Lead/COMPLEX/T3Code/Web UI는 구현하지 않았다.
+
+Viewer에는 Run의 현재 단계나 승인 상태를 바꿀 콜백이 없다. 기존 active run도 정적 표시이며 자동 갱신/현재 filesystem·process 생존 보장이 아니다. 오류 표시/close는 best-effort UI 경계이며 다른 extension의 동시 overlay stack·fullscreen 조합은 이번 검증 범위가 아니다.
+
+### 자동 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime — V0.2B + V0.2A/S0~S6/RC/launcher/status/worktree
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/graph-view.test.ts test/graph-view-command.test.ts test/graph.test.ts test/graph-command.test.ts test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent — 기존 harness/faux Runtime/RC/Status 및 Pi 회귀
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts
+
+# root
+npm run check
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- 환경: Darwin arm64, Node `v26.7.0`. 최종 **Runtime 24개 파일·776개 + coding-agent 14개 파일·455개 = 38개 파일·1,231개 PASS**, 실패/skip 0. 신규 59+4개이며 LOG-032의 1,168개는 과거 결과다. 기존 targeted도 이번에 모두 다시 실행했다.
+- 초기 viewer/layout/command/기존 graph-command/boundary 실행은 **52 PASS / 23 FAIL**이었다. 16개는 test harness에서 SDK의 type-only KeybindingsManager export를 생성자로 사용한 setup 오류, 7개는 공식 truncateToWidth가 삽입하는 정상 SGR reset을 unsafe source escape로 판단한 assertion 오류였다. test-only 실제 manager import와 중립 reset/데이터 escape 구분으로 고쳤으며 구현의 width 검사나 Runtime guard를 낮추지 않았다. 이후 **4개 파일·75개 PASS**, SDK Status suite **29개 PASS**를 확인했다.
+- 최종 full targeted 이후 test teardown을 finally로 보강하고 `test/graph-view-command.test.ts`를 다시 실행해 **16개 PASS**했다(합계와 중복). 살아 있는 Worker의 기존 Provider 호출은 baseline으로 두고 viewer로 인한 추가 Provider/writer 호출이 0임을 검증했다. query-only 테스트는 전체 Provider/Agent/Workflow/Git/writer 실행 0이다.
+- `npm run check`: PASS, TypeScript/deps/entry graphs/shrinkwrap/install-lock/browser smoke 포함. Biome은 이번 변경 파일만 포맷했고 그 뒤 전체 targeted를 실행했다. `git diff --check`, `bash -n`: PASS. root package-lock 갱신 시 기존 **moderate 3건**을 보고했으며 이번에 audit fix/의존성 보안 해소를 수행하거나 PASS로 선언하지 않았다.
+
+- 최종 문서 기록 후 `npm run check`를 재실행해 자동 수정 없이 PASS했다. `bash -n`·`git diff --check` 및 임시 Python 최종 검사도 PASS했다. 정확한 13개 변경 파일, V0.2A 모델/Runtime/Status/Worktree/Pi Core 불변, Extension의 기존 snapshot 조회·run/취소 로직 보존, lockfile의 내부 TUI dependency metadata 외 불변, LOG-001~033 본문·문서 fence/공백·HEAD/RC 태그 불변과 실제 프로젝트 `.ai` 부재를 확인했다. 최종 검사 script는 제거했다.
+
+### 실제 Pi TUI smoke
+
+- `.pi/skills/interactive-testing.md`에 따라 고유 임시 fixture와 tmux **80×24**에서 source `pi-test.sh`를 실행했다. 별도 HOME/agentDir, credential 없는 `env -i`, `--offline --approve --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files` 및 명시적 임시 wrapper Extension을 사용했다. 기존 global Pi/config/auth는 건드리지 않았다.
+- V0.2A의 shape-valid stored fixture를 사용했다: QUICK/R0 COMPLETED, STANDARD/R2 COMPLETED, STANDARD/R1 REVISE→attempt2 COMPLETED, R3 WAITING_APPROVAL/PENDING. Worker/Provider는 호출하지 않았으며 no-model/offline-fd 경고는 예상된 fixture 조건이다.
+- 실제 `/graph view quick`, `view standard`, `view revise`, `/graph view`(latest R3), reload 후 `view quick`까지 **5회 open/close**를 확인했다. QUICK의 완료 chain, STANDARD Reviewer, REVISE edge/들여쓴 attempt2, R3 inside IMPLEMENT와 승인!=mutation 안내를 확인했다.
+- PgDn/End 세로 scroll, **42×18** 단일 column, **30×10** too-small 안내, 80×24 복귀 및 Esc/q 닫기를 확인했다. 실제 TUI에서 viewer를 닫은 뒤 `/reload`하고 새 viewer를 열었다. viewer가 열린 채 강제 session lifecycle이 발생하는 경계는 자동 테스트로 별도 검증했다.
+- wrapper는 실제 graph handler 진입 직전에 draft를 넣고 반환 뒤 editor text를 기록했다. 5회 모두 `DRAFT_PRESERVED`였고 footer의 `OTHER STATUS`도 복원됐다. fixture state SHA-256은 전후 동일하며 `.ai`에는 state.json만 있었다(writer/tasks 생성 없음). 검증 script PASS 후 tmux와 임시 fixture/wrapper/검사 파일을 제거했다. 전체 화면/대화 로그는 저장소에 복사하지 않았다.
+- 이 결과는 source Pi + stored fixture의 실제 TUI smoke다. 실제 bundled 배포물이나 real-Provider workflow 성공 evidence로 확대하지 않는다. tiny/fallback 화면의 key hint는 이후 사용자 binding을 반영하도록 정리했고 최종 자동 회귀에서 다시 검증했다.
+
+### 다음 작업·커밋
+
+- live update·추가 overlay 조합·fullscreen/다른 OS·Node 검증은 별도 후속이다. 사용자 환경에서 static snapshot 의미와 키 설정을 확인한 뒤 범위를 정한다.
+- Runtime semantics 불변이므로 GPT RC-01~08/DeepSeek·유료 Provider를 재실행하지 않았다. build·전체 upstream suite/e2e도 이번에 실행하지 않았다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음. `weavra-v0.1-rc1`을 이동·수정하지 않았다.
+
+---
+
+## LOG-035 — V0.2B Read-only TUI DAG Viewer 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 13:46 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-034의 V0.2B 변경을 커밋하고 `origin/devlop`에 게시하기 위한 검증을 완료했다.
+- **변경 파일:** `README.md`, `docs/WORK_LOG.md`, `package-lock.json`, `packages/company-runtime/README.md`, `packages/company-runtime/package.json`, 같은 패키지의 `src/extension.ts`, `src/graph-view.ts`, `src/graph-view-component.ts`, `test/graph-view.test.ts`, `test/graph-view-command.test.ts`, `test/graph-view-harness.ts`, `test/host-boundary.test.ts`, `packages/coding-agent/test/suite/company-runtime-status.test.ts` 총 13개. 이번 준비에서는 현재 요약과 이 항목만 갱신했다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 없음. `bash -n packages/company-runtime/bin/weavra`, `git diff --check` PASS. `git status --short --branch`, 변경 목록과 기존 staged 변경 없음, RC tag object/peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 38개 파일·1,231개 PASS, graph-view-command 16개 재검증 및 실제 80×24 TUI smoke는 LOG-034 구현 당시 결과다. 이번 커밋 준비에서는 테스트/build/실제 Provider/TUI를 재실행하지 않았다.
+- **문제·해결:** lockfile은 내부 `@earendil-works/pi-tui` dev dependency metadata 1줄뿐임을 재확인했다. 사용자 승인된 V0.2B 게시 범위로 `PI_ALLOW_LOCKFILE_CHANGE=1`을 명시하여 포함하며 일반 commit 검사는 유지한다. 다른 의존성 변경이나 검사 우회는 없다.
+- **남은 제한·다음 작업:** 정적 snapshot, 다른 extension overlay 중첩/fullscreen·플랫폼 미검증과 기존 취약점 미해소 한계를 유지한다. 명시적 13개 경로만 stage·commit 후 일반 push하고 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add read-only Weavra TUI graph viewer`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-036 — V0.2B 게시: 원격 문서 커밋과 충돌 없는 통합
+
+- **기록일:** 2026-09-17 13:47 (KST)
+- **상태·목적:** V0.2B 최초 커밋 후 non-fast-forward로 거부된 푸시를 강제 푸시 없이 해결한다.
+- **변경 파일:** 이번 후속 기록은 `docs/WORK_LOG.md`만 추가한다. LOG-035의 13개 게시 파일은 유지하며 원격 문서는 수정하지 않았다.
+- **문제·해결:** 최초 커밋 `407b34a45`의 푸시가 원격 선행 커밋으로 거부됐다. `git fetch origin devlop`으로 원격 `8037cefae`가 `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`만 추가했음을 확인했다. `git rebase origin/devlop`은 충돌 없이 완료됐고 V0.2B 코드 내용은 유지됐다. force push는 사용하지 않았다.
+- **검증 명령·실제 결과:** rebase 후 `npm run check` 재실행 PASS, Biome 자동 수정 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. `git status --short --branch`에서 원격 대비 V0.2B 커밋 1개 선행·작업 트리 clean을 확인했다. 테스트/TUI/실제 Provider는 재실행하지 않았으며 LOG-034 결과와 구분한다.
+- **남은 제한·다음 작업:** 기존 정적 viewer/플랫폼/보안 검증 한계를 유지한다. 이 기록을 미게시 V0.2B 커밋에 포함하고 일반 push 후 로컬·원격 HEAD 일치와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 최초 커밋은 rebase로 교체됐으며, 이 항목 작성 시 최종 기록 반영·푸시 직전이다. 최종 SHA와 실제 push 결과는 Git 이력 및 최종 응답으로 보고한다.
 
 ---
 

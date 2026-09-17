@@ -16,6 +16,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - 실제 Git diff/digest, 등록 checks, 부분 변경 보고, 명시적 취소와 읽기 전용 상태 조회.
 - Pi 기본 footer에 로컬 workflow/risk/phase·active role 및 마지막 종료 결과를 표시하는 Status Projection.
 - V0.2A: `/graph`로 기존 Run·attempt·Review·Check·Approval을 읽는 순수 DAG Projection과 ASCII 조회.
+- V0.2B: 같은 GraphProjection을 `/graph view`의 read-only TUI overlay에서 스크롤하며 조회.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -180,7 +181,8 @@ verification:
 | `/state export` | idle/terminal 상태에서 파생 결정·check 파일 생성 |
 | `/team [runId]` | 역할·profile·독립 세션 참조 |
 | `/risk [runId]` | 분류·Policy·Approval 상태 |
-| `/graph [latest\|runId]` | 읽기 전용 DAG Projection; 실행/재시도 기능 없음 |
+| `/graph [latest\|runId]` | 읽기 전용 ASCII snapshot; 실행/재시도 기능 없음 |
+| `/graph view [latest\|runId]` | 같은 projection의 read-only TUI overlay viewer |
 
 runId 생략 또는 `latest`는 최신 run이다. 조회는 worker/check를 재실행하지 않는다. 저장된 PASS는 기록 시점의 증거이며 현재 파일 상태나 프로세스 생존을 보장하지 않는다.
 
@@ -249,6 +251,42 @@ DAG는 순환 없는 방향 그래프다. V0.2A는 **기존 순차 실행을 표
 
 DAG Scheduler, node 실행/retry, drag/drop, workflow 편집, parallel node, dynamic scheduling, Planner/Lead, COMPLEX, T3Code, Web UI는 구현하지 않았다. 기존 Status Projection과 Worktree Launcher도 그대로다.
 
+## V0.2B — Read-only TUI DAG Viewer
+
+```text
+/graph                       ASCII snapshot (기존 동작)
+/graph latest
+/graph <runId>
+
+/graph view                  read-only TUI viewer
+/graph view latest
+/graph view <runId>
+```
+
+Viewer는 V0.2A의 **동일 `GraphProjection` node ID/status/edge**를 표시한다. Run/Review/Approval 상태를 다시 판정하지 않는다. Pi 공식 `ctx.ui.custom(..., {overlay: true})`로 열고 기존 editor/footer/status를 교체하지 않는다. Viewer를 닫아도 입력 중이던 editor text와 footer는 유지된다.
+
+| 상태 | 표시 |
+|---|---|
+| PASS / RUNNING / PENDING | `✓` / `●` / `○` |
+| REVISE / BLOCKED / FAILED | `↻` / `!` / `×` |
+| CANCELLED / SKIPPED | `-` / `·` |
+| WAITING_APPROVAL / UNKNOWN | `?` + 상태 이름 |
+
+색상은 Pi theme를 따르고 문자와 상태 이름도 함께 표시한다. 넓은 화면은 revision edge 뒤를 들여 쓰고 좁은 화면은 단일 column으로 줄인다. `contains`/`approval required`와 `[inside implement:1]` 표기를 유지하므로 R3 Approval을 독립 Kernel step으로 보지 않는다. **APPROVED는 mutation success가 아니며**, CONSUMED/UNKNOWN 등 V0.2A의 의미를 그대로 보여준다.
+
+기본 키는 navigation과 close뿐이다:
+
+- `↑`/`k`, `↓`/`j`: 한 줄 스크롤
+- `PgUp`/`PgDn`: 페이지 스크롤, `Home`/`End`: 처음/끝
+- `Esc`/`q`/`Ctrl+C`: viewer만 닫기. **Worker 취소가 아니다.**
+- Enter, node 실행/retry/approve/deny/cancel/resume 메뉴는 없다.
+
+Pi의 기존 `tui.select.up/down/pageUp/pageDown/cancel`, `tui.altScreen.top/bottom` keybinding ID를 사용한다. viewer-local 기본값에만 `j/k/q`를 추가하며 Pi 전역 manager는 변경하지 않는다. `keybindings.json`의 명시적 설정은 alias를 포함한 viewer 기본값을 대체한다. 화면의 key hint도 적용된 설정을 따른다.
+
+**V0.2B 첫 버전은 열 때 읽은 정적 snapshot이다.** `Static snapshot`을 표시하며, 활성 run이라도 자동 갱신하지 않는다. 현재 상태를 보려면 닫고 다시 연다. RuntimeEvent 저장/replay·polling·timer·새 graph state는 없다. Viewer 종료·reload·session switch/fork/tree/shutdown에서는 자체 component를 dispose하며, 읽기/overlay 생성 중 lifecycle이 바뀌어도 늦은 viewer가 남지 않도록 닫는다. 기존 Runtime cleanup은 그대로 수행한다.
+
+긴 label/runId/diagnostic은 폭에 맞게 truncate하고 내부 세로 스크롤을 제공한다. 너무 작은 화면에서는 resize 또는 `/graph` 사용을 안내한다. Viewer는 TUI-only이며 RPC에는 기존 ASCII `/graph`를 사용한다. 조회 중 writer lock/repair/Provider/Agent/Git mutation은 없고, 실행/승인 authority를 갖지 않는다. 다른 extension의 동시 overlay 중첩과 별도 fullscreen 조합은 이번 검증 범위에 포함하지 않았다.
+
 ## Workflow & Risk
 
 | 범위 | 실행과 완료 조건 |
@@ -279,7 +317,7 @@ DeepSeek/다른 Provider, Linux/다른 OS·Node 조합, 전체 upstream e2e 및 
 
 ## Roadmap
 
-V0.2A는 순수 DTO와 `/graph` ASCII 조회다. 이 단계가 안정화된 뒤 **V0.2B — TUI DAG Viewer**에서 동일 `GraphProjection` DTO를 재사용할 수 있다. V0.2B는 아직 구현하지 않았으며 Kernel을 UI에 종속시키지 않는다. 실행 scheduler/COMPLEX/Planner/Lead/병렬화/T3Code는 별도 범위다.
+V0.2A의 순수 DTO/ASCII 조회 위에 V0.2B 정적 TUI Viewer를 연결했다. 향후 live update는 snapshot을 다시 투영하는 별도 후속 범위이며 Kernel을 UI에 종속시키지 않는다. 실행 scheduler/COMPLEX/Planner/Lead/병렬화/T3Code는 추가하지 않는다.
 
 내부 `CompanyKernel`, `CompanyExtensionOptions`, `registerCompanyRuntime`, `packages/company-runtime`, 세션 경로와 package `0.85.1` 메타데이터는 유지한다. 이는 Weavra 제품 버전이 아니다. 안정된 worker prompt와 역사적 설계/validation 기록의 기존 명칭도 보존한다. 상세 구현은 [Runtime 문서](packages/company-runtime/README.md), 작업 기록은 [WORK_LOG](docs/WORK_LOG.md)를 참고한다.
 

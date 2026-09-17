@@ -11,6 +11,7 @@ import { CompanyKernel } from "../../../company-runtime/src/kernel.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import * as statusProjection from "../../../company-runtime/src/status.ts";
+import { graphViewUI } from "../../../company-runtime/test/graph-view-harness.ts";
 import type { ExtensionCommandContext, RegisteredCommand } from "../../src/index.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -215,6 +216,71 @@ afterEach(async () => {
 });
 
 describe("Weavra Status Projection on the actual Extension/Kernel/SDK (faux only)", () => {
+	it.each(["q", "\u001b"])(
+		"V0.2B closing the viewer with %s does not cancel the live Worker or alter its footer",
+		async (key) => {
+			holdRole = "Developer";
+			const owner = host();
+			const ui = graphViewUI();
+			owner.ctx.ui.custom = ui.custom;
+			try {
+				await owner.call("workflow", "run Fix bug");
+				await vi.waitFor(() => expect(harness.faux.state.callCount).toBe(1), { timeout: 10000 });
+				const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
+				const statuses = [...owner.statuses];
+				const providerCalls = harness.faux.state.callCount;
+				const opens = vi.spyOn(FileStateStore, "open");
+				const showing = owner.call("graph", "view");
+				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true));
+				await ui.terminal.waitForRender();
+				ui.terminal.sendInput("\r");
+				ui.terminal.sendInput(key);
+				await showing;
+				expect(stored().status).toBe("RUNNING");
+				expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
+				expect([...owner.statuses]).toEqual(statuses);
+				expect(ui.editor.value).toBe("existing draft text");
+				expect(opens).not.toHaveBeenCalled();
+				expect(harness.faux.state.callCount).toBe(providerCalls);
+				await owner.call("workflow", "cancel");
+				expect(stored().status).toBe("CANCELLED");
+				expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+			} finally {
+				await owner.emit("session_shutdown", "quit");
+				ui.stop();
+			}
+		},
+	);
+	it.each([false, true])(
+		"V0.2B reload disposes the viewer before Runtime cleanup (UI close failure: %s)",
+		async (failClose) => {
+			holdRole = "Developer";
+			const owner = host();
+			const ui = graphViewUI();
+			owner.ctx.ui.custom = ui.custom;
+			try {
+				await owner.call("workflow", "run Fix bug");
+				await vi.waitFor(() => expect(harness.faux.state.callCount).toBe(1), { timeout: 10000 });
+				const showing = owner.call("graph", "view latest");
+				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true));
+				if (failClose)
+					vi.spyOn(ui.tui, "hideOverlay").mockImplementation(() => {
+						throw new Error("UI close failed");
+					});
+				await owner.emit("session_shutdown", "reload");
+				await showing;
+				expect(ui.tui.hasOverlay()).toBe(false);
+				expect(ui.component?.isDisposed).toBe(true);
+				expect(ui.component?.render(76)).toEqual([]);
+				expect(stored().status).toBe("CANCELLED");
+				expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+				expect(owner.statuses.get("other-extension")).toBe("Other status");
+			} finally {
+				await owner.emit("session_shutdown", "quit");
+				ui.stop();
+			}
+		},
+	);
 	it.each([
 		{ goal: "Explain src/app.ts", workflow: "QUICK", risk: "R0", role: "Executor" },
 		{ goal: "Fix typo in src/app.ts", workflow: "QUICK", risk: "R1", role: "Executor" },

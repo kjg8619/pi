@@ -10,6 +10,7 @@ import { PiAgentExecutor } from "./agent-runner.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
+import { GraphViewSession } from "./graph-view-component.ts";
 import {
 	displayText,
 	formatConfiguration,
@@ -40,6 +41,12 @@ export function registerCompanyRuntime(
 	let cancellation: AbortController | undefined;
 	let last: WorkflowReport | undefined;
 	let project: string | undefined;
+	let graphViewer: GraphViewSession | undefined;
+	const closeGraphViewer = () => {
+		const viewer = graphViewer;
+		graphViewer = undefined;
+		viewer?.close();
+	};
 	// One namespaced footer entry, not a replacement footer or a second Run store.
 	let statusUI: ExtensionContext["ui"] | undefined;
 	let statusText: string | undefined;
@@ -80,6 +87,7 @@ export function registerCompanyRuntime(
 		await exporting;
 	};
 	const leaveSession = async () => {
+		closeGraphViewer();
 		// Detach before awaiting cleanup so late events/finally cannot repopulate the old footer.
 		clearStatus();
 		await cancel();
@@ -130,7 +138,7 @@ export function registerCompanyRuntime(
 		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state export",
 		team: "/team [runId]",
 		risk: "/risk [runId]",
-		graph: "/graph [latest|runId]",
+		graph: "/graph [latest|runId] | /graph view [latest|runId]",
 	};
 	for (const name of ["team", "state", "workflow", "risk", "graph"] as const) {
 		pi.registerCommand(name, {
@@ -142,11 +150,14 @@ export function registerCompanyRuntime(
 					return;
 				}
 				const argument = args.trim();
+				let ownedViewer: GraphViewSession | undefined;
 				try {
 					if (argument === "help") {
 						ctx.ui.notify(
 							[
-								name === "graph" ? "Weavra Graph — V0.2A (read-only)" : "Weavra v0.1 RC1 (development)",
+								name === "graph"
+									? "Weavra Graph — V0.2A projection / V0.2B viewer (read-only)"
+									: "Weavra v0.1 RC1 (development)",
 								usage[name],
 								...(name === "workflow"
 									? [
@@ -166,6 +177,7 @@ export function registerCompanyRuntime(
 											...(name === "graph"
 												? [
 														"DAG projection only: attempts are unrolled; Approval/Mutation remain inside IMPLEMENT.",
+														"/graph is ASCII; /graph view opens a static TUI-only overlay. Navigation/close only; no live updates.",
 														"No lock, repair, resume, Provider, Agent or Git calls. Missing outcomes are UNKNOWN.",
 														"No scheduler, node retry, parallel execution, Planner/Lead or COMPLEX graph.",
 													]
@@ -369,7 +381,20 @@ export function registerCompanyRuntime(
 					let detail = "summary";
 					let id: string | undefined;
 					let number = 1;
-					if (name === "workflow") {
+					if (name === "graph" && parts[0] === "view") {
+						if (parts.length > 2) throw new ObservationInputError(usage.graph);
+						if (ctx.mode !== "tui")
+							throw new ObservationInputError(
+								"Weavra Graph Viewer requires TUI mode. Use /graph for text output.",
+							);
+						if (graphViewer && !graphViewer.closed)
+							throw new ObservationInputError(
+								"Weavra Graph Viewer is already open; close it before opening another.",
+							);
+						ownedViewer = new GraphViewSession();
+						graphViewer = ownedViewer;
+						id = parts[1];
+					} else if (name === "workflow") {
 						if (parts.length && (parts[0] !== "status" || parts.length > 2))
 							throw new ObservationInputError(usage.workflow);
 						id = parts[1];
@@ -398,11 +423,22 @@ export function registerCompanyRuntime(
 						return;
 					}
 					const view = await inspect(ctx, id);
+					if (ownedViewer?.closed) return;
 					if (name === "graph") {
+						const graph = view.run ? projectRunGraph(view.run) : undefined;
+						if (ownedViewer && graph) {
+							await ownedViewer.show(ctx, graph, {
+								source: view.source,
+								diagnostics: [
+									...(view.diagnostics ?? []),
+									...(view.report?.diagnostics ?? []),
+									...(view.report?.error ? [`Local report: ${view.report.error}`] : []),
+								],
+							});
+							return;
+						}
 						const output = [
-							view.run
-								? renderGraphText(projectRunGraph(view.run))
-								: "Weavra Graph: state missing or no run recorded.",
+							graph ? renderGraphText(graph) : "Weavra Graph: state missing or no run recorded.",
 							`Source: ${displayText(view.source)}; stored active state is not proof of a live worker.`,
 							...(view.diagnostics ?? []).map((message) => `Warning: ${displayText(message)}`),
 							...(view.report?.diagnostics ?? []).map((message) => `Warning: ${displayText(message)}`),
@@ -413,6 +449,7 @@ export function registerCompanyRuntime(
 					}
 					ctx.ui.notify(formatRunView(name, view, detail, number), view.run ? "info" : "warning");
 				} catch (error) {
+					if (ownedViewer?.closed && graphViewer !== ownedViewer) return;
 					if (error instanceof ObservationInputError || error instanceof GraphProjectionError) {
 						ctx.ui.notify(error.message, "warning");
 						return;
@@ -421,11 +458,15 @@ export function registerCompanyRuntime(
 						"Weavra command failed; check configuration, state integrity and writer ownership.",
 						"error",
 					);
+				} finally {
+					ownedViewer?.close();
+					if (graphViewer === ownedViewer) graphViewer = undefined;
 				}
 			},
 		});
 	}
 	pi.on("session_start", (_event, ctx) => {
+		closeGraphViewer();
 		clearStatus();
 		if (ctx.mode === "tui" && ctx.hasUI) {
 			statusUI = ctx.ui;
