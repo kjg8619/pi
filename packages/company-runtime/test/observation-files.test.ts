@@ -48,6 +48,7 @@ async function fixture(options?: FileStateStoreOptions) {
 	stores.push(store);
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run",
 			task: { id: "task", goal: "Fix bug <script>\n# forged", requirements: ["Fix bug"], status: "pending" },
 			classification: classifyRequest("Fix bug").classification,
@@ -104,6 +105,8 @@ async function fixture(options?: FileStateStoreOptions) {
 	await kernel.start();
 	while (kernel.snapshot.status === "RUNNING") await kernel.advance(kernel.snapshot.currentStep!.stepId);
 	const policy: PolicyContext = {
+		executionMode: "EDIT",
+		executionRunId: "run",
 		configDigest: "config",
 		tools: [{ id: "runtime_edit", operation: "edit" }],
 		allowedPaths: ["src", ".ai"],

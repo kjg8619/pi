@@ -84,6 +84,7 @@ beforeEach(async () => {
 		assertWritable: vi.fn(async () => {}),
 	};
 	request = {
+		executionMode: "EDIT",
 		runId: "run",
 		revision: 0,
 		step: { stepId: "implement", attempt: 1 },
@@ -93,6 +94,8 @@ beforeEach(async () => {
 		scope: { risk: "R1", targetPath: "src/app.ts" },
 	};
 	policy = {
+		executionMode: "EDIT",
+		executionRunId: "run",
 		tools: WORKER_FILE_TOOLS,
 		allowedPaths: ["src", ".ai", "package.json"],
 		configDigest: "frozen-policy",
@@ -265,6 +268,7 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 		const original = decisions.at(-1)?.actionDigest;
 		expect(original).toBe(
 			workerDigest({
+				executionContract: { runId: "run", mode: "EDIT" },
 				tool: "runtime_edit",
 				paths: [params.path],
 				input: params,
@@ -289,6 +293,7 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 			"reason",
 			"actionDigest",
 			"configDigest",
+			"executionMode",
 		]);
 	});
 	it("keeps Reviewer read-only even with anchored reads", async () => {

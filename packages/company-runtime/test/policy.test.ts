@@ -14,6 +14,8 @@ import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import { FileStateStore } from "../src/state-store.ts";
 
 const context: PolicyContext = {
+	executionMode: "EDIT",
+	executionRunId: "run-1",
 	tools: [
 		{ id: "read", operation: "read" },
 		{ id: "search", operation: "search" },
@@ -158,6 +160,7 @@ beforeEach(async () => {
 	});
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: action.runId,
 			task: { id: "task-1", goal: "Fix bug", requirements: ["Regression covered"], status: "pending" },
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Bug fix" },

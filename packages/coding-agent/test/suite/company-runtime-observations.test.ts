@@ -108,6 +108,7 @@ const answer = (request: ApprovalRequest, approved = true): ApprovalDecision => 
 });
 function workflow(goal = "Fix bug", approval?: ApprovalPort, failObserver = false) {
 	return new StandardWorkflow({
+		executionMode: goal.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal,
 		config,
@@ -119,8 +120,9 @@ function workflow(goal = "Fix bug", approval?: ApprovalPort, failObserver = fals
 					},
 				}
 			: undefined,
-		createAgents: async (store, quickScope, r2RunId, r3Scope) => {
+		createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,

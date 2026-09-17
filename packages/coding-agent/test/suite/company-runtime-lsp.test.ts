@@ -8,6 +8,7 @@ import { PiAgentExecutor } from "../../../company-runtime/src/agent-runner.ts";
 import { trustedReviewEvidenceRefs } from "../../../company-runtime/src/agent-tools.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "../../../company-runtime/src/config.ts";
 import type { VerificationResult } from "../../../company-runtime/src/contracts.ts";
+import type { ExecutionMode } from "../../../company-runtime/src/execution-contract.ts";
 import { LspManager } from "../../../company-runtime/src/lsp/manager.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
 import { RegisteredVerifier } from "../../../company-runtime/src/verification.ts";
@@ -50,9 +51,9 @@ function submit(context: Context) {
 		task: request.task.id,
 		revision: request.revision,
 		role: request.role,
-		summary: "Edited target",
+		summary: request.executionMode === "READ_ONLY" ? "Inspected target" : "Edited target",
 		changed_files:
-			request.role === "Executor" && request.scope.risk === "R0"
+			request.executionMode === "READ_ONLY"
 				? []
 				: [request.task.goal.includes("package.json") ? "package.json" : "src/app.ts"],
 		assumptions: [],
@@ -64,7 +65,8 @@ function submit(context: Context) {
 					requirements: request.task.requirements.map((requirement) => ({
 						requirement,
 						status: "MET",
-						explanation: "Applied exact change",
+						explanation:
+							request.executionMode === "READ_ONLY" ? "Inspected current source" : "Applied exact change",
 					})),
 				}
 			: {}),
@@ -77,8 +79,12 @@ function git(...args: string[]) {
 		stdio: "pipe",
 	}).toString();
 }
-function create(goal = "Fix typo in src/app.ts") {
+function create(
+	goal = "Fix typo in src/app.ts",
+	executionMode: ExecutionMode = goal.startsWith("Explain") ? "READ_ONLY" : "EDIT",
+) {
 	return new StandardWorkflow({
+		executionMode,
 		cwd,
 		goal,
 		config,
@@ -92,8 +98,9 @@ function create(goal = "Fix typo in src/app.ts") {
 				approved: true,
 			}),
 		},
-		createAgents: async (store, quickScope, r2RunId, r3Scope) => {
+		createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,
@@ -194,6 +201,126 @@ afterEach(() => {
 });
 
 describe("V0.3B actual SDK/faux + real stdio server + unchanged process checks", () => {
+	it.each(["QUICK", "STANDARD"] as const)(
+		"V0.3C READ_ONLY %s omits every mutation tool but permits read/search/all LSP queries",
+		async (workflow) => {
+			config.runtime.workflow = workflow;
+			const inspect = (context: Context) => {
+				expect(input(context).executionMode).toBe("READ_ONLY");
+				expect(context.systemPrompt).toContain("Execution contract: READ_ONLY");
+				expect(
+					context.tools?.some((item) => ["runtime_write", "runtime_edit", "runtime_delete"].includes(item.name)),
+				).toBe(false);
+				return tool("runtime_read", { path: "src/app.ts" });
+			};
+			harness.setResponses([
+				inspect,
+				tool("runtime_search", { paths: ["src/app.ts"], query: "foo" }),
+				tool("runtime_lsp_diagnostics", { path: "src/app.ts" }),
+				tool("runtime_lsp_definition", { path: "src/app.ts", line: 1, column: 1 }),
+				tool("runtime_lsp_references", { path: "src/app.ts", line: 1, column: 1 }),
+				tool("runtime_lsp_symbols", { path: "src/app.ts" }),
+				submit,
+				...(workflow === "STANDARD" ? [inspect, submit] : []),
+			]);
+			const report = await create("Explain src/app.ts", "READ_ONLY").execute();
+			expect(report.error).toBeUndefined();
+			expect(report.run?.status).toBe("COMPLETED");
+			expect(report.run?.executionMode).toBe("READ_ONLY");
+			expect(report.changedFiles).toEqual([]);
+			expect(
+				state()
+					.actions.filter((action) => action.decision.role !== "Verifier")
+					.every((action) => action.decision.risk === "R0"),
+			).toBe(true);
+		},
+	);
+	it.each(
+		["QUICK", "STANDARD"].flatMap((workflow) =>
+			["runtime_write", "runtime_edit", "runtime_delete"].map((name) => ({ workflow, name })),
+		),
+	)("V0.3C READ_ONLY $workflow direct $name call cannot reach mutation", async ({ workflow, name }) => {
+		config.runtime.workflow = workflow as "QUICK" | "STANDARD";
+		const before = readFileSync(join(cwd, "src/app.ts"));
+		harness.setResponses([
+			tool(name, { path: "src/app.ts", content: "FORBIDDEN", oldText: "foo", newText: "FORBIDDEN" }),
+		]);
+		const report = await create("Explain src/app.ts", "READ_ONLY").execute();
+		expect(report.run?.status).toBe("FAILED");
+		expect(report.changedFiles).toEqual([]);
+		expect(readFileSync(join(cwd, "src/app.ts"))).toEqual(before);
+		expect(state().actions).toEqual([]);
+	});
+	it.each(["external", "verifier"])("V0.3C READ_ONLY STANDARD never completes after %s mutation", async (kind) => {
+		config.runtime.workflow = "STANDARD";
+		if (kind === "verifier") {
+			writeFileSync(
+				join(cwd, "scripts/check.mjs"),
+				'import {writeFileSync} from "node:fs"; writeFileSync("src/app.ts", "EXTERNAL"); console.log("CHECK_PASSED");',
+			);
+			git("add", "--", "scripts/check.mjs");
+			git(
+				"-c",
+				"user.name=Fixture",
+				"-c",
+				"user.email=fixture@invalid",
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"-m",
+				"Trusted mutating check fixture",
+			);
+		}
+		harness.setResponses([
+			(context) => {
+				if (kind === "external") writeFileSync(join(cwd, "src/app.ts"), "EXTERNAL");
+				return submit(context);
+			},
+			submit,
+		]);
+		const report = await create("Explain src/app.ts", "READ_ONLY").execute();
+		expect(report.run?.status).toBe("BLOCKED");
+		expect(report.partialChanges).toBe(true);
+		expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe("EXTERNAL");
+	});
+	it.each(["오류 원인을 설명해줘", "Analyze this bug without changing files", "Explain dependency handling"])(
+		"V0.3C READ_ONLY is independent of heuristic risk: %s",
+		async (goal) => {
+			config.runtime.workflow = "STANDARD";
+			harness.setResponses([submit, submit]);
+			const report = await create(goal, "READ_ONLY").execute();
+			expect(report.run?.status).toBe("COMPLETED");
+			expect(report.run?.executionMode).toBe("READ_ONLY");
+			expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Developer", "Reviewer"]);
+			if (goal.includes("dependency")) expect(report.run?.risk).toBe("R2");
+		},
+	);
+	it.each([
+		"Explain src/app.ts and fix the bug",
+		"삭제하지 말고 삭제 로직을 설명해줘",
+		"Do not delete anything; explain the delete flow",
+	])("V0.3C ambiguity/elevated read-only routing remains fail-closed: %s", async (goal) => {
+		const report = await create(goal, "READ_ONLY").execute();
+		expect(report.run).toBeUndefined();
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(report.changedFiles).toEqual([]);
+	});
+	it("V0.3C refuses an EDIT grant for a clear READ_ONLY request", async () => {
+		const report = await create("Explain src/app.ts", "EDIT").execute();
+		expect(report.run).toBeUndefined();
+		expect(report.error).toContain("READ_ONLY");
+		expect(harness.faux.state.callCount).toBe(0);
+	});
+	it("V0.3C Agent rejects executionMode tampering before session/provider use", async () => {
+		const execute = PiAgentExecutor.prototype.execute;
+		vi.spyOn(PiAgentExecutor.prototype, "execute").mockImplementation(function (this: PiAgentExecutor, request) {
+			return execute.call(this, { ...request, executionMode: "EDIT" });
+		});
+		const report = await create("Explain src/app.ts", "READ_ONLY").execute();
+		expect(report.run?.status).toBe("FAILED");
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(report.changedFiles).toEqual([]);
+	});
 	it.each(["QUICK", "STANDARD/R1", "STANDARD/R2"])(
 		"%s receives advisory errors and read-only navigation without weakening guards",
 		async (mode) => {

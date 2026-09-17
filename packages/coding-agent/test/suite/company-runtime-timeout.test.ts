@@ -132,6 +132,7 @@ afterEach(async () => {
 async function direct(role: "Developer" | "Reviewer") {
 	store = await FileStateStore.open(cwd);
 	const executor = await PiAgentExecutor.create({
+		executionContract: { runId: "run", mode: "EDIT" },
 		cwd,
 		agentDir,
 		config,
@@ -140,6 +141,7 @@ async function direct(role: "Developer" | "Reviewer") {
 	});
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run",
 			task: { id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Fixture" },
@@ -156,6 +158,7 @@ async function direct(role: "Developer" | "Reviewer") {
 	);
 	await kernel.start();
 	const base = {
+		executionMode: "EDIT" as const,
 		runId: "run",
 		revision: 0,
 		task: kernel.snapshot.tasks[0],
@@ -356,6 +359,7 @@ describe("RC-04 bounded worker timeout with real SDK and virtual elapsed time", 
 		config.agents.worker_timeout_ms = 600_001;
 		await expect(
 			PiAgentExecutor.create({
+				executionContract: { runId: "run", mode: "EDIT" },
 				cwd,
 				agentDir,
 				config,

@@ -131,6 +131,7 @@ function fixture(quick = false) {
 		create: () =>
 			CompanyKernel.create(
 				{
+					executionMode: "EDIT",
 					runId: "run",
 					task: { id: "task", goal, requirements: [goal], status: "pending" },
 					classification: classifyRequest(goal).classification,

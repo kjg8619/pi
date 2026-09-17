@@ -104,6 +104,7 @@ function review(result: Review["result"] = "PASS") {
 }
 function create(goal = "Fix app bug", options: { timeoutMs?: number } = {}) {
 	workflow = new StandardWorkflow({
+		executionMode: "EDIT",
 		cwd,
 		goal,
 		config,
@@ -113,8 +114,9 @@ function create(goal = "Fix app bug", options: { timeoutMs?: number } = {}) {
 				await onEvent?.(event);
 			},
 		},
-		createAgents: async (store) => {
+		createAgents: async (store, _quickScope, _r2RunId, _r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,

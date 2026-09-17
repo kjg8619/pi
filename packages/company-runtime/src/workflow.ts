@@ -4,6 +4,12 @@ import { classifyRequest, selectWorkflow } from "./classification.ts";
 import type { RuntimeConfig } from "./config.ts";
 import type { QuickScope, R3Scope, Run } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
+import {
+	bindExecutionContract,
+	type ExecutionContract,
+	type ExecutionMode,
+	proposeExecutionMode,
+} from "./execution-contract.ts";
 import { CompanyKernel } from "./kernel.ts";
 import { LspManager } from "./lsp/manager.ts";
 import type { LspServerStatus } from "./lsp/types.ts";
@@ -19,12 +25,15 @@ import { GitWorkspace } from "./workspace.ts";
 export interface WorkflowOptions {
 	cwd: string;
 	goal: string;
+	/** Explicit trusted Host selection; natural-language proposal alone is never a grant. */
+	executionMode: ExecutionMode;
 	config: RuntimeConfig;
 	createAgents: (
 		store: FileStateStore,
-		quickScope?: QuickScope,
-		r2RunId?: string,
-		r3Scope?: R3Scope,
+		quickScope: QuickScope | undefined,
+		r2RunId: string | undefined,
+		r3Scope: R3Scope | undefined,
+		executionContract: ExecutionContract,
 	) => Promise<{ executor: AgentExecutor; policy: PolicyContext }>;
 	events?: RuntimeEventSink;
 	signal?: AbortSignal;
@@ -96,8 +105,13 @@ export class StandardWorkflow {
 			if (process.platform === "win32")
 				throw new Error("Weavra Runtime requires POSIX process supervision; Windows execution is unsupported");
 			const runId = randomUUID();
+			const contract = bindExecutionContract(runId, this.options.executionMode);
+			const proposal = proposeExecutionMode(this.options.goal);
 			const { classification, requiresConfirmation } = classifyRequest(this.options.goal);
-			const r3Scope = classification.risk === "R3" ? selectR3Scope(this.options.goal, runId) : undefined;
+			const r3Scope =
+				classification.risk === "R3" && contract.mode === "EDIT"
+					? selectR3Scope(this.options.goal, runId)
+					: undefined;
 			if (
 				requiresConfirmation ||
 				classification.complexity === "COMPLEX" ||
@@ -107,6 +121,10 @@ export class StandardWorkflow {
 			)
 				throw new Error(
 					`Unsupported classification/workflow: ${classification.complexity}/${classification.risk}; no downgrade performed`,
+				);
+			if (proposal.requiresConfirmation || (proposal.mode === "READ_ONLY" && contract.mode !== "READ_ONLY"))
+				throw new Error(
+					"Execution request needs clarification or conflicts with the READ_ONLY contract; start a new explicit run",
 				);
 			const selection = selectWorkflow(classification, this.options.config.runtime.workflow);
 			const quickScope =
@@ -122,8 +140,10 @@ export class StandardWorkflow {
 			const r2RunId = classification.risk === "R2" ? runId : undefined;
 			store = await FileStateStore.open(this.options.cwd, { events: this.options.events });
 			this.store = store;
-			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope);
+			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope, contract);
 			executor = agents.executor;
+			if (agents.policy.executionMode !== contract.mode || agents.policy.executionRunId !== contract.runId)
+				throw new Error("Agent Policy execution contract differs from the frozen run");
 			if (JSON.stringify(agents.policy.r3Scope) !== JSON.stringify(r3Scope))
 				throw new Error("R3 execution binding differs from selected scope");
 			if (agents.policy.r2RunId !== r2RunId) throw new Error("R2 execution binding differs from the selected run");
@@ -137,6 +157,7 @@ export class StandardWorkflow {
 			this.kernel = await CompanyKernel.create(
 				{
 					runId,
+					executionMode: contract.mode,
 					task: {
 						id: randomUUID(),
 						goal: this.options.goal,

@@ -1,5 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Check } from "typebox/value";
+import { ExecutionModeSchema } from "./execution-contract.ts";
 import { LspEvidenceSchema } from "./lsp/types.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
@@ -188,6 +189,8 @@ export const PolicyDecisionSchema = Type.Object(
 		reason: text,
 		actionDigest: text,
 		configDigest: text,
+		// Missing only in historical audit records; never grants live execution permission.
+		executionMode: Type.Optional(ExecutionModeSchema),
 	},
 	strict,
 );
@@ -258,6 +261,8 @@ export const RunSchema = Type.Object(
 		]),
 		phase: Type.Enum(["PREFLIGHT", "IMPLEMENT", "SELF_CHECK", "REVIEW", "TEST", "COMPLETE"]),
 		workflow: WorkflowSchema,
+		// Optional for read-only legacy observations, mandatory for new live Kernel/Store writes.
+		executionMode: Type.Optional(ExecutionModeSchema),
 		classification: ClassificationSchema,
 		risk: RiskSchema,
 		currentTask: text,

@@ -9,6 +9,7 @@ import {
 import { PiAgentExecutor } from "./agent-runner.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
+import { proposeExecutionMode } from "./execution-contract.ts";
 import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
 import { GraphViewSession } from "./graph-view-component.ts";
 import { registerLspCommand } from "./lsp/command.ts";
@@ -274,9 +275,12 @@ export function registerCompanyRuntime(
 							const loaded = await loadRuntimeConfig(ctx.cwd);
 							if (loaded.status !== "configured") throw new Error(".ai/config.yaml is missing");
 							const { config } = loaded;
+							const proposal = proposeExecutionMode(goal);
+							if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
+							const executionMode = proposal.mode;
 							const approved = await ctx.ui.confirm(
 								"Weavra: run trusted QUICK/STANDARD workflow?",
-								`Allowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nLSP servers (trusted local code, not sandboxed): ${JSON.stringify(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers.map(({ id, executable, args }) => ({ id, executable, argv: args })) : [])}\nLSP results are advisory and do not replace required checks.\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
+								`Execution contract: ${executionMode}. Confirm this permission explicitly; classification/risk is not permission.\n${executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nAllowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nLSP servers (trusted local code, not sandboxed): ${JSON.stringify(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers.map(({ id, executable, args }) => ({ id, executable, argv: args })) : [])}\nLSP results are advisory and do not replace required checks.\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);
 							if (!approved) throw new Error("Workflow preflight declined");
@@ -293,6 +297,7 @@ export function registerCompanyRuntime(
 							workflow = new StandardWorkflow({
 								cwd: ctx.cwd,
 								goal,
+								executionMode,
 								config,
 								signal,
 								events: {
@@ -327,8 +332,9 @@ export function registerCompanyRuntime(
 										};
 									},
 								},
-								createAgents: async (store, quickScope, r2RunId, r3Scope) => {
+								createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
 									const executor = await PiAgentExecutor.create({
+										executionContract,
 										cwd: ctx.cwd,
 										agentDir,
 										config,

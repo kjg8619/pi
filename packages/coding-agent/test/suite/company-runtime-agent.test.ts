@@ -71,6 +71,7 @@ async function persistReference(ref: RoleSessionReference) {
 }
 function developer(): AgentExecutionRequest {
 	return {
+		executionMode: "EDIT",
 		runId: "run-1",
 		revision: 0,
 		step: { stepId: "implement", attempt: 1 },
@@ -82,6 +83,7 @@ function developer(): AgentExecutionRequest {
 }
 function reviewer(): AgentExecutionRequest {
 	return {
+		executionMode: "EDIT",
 		runId: "run-1",
 		revision: 0,
 		step: { stepId: "review", attempt: 1 },
@@ -116,6 +118,7 @@ beforeEach(async () => {
 	);
 	store = await FileStateStore.open(workspace);
 	options = {
+		executionContract: { runId: "run-1", mode: "EDIT" },
 		cwd: workspace,
 		agentDir,
 		config,
@@ -128,6 +131,7 @@ beforeEach(async () => {
 	events = [];
 	kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run-1",
 			task: { id: "task-1", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Fixture" },
@@ -472,7 +476,12 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		"RC-04 Developer feedback does not rewrite QUICK/%s Executor unresolved",
 		async (risk) => {
 			const scope = { risk, targetPath: risk === "R0" ? null : "src/app.ts" };
-			const runner = await PiAgentExecutor.create({ ...options, quickScope: scope });
+			const executionMode = risk === "R0" ? "READ_ONLY" : "EDIT";
+			const runner = await PiAgentExecutor.create({
+				...options,
+				quickScope: scope,
+				executionContract: { runId: "run-1", mode: executionMode },
+			});
 			const result = {
 				...handoff,
 				role: "Executor",
@@ -482,7 +491,9 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 			harness.setResponses([
 				fauxAssistantMessage(fauxToolCall("submit_handoff", result), { stopReason: "toolUse" }),
 			]);
-			expect(await runner.execute({ ...developer(), role: "Executor", profile: "coding", scope })).toEqual({
+			expect(
+				await runner.execute({ ...developer(), executionMode, role: "Executor", profile: "coding", scope }),
+			).toEqual({
 				role: "Executor",
 				handoff: result,
 			});

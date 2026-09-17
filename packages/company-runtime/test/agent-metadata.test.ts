@@ -27,6 +27,7 @@ async function setup(execute: (request: AgentExecutionRequest) => Promise<void>,
 	const events: RuntimeEvent[] = [];
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run-1",
 			task: { id: "task-1", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", reason: "Fixture", confidence: null },

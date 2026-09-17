@@ -3,10 +3,10 @@
 > 작성일: 2026-09-17 (KST)  
 > 검토 브랜치: `devlop`  
 > 검토 기준 소스: `e09100fe3e0ce08610b48a056ed6cd03714e0f97`  
-> 상태: **정적 검토에 근거한 개선 제안 / 구현 및 실행 검증 전**  
+> 상태: **원래 본문은 정적 개선 제안. FIX-01/02/04만 V0.3C 구현·로컬 검증 완료**<br>
 > 목적: 현재 보완점을 실행 가능한 작업으로 정리하고, 추가 기능을 기존 구조의 재사용·안전 경계·실사용 효과에 따라 선별한다.
 
-이 문서는 제품 코드, 설정, 기존 검증 기록을 변경하지 않는다. 아래 완료 기준은 앞으로 수행할 검증이지 이번에 통과한 결과가 아니다. 전체 build/test, 실제 Provider 호출, 외부 도구 설치 및 통합 실험은 이번 조사에서 수행하지 않았다.
+원래 조사는 제품 코드, 설정, 기존 검증 기록을 변경하지 않았으며 전체 build/test, 실제 Provider 호출, 외부 도구 설치 및 통합 실험을 수행하지 않았다. 해당 시점의 관찰·고정 SHA 근거는 보존한다. 후속 V0.3C에서는 **FIX-01/02/04만 구현**하고 Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS 및 non-mutating check:ci를 확인했다(WORK_LOG LOG-046). 실제 GitHub Actions/Node22 Linux build-test·전체 fresh install·branch protection·새 contract의 실제 Provider는 NOT VERIFIED다. 아래 다른 후보의 완료 기준은 여전히 계획이다.
 
 기존 `MASTER_SPEC`, `DECISIONS`, 구현 계획과 작업 로그를 대체하지 않는다. 새로운 명령·설정·자료 구조의 예시는 모두 설계 후보이며 **현재 `.ai/config.yaml`에 그대로 넣으면 안 된다.** 현재 config는 미지원 필드를 거부한다.[S10]
 
@@ -76,7 +76,9 @@
 
 ### FIX-01 — 설치 대상 브랜치 명시
 
-**관찰:** 루트 Weavra README의 clone 명령에는 branch가 없다. 조사 시 저장소 기본 브랜치는 `main`이고 main README는 Pi Agent Harness 안내다. 따라서 devlop 문서를 읽고 그대로 설치해도 동일 소스를 받는다고 보장되지 않는다.[S0][S1][S21]
+**V0.3C 반영:** README clone에 `--branch devlop --single-branch`를 명시하고 main/upstream, devlop/development, immutable RC tag를 구분했다. fork-local rebuild 계약과 global pi 불변을 유지한다. 문서 contract/launcher regression은 PASS이며 fresh install 전체 재실행은 미수행이다.
+
+**관찰(조사 기준 SHA):** 루트 Weavra README의 clone 명령에는 branch가 없다. 조사 시 저장소 기본 브랜치는 `main`이고 main README는 Pi Agent Harness 안내다. 따라서 devlop 문서를 읽고 그대로 설치해도 동일 소스를 받는다고 보장되지 않는다.[S0][S1][S21]
 
 **제안:** 개발판 설치는 `--branch devlop --single-branch`를 명시한다. 안정 태그 설치는 별도 경로로 설명하고 해당 태그의 실제 파일·명령에 맞춰 독립 검증한다. checkout 이동 및 갱신 후 rebuild 필요도 유지한다.
 
@@ -89,7 +91,9 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FIX-02 — devlop CI와 읽기 전용 검사
 
-**관찰:** CI의 push/PR 대상은 `main`뿐이다. devlop 직접 push는 이 workflow를 시작하지 않는다. 루트 `check`는 `biome check --write`를 포함하므로 이름만 보고 비수정 검사로 취급하면 안 된다.[S2][S20]
+**V0.3C 반영:** main/devlop push/PR trigger, `check:base` 공유·non-write `check:ci`, credential 없는 isolated `test.sh`, launcher syntax와 final `git diff --exit-code HEAD --`를 구성했다. 기존 build의 tracked model catalog generation 경로는 ignored data-only hydration + offline build로 분리했다. check:ci 전후 tracked/untracked source bytes 불변과 unformatted fixture의 실패/무수정을 확인했다. 실제 Actions/Linux 및 branch rule 설정은 아직 NOT VERIFIED다.
+
+**관찰(조사 기준 SHA):** CI의 push/PR 대상은 `main`뿐이다. devlop 직접 push는 이 workflow를 시작하지 않는다. 루트 `check`는 `biome check --write`를 포함하므로 이름만 보고 비수정 검사로 취급하면 안 된다.[S2][S20]
 
 **제안:** devlop push 및 필요한 PR 대상으로 핵심 회귀를 실행한다. formatter 적용과 CI 검사를 분리한다. Weavra 핵심 unit/integration, coding-agent 연결, launcher 및 기존 Pi 관련 회귀를 명시적으로 묶는다. macOS/POSIX 검증 경로와 Linux 검증 경로를 구분하며, Node 지원 범위와 실제 테스트 버전을 기록한다. 유료 Provider 검증은 매 push에서 자동 호출하지 않는다.
 
@@ -105,7 +109,9 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FIX-04 — 자연어 분류와 실행 권한을 분리
 
-**관찰 1:** intent는 순서 있는 정규식으로 고른다. `오류 원인을 설명해줘`의 `오류`, `삭제하지 말고 설명해줘`의 `삭제`처럼 목적·부정 표현을 충분히 반영하지 못한다. 미인식 요청의 `requiresConfirmation`은 현재 workflow에서 추가 해석 확인 대신 실행 거부 조건으로 사용된다. QUICK 파일 경로 파싱은 경로 뒤 문장부호에도 민감하며 실제 smoke에 관련 preflight 실패가 기록돼 있다.[S5][S6][S9][S12]
+**V0.3C 반영:** 순수 execution-contract 모듈이 후보와 trusted `{runId, mode}`를 분리한다. Host 확인 후 Run/Agent/Policy에 READ_ONLY/EDIT를 고정하고 tool 미노출·직접 Policy DENY·durable mode binding·완료 시 no-change를 집행한다. mode는 worker input/config override가 아니다. 과거 mode 부재는 UNKNOWN으로 관찰하고 새 live 실행은 누락/불일치를 거부한다. R2 review/R3 approval/risk floor는 유지하며 READ_ONLY/R3는 preflight에서 fail closed한다. Korean/English negation·인용·혼합, 한글/공백/quote/문장부호 및 `src/a.ts:` regression을 추가했다. 아래 관찰은 수정 전 소스의 근거로 보존한다.
+
+**관찰 1(조사 기준 SHA):** intent는 순서 있는 정규식으로 고른다. `오류 원인을 설명해줘`의 `오류`, `삭제하지 말고 설명해줘`의 `삭제`처럼 목적·부정 표현을 충분히 반영하지 못한다. 미인식 요청의 `requiresConfirmation`은 현재 workflow에서 추가 해석 확인 대신 실행 거부 조건으로 사용된다. QUICK 파일 경로 파싱은 경로 뒤 문장부호에도 민감하며 실제 smoke에 관련 preflight 실패가 기록돼 있다.[S5][S6][S9][S12]
 
 **관찰 2 — 중요:** R0 분류와 강제 read-only를 동일하게 취급하지 않는다. QUICK/R0은 `executorScope` 및 무변경 guard가 있지만, STANDARD/R0은 같은 QUICK scope를 받지 않는다. 일반 Developer는 write/edit 도구를 받고, 파일 작업의 risk는 R1로 구성된다. StateStore의 추가 risk binding 검사는 ALLOW R2/R3에 적용된다. 따라서 **STANDARD/R0 라벨만으로 파일 수정 불가능을 보장한다고 설명해서는 안 된다.** 이는 소스 경로의 정적 확인이며 이번에 실제 mutation을 재현한 결과는 아니다.[S5][S7][S8][S9][S17]
 
@@ -295,13 +301,13 @@ Repo map·LSP 응답은 문맥이지 완료 증거를 자동 대체하지 않는
 
 | 묶음 | 범위 | 종료 조건 |
 |---|---|---|
-| M1 — 기본 신뢰 | FIX-01/02/04 | 개발판 설치 재현, devlop 핵심 CI, read-only 계약 부정 테스트 |
+| M1 — 기본 신뢰 | FIX-01/02/04 | V0.3C 구현·로컬 회귀 완료; Actions/Linux/fresh-install 전체 검증은 별도 |
 | M2 — 작업 이해 | FIX-03/05/06 + FEAT-01 + FEAT-02의 파일 목록 | 지침 snapshot, 개별 AC, 위험 파일 분류, 관련 파일 발견 |
 | M3 — 효과 측정 | FEAT-03/04/05 + FIX-09 | 로컬 사용량·제한, 비교 평가, 사람이 읽을 수 있는 결과 |
 | M4 — 선택 강화 | FIX-07/08 + 필요한 LSP / FEAT-07 | 실제 실패 사례를 줄이는 검증 결과와 새 권한 경계 테스트 |
 | 이후 선택 | FEAT-06/08/09 | 반복 작업·UI·외부 도구에 실제 수요가 있고 선행 조건 충족 |
 
-최소 다음 작업은 **설치·CI·read-only 계약**이다. 그다음 **지침 전달·AC·파일 탐색**을 묶어 실사용에 투입한다. UI 장식이나 agent 수 확대를 위해 이 순서를 미루지 않는다.
+**설치·CI·read-only 계약**은 V0.3C에서 구현·로컬 검증했다. 다음 **지침 전달·AC·파일 탐색**은 로드맵의 V0.3D/E 및 별도 사용자 승인 범위로 유지한다. UI 장식이나 agent 수 확대를 위해 이 순서를 미루지 않는다.
 
 ## 6. 실사용 평가 설계
 

@@ -20,7 +20,7 @@ const intentRules: Array<{ intent: Classification["intent"]; pattern: RegExp }> 
 	},
 	{ intent: "implementation", pattern: /implement|add|build|구현|추가|만들/i },
 	{ intent: "analysis", pattern: /analy[sz]|inspect|분석|검토/i },
-	{ intent: "question", pattern: /what|why|how|explain|설명|무엇|왜|어떻게|\?$/i },
+	{ intent: "question", pattern: /what|why|how|explain|설명|무엇|왜|어떻게|알려줘|알려주세요|\?$/i },
 ];
 const risks = ["R0", "R1", "R2", "R3"] as const;
 

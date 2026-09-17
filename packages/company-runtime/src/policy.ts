@@ -8,6 +8,7 @@ import {
 	type Role,
 	validateContract,
 } from "./contracts.ts";
+import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
 
 /** Trusted adapter metadata, never a worker-supplied tool registration or risk override. */
 export interface RegisteredActionTool {
@@ -15,6 +16,9 @@ export interface RegisteredActionTool {
 	operation: "read" | "search" | "write" | "edit" | "delete";
 }
 export interface PolicyContext {
+	/** Frozen trusted Host contract, never a worker argument or inferred from risk. */
+	executionMode: ExecutionMode;
+	executionRunId: string;
 	tools: readonly RegisteredActionTool[];
 	allowedPaths: readonly string[];
 	configDigest: string;
@@ -75,6 +79,8 @@ export function evaluateRegisteredCheck(
 	);
 	const allow =
 		cwdSafe &&
+		isExecutionMode(context.executionMode) &&
+		context.executionRunId === identity.runId &&
 		(!context.r2RunId || context.r2RunId === identity.runId) &&
 		request.executable.startsWith("/") &&
 		!shell &&
@@ -89,6 +95,7 @@ export function evaluateRegisteredCheck(
 		decision: allow ? "ALLOW" : "DENY",
 		reason: allow ? "Exact trusted check registration" : "Unregistered or unsafe check execution",
 		configDigest: context.configDigest,
+		...(isExecutionMode(context.executionMode) ? { executionMode: context.executionMode } : {}),
 	});
 }
 export interface ActionAudit {
@@ -145,6 +152,8 @@ export function evaluatePolicy(
 	if (deletion && ["R0", "R1", "R2"].includes(risk)) risk = "R3";
 	if (mutation && risk === "R0") risk = "R1";
 	if (mutation && context.r2RunId && risk === "R1") risk = "R2";
+	// Assess minimum risk even when a narrower execution contract will deny the operation.
+	if (mutation && (risk === "R0" || risk === "R1") && action.paths.some(isDependencyPath)) risk = "R2";
 	const invalidConfig =
 		!context.configDigest.trim() ||
 		(context.r3Scope !== undefined &&
@@ -156,7 +165,10 @@ export function evaluatePolicy(
 		new Set(context.tools.map((item) => item.id)).size !== context.tools.length ||
 		context.allowedPaths.some((path) => !isPolicyPath(path)) ||
 		(context.protectedPaths ?? []).some((path) => !isPolicyPath(path));
-	if (invalidConfig) reason = "Invalid policy configuration";
+	if (!isExecutionMode(context.executionMode) || context.executionRunId !== action.runId)
+		reason = "Missing or mismatched execution contract";
+	else if (mutation && context.executionMode === "READ_ONLY") reason = "READ_ONLY execution contract forbids mutation";
+	else if (invalidConfig) reason = "Invalid policy configuration";
 	else if (
 		!tool ||
 		!["read", "search", "write", "edit", "delete"].includes(tool.operation) ||
@@ -212,8 +224,6 @@ export function evaluatePolicy(
 	)
 		reason = "Unsafe, unresolved or non-file target";
 	else {
-		// Dependency changes cannot be disguised as an ordinary R1 edit.
-		if (mutation && (risk === "R0" || risk === "R1") && action.paths.some(isDependencyPath)) risk = "R2";
 		if (risk === "R0" || risk === "R1") {
 			decision = "ALLOW";
 			reason = mutation ? "Registered ordinary file mutation" : "Registered file read/search";
@@ -250,6 +260,7 @@ export function evaluatePolicy(
 		reason,
 		actionDigest: action.actionDigest,
 		configDigest: context.configDigest,
+		...(isExecutionMode(context.executionMode) ? { executionMode: context.executionMode } : {}),
 	});
 }
 

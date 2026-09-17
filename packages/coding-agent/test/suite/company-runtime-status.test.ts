@@ -404,6 +404,7 @@ describe("Weavra Status Projection on the actual Extension/Kernel/SDK (faux only
 			try {
 				const kernel = await CompanyKernel.create(
 					{
+						executionMode: "EDIT",
 						runId: "stored-run",
 						task: { id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
 						classification: {

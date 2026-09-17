@@ -36,7 +36,7 @@ describe("registered check boundary", () => {
 					{ runId: "run", actionId: "action", actionDigest: "digest" },
 					request,
 					registered,
-					{ tools: [], allowedPaths: [], configDigest: "config" },
+					{ tools: [], allowedPaths: [], configDigest: "config", executionMode: "EDIT", executionRunId: "run" },
 					true,
 				).decision,
 			).toBe("DENY");

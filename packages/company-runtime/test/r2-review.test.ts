@@ -9,6 +9,8 @@ import { evaluatePolicy, executePolicyAction, type PolicyAction, type PolicyCont
 import { FileStateStore } from "../src/state-store.ts";
 
 const context: PolicyContext = {
+	executionMode: "EDIT",
+	executionRunId: "run",
 	tools: [
 		{ id: "write", operation: "write" },
 		{ id: "read", operation: "read" },
@@ -68,6 +70,7 @@ function evidence(): CompletionEvidence {
 		],
 	};
 	return {
+		executionMode: "EDIT",
 		runId: "run",
 		task,
 		handoff,
@@ -215,6 +218,7 @@ async function storeFixture(risk: "R1" | "R2" = "R2") {
 	stores.push(store);
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run",
 			task: { ...evidence().task, status: "pending" },
 			classification: { ...classifyRequest("Update dependency").classification, risk },

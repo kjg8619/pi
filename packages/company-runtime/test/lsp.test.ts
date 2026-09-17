@@ -23,6 +23,8 @@ const fixture = fileURLToPath(new URL("./fixtures/lsp-server.mjs", import.meta.u
 let root: string, cwd: string, trace: string;
 let managers: LspManager[];
 const policy: PolicyContext = {
+	executionMode: "READ_ONLY",
+	executionRunId: "lsp",
 	tools: [{ id: "runtime_read", operation: "read" }],
 	allowedPaths: ["src", ".ai", ".git", ".env", "credentials"],
 	configDigest: "test",

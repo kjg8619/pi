@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { type Static, Type } from "typebox";
 import { type PolicyDecision, PolicyDecisionSchema, type Run, RunSchema, validateContract } from "./contracts.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEvent, type RuntimeEventSink } from "./events.ts";
+import { isExecutionMode } from "./execution-contract.ts";
 import { readRuntimeFile, writeObservationFiles } from "./observation-files.ts";
 import type { ActionAudit, ActionOutcome } from "./policy.ts";
 import type { StateStore } from "./ports.ts";
@@ -449,6 +450,13 @@ export class FileStateStore implements StateStore, ActionAudit {
 			const index = next.runs.findIndex((item) => item.runId === run.runId);
 			const previous = next.runs[index];
 			if (
+				(!isExecutionMode(run.executionMode) && (!previous || active(run))) ||
+				(previous && previous.executionMode !== run.executionMode)
+			)
+				throw new Error(
+					"New runs need an explicit immutable execution contract; legacy permission cannot be inferred",
+				);
+			if (
 				previous?.risk === "R3" &&
 				previous.r3Scope &&
 				(run.risk !== "R3" ||
@@ -518,6 +526,16 @@ export class FileStateStore implements StateStore, ActionAudit {
 		decision = structuredClone(decision);
 		await this.mutate((next) => {
 			validateContract(PolicyDecisionSchema, decision);
+			const owner = next.runs.find((run) => run.runId === decision.runId);
+			if (!isExecutionMode(owner?.executionMode) || decision.executionMode !== owner.executionMode)
+				throw new Error("Policy execution contract differs from the persisted run");
+			if (
+				decision.decision === "ALLOW" &&
+				owner.executionMode === "READ_ONLY" &&
+				decision.role !== "Verifier" &&
+				decision.risk !== "R0"
+			)
+				throw new Error("READ_ONLY worker action cannot mutate");
 			if (
 				!next.runs.some((run) => run.runId === decision.runId && run.status === "RUNNING") ||
 				next.actions.some(

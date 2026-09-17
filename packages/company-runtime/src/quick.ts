@@ -14,7 +14,17 @@ export function selectQuickScope(goal: string, classification: Classification): 
 			"QUICK scope unsupported; STANDARD classification/review required (R2/R3 execution remains disabled)",
 		);
 	if (classification.risk === "R0") return { risk: "R0", targetPath: null };
-	const candidates = [...new Set(goal.split(/[\s`'"(),]+/).filter((word) => /\.[a-z0-9]+$/i.test(word)))];
+	// Quoted paths preserve spaces/Unicode. Only unquoted sentence punctuation is a delimiter, not path data.
+	const tokens = [...goal.matchAll(/`([^`\r\n]+)`|"([^"\r\n]+)"|'([^'\r\n]+)'|(\S+)/g)].map((match) => {
+		const quoted = match[1] ?? match[2] ?? match[3];
+		if (quoted !== undefined) return quoted;
+		let token = match[4].replace(/[.,:;!?]$/, "");
+		if (token.startsWith("(") && token.endsWith(")")) token = token.slice(1, -1);
+		if (/\.[a-z0-9]+$/i.test(token) && /^[`'"]|[`",;]/.test(token))
+			throw new Error("Ambiguous QUICK path quoting/list; quote one literal relative path");
+		return token;
+	});
+	const candidates = [...new Set(tokens.filter((word) => /\.[a-z0-9]+$/i.test(word)))];
 	if (candidates.length !== 1 || !isPolicyPath(candidates[0]))
 		throw new Error(
 			"QUICK R1 requires exactly one explicit relative file path in the goal; use STANDARD for broader work",

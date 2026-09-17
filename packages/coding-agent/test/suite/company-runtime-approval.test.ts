@@ -109,6 +109,7 @@ function review(verdict: Review["result"] = "PASS") {
 }
 function create(options: { goal?: string; noApproval?: boolean; timeout?: number } = {}) {
 	workflow = new StandardWorkflow({
+		executionMode: options.goal?.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal: options.goal ?? goal,
 		config,
@@ -127,8 +128,9 @@ function create(options: { goal?: string; noApproval?: boolean; timeout?: number
 				await onEvent?.(event);
 			},
 		},
-		createAgents: async (store, quickScope, r2RunId, r3Scope) => {
+		createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,

@@ -50,6 +50,7 @@ function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 		],
 	};
 	return {
+		executionMode: risk === "R0" ? "READ_ONLY" : "EDIT", // Explicit grants for these two test scenarios.
 		workflow: "QUICK",
 		risk,
 		executorDigest: "digest",
@@ -124,7 +125,14 @@ describe("QUICK routing and fixed scope", () => {
 				risk: "R1",
 				paths: ["src/other.ts"],
 			},
-			{ tools: [{ id: "write", operation: "write" }], allowedPaths: ["src"], configDigest: "config", executorScope },
+			{
+				tools: [{ id: "write", operation: "write" }],
+				allowedPaths: ["src"],
+				configDigest: "config",
+				executorScope,
+				executionMode: "EDIT",
+				executionRunId: "run",
+			},
 			[{ path: "src/other.ts", safe: true, kind: "file" }],
 		);
 		expect(decision.decision).toBe("DENY");

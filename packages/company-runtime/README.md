@@ -333,6 +333,34 @@ verification:
 
 `validateContract`는 누락·알 수 없는 필드·타입 등을 검사한다. **유효한 schema가 완료 조건 충족이나 실행 허가를 의미하지 않는다.** 상태 전이, run/role/revision 일치, 증거 진위, R3 승인, PASS와 check의 관계는 S1 이후 Kernel/정책 검증의 책임이다. S3는 Handoff/Review schema를 전용 제출 도구에 노출하고 Adapter와 Kernel에서 다시 검사한다.
 
+## V0.3C Execution Contract
+
+`src/execution-contract.ts`는 SDK/Provider/fs 없는 순수 schema/type/helper다. `ExecutionMode = READ_ONLY | EDIT`, immutable `{runId, mode}` binding, 보수적 proposal과 prompt guidance를 제공한다. **Classification의 intent/complexity/risk는 routing이고 mutation permission의 원본이 아니다.**
+
+### 선택과 고정
+
+- `proposeExecutionMode(goal)`는 후보만 반환한다. English/Korean inspect/explain/analyze/설명/분석/검토, 명확한 mutation 동사와 제한된 negation을 구분하며 quote/backtick 안의 code/word/path는 data로 본다. unknown/mixed/불완전 quote/control 입력은 requiresConfirmation으로 닫는다. 일반 자연어 의미를 증명하는 parser나 LLM classifier는 아니다.
+- 기본 Host는 기존 run confirmation에 후보 READ_ONLY/EDIT 및 permission 설명을 표시하고 명시적 확인 후에만 실행한다. ambiguous/mixed 후보는 dialog/Provider 전에 거부하고 새 명확한 run을 요구한다. Project trust, registered checks 확인 및 R3 action-specific Human Approval은 별개다.
+- 프로그램 Host도 **필수 `WorkflowOptions.executionMode`**를 명시한다. Workflow는 run ID를 만든 뒤 `bindExecutionContract`로 고정하고 `createAgents(store, quickScope, r2RunId, r3Scope, executionContract)`의 마지막 인자로 전달한다. Adapter 옵션의 executionContract와 Kernel request/Run.executionMode, Policy.executionMode/executionRunId가 일치해야 한다.
+- `PiAgentExecutor.create`는 contract를 복사·고정하고 매 execute의 runId/mode를 확인한다. mode는 worker tool argument가 아니며 prompt에 보여 주어도 authority를 모델에 넘기지 않는다. config/action digest에 contract를 결합하고 StateStore가 같은 run의 mode 변경·다른 mode의 Policy decision을 거부한다. config digest의 policyVersion은 `V0.3C-1`이다.
+- 기존 QUICK scope/R2 run binding/R3 scoped target을 contract로 대체하지 않는다. QUICK/R0은 READ_ONLY와 정렬하고, EDIT도 기존 risk floor/Review/Approval을 유지한다. 위험 단어가 negated/quoted explanation에 있으면 READ_ONLY 후보가 될 수 있지만 raw R3 risk는 낮추지 않는다. **READ_ONLY/R3는 fail-closed preflight**, READ_ONLY/R2는 기존 STANDARD/mandatory independent review 경로를 유지한다.
+- QUICK EDIT goal은 한글, quote/backtick의 공백 path, unquoted path 뒤 단일 `:`/문장부호를 처리한다. 괄호/아포스트로피가 파일명 내부에 있으면 잘라 다른 파일로 바꾸지 않는다. tool path 자체는 기존 literal Policy 검사 그대로이고 traversal/glob/절대 경로는 거부한다.
+
+### Enforcement
+
+1. **Tool exposure:** READ_ONLY Developer/Executor에는 runtime_write/runtime_edit/runtime_delete 정의를 설치하지 않는다. read/search/설정된 read-only LSP/structured submit 및 기존 check 요청(미실행)은 유지한다. Reviewer는 EDIT run에서도 read-only다.
+2. **Policy:** registered operation write/edit/delete는 READ_ONLY에서 DENY한다. 직접 PolicyAction을 구성하거나 모델 입력에 mode를 위조해도 이 조건을 우회하지 못한다. run binding/명시 mode가 없으면 실행하지 않는다. denial에도 dependency/R3 minimum risk는 유지한다.
+3. **Durable binding:** 새로운 live Run은 명시 mode가 필요하고 같은 run의 mode는 불변이다. PolicyDecision에는 mode를 기록하고 prepare가 persisted owner와 비교한다. R2/R3 obligation/approval/one-shot guards는 그대로다. action digest에는 path/input/anchor/digest/step/revision 외에 contract도 포함한다.
+4. **Workspace guard:** READ_ONLY는 live inspection을 요구하며 관찰된 workspace mutation을 차단한다. 완료 시 safe workspace, SELF_CHECK/TEST changedFiles와 handoff.changed_files가 모두 0이어야 한다. external/verification-induced 변경도 READ_ONLY COMPLETED로 만들지 않는다. 이는 tool/Policy의 사전 차단을 대체하는 사후 guard가 아니다.
+
+등록된 verifier와 LSP server의 직접 I/O는 여전히 trusted-code 경계다. READ_ONLY에서 process checks 자체를 없애거나 OS sandbox를 추가하지 않았다. 관찰 한도 밖의 host I/O/외부 race를 완전하게 차단한다는 보장은 없으며 Verifier Trust/Sandbox는 후속 단계다.
+
+### Old state / observation
+
+RunSchema와 PolicyDecisionSchema의 executionMode는 **historical data 읽기를 위해 optional**이다. 필드가 없는 과거 run은 `/workflow status`·`/state`·`/risk`에 `UNKNOWN (legacy; no permission inferred)`로 표시한다. risk/role로 EDIT를 추정하거나 기존 JSON을 자동 migration하지 않는다. 새 Kernel live creation, active Store writes와 Policy/Agent execution은 명시 contract를 요구한다. 기존 writer-open interruption recovery는 mode를 새로 부여하지 않고, readSnapshot 조회는 recovery/overwrite를 하지 않는다.
+
+FIX-01 설치 안내는 `devlop`을 명시하고 `main`/historical RC와 구분한다. FIX-02의 `check:ci`는 non-write Biome + 기존 전체 shared checks이며 CI는 isolated workspace tests, shell syntax, final tracked-diff guard를 별도로 실행한다. build는 ignored data hydration + committed-source offline build로 tracked catalog regeneration을 피한다. 새 dependency/lockfile/Project Instructions/file discovery/AC/Planner/telemetry/evals/strict edit/sandbox/MCP/COMPLEX는 추가하지 않았다.
+
 ## S1 순수 Kernel
 
 `classification.ts`, `kernel.ts`, `contracts.ts`, `ports.ts`, `events.ts`의 의존 경로에는 Pi SDK·UI·Provider·파일 I/O가 없다. `extension.ts`는 기존 Pi Host Adapter로 유지한다. S3의 `PiAgentExecutor`가 AgentExecutor를 구현한다. Kernel은 Pi 타입을 import하지 않는다.
@@ -401,7 +429,7 @@ PolicyDecision의 기존 S0 예약 이름 REQUIRE_REVIEW/REQUIRE_APPROVAL을 위
 
 ### API와 경계
 
-`PiAgentExecutor.create({cwd, agentDir, config, modelRuntime, audit, ...})`가 사전 검사 후 AgentExecutor를 반환한다. `config`는 `parseRuntimeConfig` 결과, `modelRuntime`은 Host가 명시적으로 구성한 Pi ModelRuntime, `audit`은 해당 프로젝트 lock을 소유한 FileStateStore다. `agentDir`는 기존의 신뢰한 Pi 디렉터리이며 workspace 밖이어야 한다. Adapter는 새 인증 저장소를 만들거나 부모 Extension을 탐색하지 않는다.
+`PiAgentExecutor.create({executionContract, cwd, agentDir, config, modelRuntime, audit, ...})`가 사전 검사 후 AgentExecutor를 반환한다. `config`는 `parseRuntimeConfig` 결과, `modelRuntime`은 Host가 명시적으로 구성한 Pi ModelRuntime, `audit`은 해당 프로젝트 lock을 소유한 FileStateStore다. `agentDir`는 기존의 신뢰한 Pi 디렉터리이며 workspace 밖이어야 한다. Adapter는 새 인증 저장소를 만들거나 부모 Extension을 탐색하지 않는다.
 
 ```text
 Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentSession
@@ -419,9 +447,10 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 
 | 역할 | 제공 도구 |
 |---|---|
-| Developer | `runtime_read`, `runtime_search`, `runtime_write`, `runtime_edit`, `runtime_request_check`, `submit_handoff` |
+| Developer (EDIT) | `runtime_read`, `runtime_search`, `runtime_write`, `runtime_edit`, `runtime_request_check`, `submit_handoff` |
+| Developer/Executor (READ_ONLY) | `runtime_read`, `runtime_search`, `runtime_request_check`, `submit_handoff`; mutation 없음 |
 | Reviewer | `runtime_read`, `runtime_search`, `submit_review` |
-| Developer (한정 R3) | `runtime_read`, `runtime_search`, `runtime_delete`, `runtime_request_check`, `submit_handoff`; write/edit 없음 |
+| Developer (EDIT, 한정 R3) | `runtime_read`, `runtime_search`, `runtime_delete`, `runtime_request_check`, `submit_handoff`; write/edit 없음 |
 
 파일 도구는 모두 S2의 검사→intent 저장→재검사→실행→결과 저장을 통과한다. Worker가 role/risk/등록 도구/digest를 지정하지 않는다. Runtime 자신의 소스 디렉터리가 workspace 안에 있으면 자동 보호하고, 추가 제어 파일은 Host의 `protectedPaths`로 제한한다. read/search는 R0, 일반 write/edit는 R1에서 시작하며 dependency 파일은 R2로 승격한다. bound STANDARD/R2가 아니면 실행을 차단하고 새 R2 run을 안내한다. 임의 코드를 분석해 모든 의미적 위험을 자동 판정하는 기능은 아니다.
 
@@ -474,7 +503,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ### 소유권과 계약
 
-- `StandardWorkflow`가 순차 Kernel 호출, AbortController, Verifier/StateStore의 생존 기간을 소유한다. Kernel만 상태 전이와 COMPLETE를 결정한다. Host는 시작·상태·취소를 전달한다.
+- `StandardWorkflow`가 explicit executionMode를 고정하고 순차 Kernel 호출, AbortController, Verifier/StateStore의 생존 기간을 소유한다. Kernel만 상태 전이와 COMPLETE를 결정한다. Host는 시작·상태·취소를 전달한다.
 - `RegisteredVerifier`가 기존 Verifier Port를 구현한다. Port의 선택적 `inspect`는 check 재실행 없는 live evidence 조회다. 실제 S4 Adapter는 반드시 제공하며 Kernel/Ports는 SDK·fs를 import하지 않는다.
 - Run에는 최소 `workspace`(digest, 변경 경로, 참조, 안전 여부)와 구조화 `review`를 보관한다. CheckResult에는 시작/종료 시각, 실제 exit code, 제한된 stdout/stderr가 추가된다. RuntimeEvent의 기존 sequence·step/attempt·저장 후 발행 규칙은 유지한다.
 - `.ai`는 operational state/check 요약만 보관하고 전체 diff/reasoning/transcript를 복제하지 않는다. 실제 Reviewer 자료는 명시적인 reviewContext로 전달하고 Pi 세션이 기록한다. 별도 decisions.md/logs 조회 UI·usage 집계는 S5 범위다.
@@ -534,7 +563,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 - `files.allowed_paths`에 명시된 파일만 기존 write/edit로 처리한다. manifest/lockfile을 다룰 때도 `.ai`/credential/.git/Runtime·등록 script 보호, symlink/hardlink·size 제한은 그대로다. 새로운 설치·삭제·이동·mkdir·배포·shell 도구는 없다.
 - 기존 classifier가 초기 R2로 판정하면 `adaptive`는 STANDARD를 고른다. Complexity QUICK/Risk R2도 Executor를 생성하지 않는다. 명시적 `runtime.workflow: QUICK`은 R2를 거부한다. COMPLEX/범용 R3는 미지원이며 한정 R3는 아래 S5C를 따른다. R1/QUICK 실행 중 dependency action이 나타나면 REVIEW_REQUIRED로 차단하고 사용자가 새 STANDARD/R2 run을 시작해야 한다.
-- Host composition callback은 `createAgents(store, quickScope?, r2RunId?)`를 받는다. PiAgentExecutor.create와 PolicyContext의 `r2RunId`는 Host가 preflight에서 고정하며 모델 도구 입력으로 받지 않는다. 다른 run/Executor/QUICK scope와 혼용할 수 없고 configDigest에도 포함된다.
+- Host composition callback은 V0.3C부터 `createAgents(store, quickScope, r2RunId, r3Scope, executionContract)`를 받는다. PiAgentExecutor.create와 PolicyContext의 `r2RunId`는 Host가 preflight에서 고정하며 모델 도구 입력으로 받지 않는다. 다른 run/Executor/QUICK scope와 혼용할 수 없고 configDigest에도 포함된다.
 - Policy는 bound run의 Developer 파일 mutation을 R2 하한으로 평가한다. 그 결과의 ALLOW는 **독립 리뷰를 생략할 허가나 이미 받은 PASS가 아니다.** 해당 run은 이후 Reviewer PASS 없이는 완료하지 못한다.
 - R2 ALLOW intent를 저장할 때 StateStore는 실제 저장된 STANDARD/R2·RUNNING·IMPLEMENT·attempt·active Developer와 마지막 세션 참조를 검사한다. R2 risk/workflow obligation을 낮춰 저장할 수 없다. 순수 Policy에 binding을 꾸며 넣어도 durable R1 run에서 실행하지 못한다.
 - Kernel은 현재 구현/리뷰 회차의 서로 다른 session ID와 sessionFile, 정확한 review/requirement evidence, 필수 SELF_CHECK/TEST와 live workspace digest를 확인한다. 재작업 시 이전 Reviewer 참조를 비우고 새 등록을 요구한다. 가짜/누락된 참조, 자연어 PASS, stale digest, BLOCK·REVISE 한도 초과, check/상태 저장 실패는 완료가 아니다.
@@ -634,6 +663,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/execution-contract.test.ts test/trust-baseline.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/anchored-edit.test.ts test/anchored-tools.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/launcher-home.test.ts test/launcher.test.ts test/worktree.test.ts
@@ -646,6 +676,7 @@ node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agen
 
 # 저장소 루트에서
 npm run check
+npm run check:ci
 ```
 
 테스트는 임시 디렉터리와 설정 fixture를 사용한다. S0는 Pi public loader로 파일·패키지 진입점을 검사한다. S3는 실제 AgentSession을 실행하되 로컬 faux provider만 사용한다. 생성/수정 가능한 위치는 각 테스트가 만든 임시 디렉터리뿐이다.

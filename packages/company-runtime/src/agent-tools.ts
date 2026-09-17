@@ -24,6 +24,7 @@ import {
 	type VerificationResult,
 	validateContract,
 } from "./contracts.ts";
+import { assertExecutionContract, bindExecutionContract } from "./execution-contract.ts";
 import { createLspTools } from "./lsp/tools.ts";
 import {
 	type ActionAudit,
@@ -143,6 +144,8 @@ export function createWorkerTools(options: {
 	consumeStaleAnchorError: (toolName: string, toolCallId: string) => boolean;
 } {
 	const { request, signal } = options;
+	const executionContract = bindExecutionContract(request.runId, request.executionMode);
+	assertExecutionContract(executionContract, options.policy.executionRunId, options.policy.executionMode);
 	const evidenceRefs = request.role === "Reviewer" ? trustedReviewEvidenceRefs(request.verification) : [];
 	const trustedEvidence = new Set(evidenceRefs);
 	// Adapter-owned classification, never a model-supplied error label. Consumed once by the SDK event handler.
@@ -152,6 +155,8 @@ export function createWorkerTools(options: {
 	let policyDenial: string | undefined;
 	const assertActive = () => {
 		options.assertActive();
+		assertExecutionContract(executionContract, request.runId, request.executionMode);
+		assertExecutionContract(executionContract, options.policy.executionRunId, options.policy.executionMode);
 		signal.throwIfAborted();
 		if (submitted) throw new Error("Worker already submitted its result");
 	};
@@ -176,6 +181,7 @@ export function createWorkerTools(options: {
 					: ("R0" as const),
 			paths: frozenPaths,
 			actionDigest: workerDigest({
+				executionContract,
 				tool,
 				paths: frozenPaths,
 				input,
@@ -243,69 +249,78 @@ export function createWorkerTools(options: {
 	if (request.lsp) tools.push(...createLspTools(request.lsp, fileAction, signal));
 	if (request.role !== "Reviewer") {
 		tools.push(
-			defineTool({
-				name: "runtime_write",
-				label: "Runtime write",
-				description: "Write an allowed workspace text file. Parent directory must exist.",
-				executionMode: "sequential",
-				parameters: Type.Object({ path: pathSchema, content: Type.String({ maxLength: MAX_BYTES }) }, strict),
-				execute: async (_id, params) =>
-					fileAction("runtime_write", [params.path], params, () => {
-						writeText(join(options.cwd, params.path), params.content, signal);
-						return "File written";
-					}),
-			}),
-			defineTool({
-				name: "runtime_edit",
-				label: "Runtime edit",
-				description:
-					"Replace one unique exact text occurrence in an allowed workspace file. Optionally supply BOTH anchor and fileDigest from runtime_read anchors:true. " +
-					"The exact oldText must start in the anchored line (may span later lines); duplicates elsewhere are allowed, multiple starts in that line are rejected. Stale preconditions never write. " +
-					(request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : ""),
-				executionMode: "sequential",
-				parameters: Type.Object(
-					{
-						path: pathSchema,
-						oldText: text,
-						newText: Type.String({ maxLength: MAX_BYTES }),
-						anchor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
-						fileDigest: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
-					},
-					strict,
-				),
-				execute: async (id, input) => {
-					const params = structuredClone(input);
-					if ((params.anchor === undefined) !== (params.fileDigest === undefined))
-						throw new Error("anchor and fileDigest must be supplied together");
-					try {
-						return await fileAction("runtime_edit", [params.path], params, () => {
-							if (params.anchor !== undefined && params.fileDigest !== undefined) {
-								editAnchoredFile(
-									options.cwd,
-									params.path,
-									{ ...params, anchor: params.anchor, fileDigest: params.fileDigest },
-									signal,
-								);
-								return "File edited";
-							}
-							const path = join(options.cwd, params.path);
-							const content = readText(path);
-							const index = content.indexOf(params.oldText);
-							if (index < 0 || content.indexOf(params.oldText, index + 1) !== -1)
-								throw new Error("Edit requires a unique exact match");
-							writeText(
-								path,
-								content.slice(0, index) + params.newText + content.slice(index + params.oldText.length),
-								signal,
-							);
-							return "File edited";
-						});
-					} catch (error) {
-						if (error instanceof StaleAnchorError) staleAnchorErrors.add(id);
-						throw error;
-					}
-				},
-			}),
+			...(executionContract.mode === "EDIT"
+				? [
+						defineTool({
+							name: "runtime_write",
+							label: "Runtime write",
+							description: "Write an allowed workspace text file. Parent directory must exist.",
+							executionMode: "sequential",
+							parameters: Type.Object(
+								{ path: pathSchema, content: Type.String({ maxLength: MAX_BYTES }) },
+								strict,
+							),
+							execute: async (_id, params) =>
+								fileAction("runtime_write", [params.path], params, () => {
+									writeText(join(options.cwd, params.path), params.content, signal);
+									return "File written";
+								}),
+						}),
+						defineTool({
+							name: "runtime_edit",
+							label: "Runtime edit",
+							description:
+								"Replace one unique exact text occurrence in an allowed workspace file. Optionally supply BOTH anchor and fileDigest from runtime_read anchors:true. " +
+								"The exact oldText must start in the anchored line (may span later lines); duplicates elsewhere are allowed, multiple starts in that line are rejected. Stale preconditions never write. " +
+								(request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : ""),
+							executionMode: "sequential",
+							parameters: Type.Object(
+								{
+									path: pathSchema,
+									oldText: text,
+									newText: Type.String({ maxLength: MAX_BYTES }),
+									anchor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+									fileDigest: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+								},
+								strict,
+							),
+							execute: async (id, input) => {
+								const params = structuredClone(input);
+								if ((params.anchor === undefined) !== (params.fileDigest === undefined))
+									throw new Error("anchor and fileDigest must be supplied together");
+								try {
+									return await fileAction("runtime_edit", [params.path], params, () => {
+										if (params.anchor !== undefined && params.fileDigest !== undefined) {
+											editAnchoredFile(
+												options.cwd,
+												params.path,
+												{ ...params, anchor: params.anchor, fileDigest: params.fileDigest },
+												signal,
+											);
+											return "File edited";
+										}
+										const path = join(options.cwd, params.path);
+										const content = readText(path);
+										const index = content.indexOf(params.oldText);
+										if (index < 0 || content.indexOf(params.oldText, index + 1) !== -1)
+											throw new Error("Edit requires a unique exact match");
+										writeText(
+											path,
+											content.slice(0, index) +
+												params.newText +
+												content.slice(index + params.oldText.length),
+											signal,
+										);
+										return "File edited";
+									});
+								} catch (error) {
+									if (error instanceof StaleAnchorError) staleAnchorErrors.add(id);
+									throw error;
+								}
+							},
+						}),
+					]
+				: []),
 			defineTool({
 				name: "runtime_request_check",
 				label: "Request check",
@@ -421,7 +436,7 @@ export function createWorkerTools(options: {
 			}),
 		);
 	}
-	if (options.policy.r3Scope && request.role === "Developer") {
+	if (options.policy.r3Scope && request.role === "Developer" && executionContract.mode === "EDIT") {
 		const assertConfig = () => {
 			if (
 				workerDigest(parseRuntimeConfig(readText(join(options.cwd, ".ai/config.yaml")))) !==
@@ -450,7 +465,7 @@ export function createWorkerTools(options: {
 						tool: "runtime_delete",
 						risk: "R3" as const,
 						paths: [params.path],
-						actionDigest: workerDigest({ path: params.path, step: request.step }),
+						actionDigest: workerDigest({ executionContract, path: params.path, step: request.step }),
 					};
 					const initial = evaluatePolicy(action, options.policy, await options.paths.inspect(action.paths));
 					if (initial.decision !== "APPROVAL_REQUIRED") {
@@ -463,6 +478,7 @@ export function createWorkerTools(options: {
 					const path = join(options.cwd, params.path);
 					const fingerprint = deletionFingerprint(path);
 					action.actionDigest = workerDigest({
+						executionContract,
 						operation: "delete-file",
 						path: params.path,
 						...fingerprint,

@@ -109,6 +109,7 @@ function review(verdict: Review["result"] = "PASS") {
 }
 function create(taskGoal = goal, wrongBinding = false) {
 	workflow = new StandardWorkflow({
+		executionMode: "EDIT",
 		cwd,
 		goal: taskGoal,
 		config,
@@ -118,8 +119,9 @@ function create(taskGoal = goal, wrongBinding = false) {
 				onEvent?.(event);
 			},
 		},
-		createAgents: async (store, quickScope, r2RunId) => {
+		createAgents: async (store, quickScope, r2RunId, _r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,

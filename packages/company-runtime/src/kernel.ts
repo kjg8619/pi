@@ -32,10 +32,12 @@ import {
 	type Workflow,
 } from "./contracts.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
+import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
 import type { KernelPorts } from "./ports.ts";
 import { assertQuickWorkspace, selectQuickScope } from "./quick.ts";
 
 export interface CreateRunRequest {
+	executionMode: ExecutionMode;
 	runId: string;
 	task: Task;
 	classification: Classification;
@@ -136,6 +138,7 @@ function assertReview(review: Review, task: Task, verification: VerificationResu
 }
 
 export interface CompletionEvidence {
+	executionMode: ExecutionMode;
 	runId: string;
 	revision: number;
 	task: Task;
@@ -158,6 +161,16 @@ export interface CompletionEvidence {
 /** Independent guard: a phase label, natural-language success or schema-valid PASS is not sufficient. */
 export function assertCanComplete(evidence: CompletionEvidence): void {
 	const { runId, revision, task, checks, handoff, review, selfCheck, finalCheck } = evidence;
+	requireEvidence(isExecutionMode(evidence.executionMode), "Completion requires an explicit execution contract");
+	if (evidence.executionMode === "READ_ONLY")
+		requireEvidence(
+			evidence.workspace?.safe === true &&
+				evidence.workspace.changedFiles.length === 0 &&
+				selfCheck?.changedFiles?.length === 0 &&
+				finalCheck?.changedFiles?.length === 0 &&
+				handoff?.changed_files.length === 0,
+			"READ_ONLY completion requires unchanged workspace evidence and no reported mutations",
+		);
 	if (evidence.risk === "R3") {
 		const approval = evidence.approvals?.[0];
 		requireEvidence(
@@ -297,6 +310,7 @@ export class CompanyKernel {
 		now: () => number = Date.now,
 	): Promise<CompanyKernel> {
 		request = structuredClone(request);
+		if (!isExecutionMode(request.executionMode)) throw new Error("New runs require an explicit execution contract");
 		validateContract(TaskSchema, request.task);
 		validateContract(ClassificationSchema, request.classification);
 		if (
@@ -332,6 +346,7 @@ export class CompanyKernel {
 			status: "CREATED",
 			phase: "PREFLIGHT",
 			workflow: selection.workflow,
+			executionMode: request.executionMode,
 			...(request.classification.risk === "R3"
 				? { r3Scope: selectR3Scope(request.task.goal, request.runId), approvals: [] }
 				: {}),
@@ -414,6 +429,9 @@ export class CompanyKernel {
 		this.busy = true;
 		try {
 			if (
+				!isExecutionMode(this.state.executionMode) ||
+				(this.state.executionMode === "READ_ONLY" && (!this.ports.verifier.inspect || this.state.risk === "R3")) ||
+				(this.state.workflow === "QUICK" && this.state.risk === "R0" && this.state.executionMode !== "READ_ONLY") ||
 				this.state.workflow === "COMPLEX" ||
 				(this.state.risk === "R3" && (!this.state.r3Scope || !this.ports.approval)) ||
 				((this.state.risk === "R2" || this.state.risk === "R3") &&
@@ -526,7 +544,12 @@ export class CompanyKernel {
 		let approvalFailure: string | undefined;
 		const task = structuredClone(this.state.tasks[0]);
 		const revision = this.state.revisionCycle;
-		const request = { runId: this.state.runId, revision, step: structuredClone(step), task };
+		const executionMode = this.state.executionMode;
+		if (!isExecutionMode(executionMode)) {
+			this.busy = false;
+			throw new Error("Missing live execution contract");
+		}
+		const request = { runId: this.state.runId, executionMode, revision, step: structuredClone(step), task };
 		const startEvents: RuntimeEventDetail[] = [{ type: "StepStarted", step }];
 		const role =
 			expectedStep === "implement"
@@ -572,6 +595,7 @@ export class CompanyKernel {
 				approvalInFlight ||
 				this.state.status !== "RUNNING" ||
 				this.state.risk !== "R3" ||
+				this.state.executionMode !== "EDIT" ||
 				!this.state.r3Scope ||
 				!this.ports.approval ||
 				role !== "Developer" ||
@@ -656,10 +680,12 @@ export class CompanyKernel {
 			await this.persist({ activeAgents: role ? [role] : [] }, startEvents);
 			started = true;
 			signal?.throwIfAborted();
-			if (this.state.quickScope && this.ports.verifier.inspect) {
+			if ((this.state.quickScope || this.state.executionMode === "READ_ONLY") && this.ports.verifier.inspect) {
 				const workspace = await this.ports.verifier.inspect(signal);
 				await this.persist({ workspace }, []);
 				this.assertQuickScope(workspace);
+				if (this.state.executionMode === "READ_ONLY")
+					requireEvidence(workspace.safe && workspace.changedFiles.length === 0, "READ_ONLY workspace changed");
 				signal?.throwIfAborted();
 			}
 			const endEvents: RuntimeEventDetail[] = [];
@@ -862,7 +888,11 @@ export class CompanyKernel {
 			const steps: readonly StepId[] = this.state.workflow === "QUICK" ? QUICK_STEP_IDS : STANDARD_STEP_IDS;
 			const nextStep = steps[steps.indexOf(expectedStep) + 1];
 			const workspace = this.ports.verifier.inspect ? await this.ports.verifier.inspect(signal) : undefined;
-			if (workspace) this.assertQuickScope(workspace);
+			if (workspace) {
+				this.assertQuickScope(workspace);
+				if (this.state.executionMode === "READ_ONLY")
+					requireEvidence(workspace.safe && workspace.changedFiles.length === 0, "READ_ONLY workspace changed");
+			}
 			if (this.state.workflow === "QUICK" && expectedStep === "implement" && workspace)
 				patch.executorDigest = workspace.diffDigest;
 			await this.persist(

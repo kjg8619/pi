@@ -17,6 +17,8 @@
 
 로드맵의 버전명은 개발 단계 표기이며 정식 release/tag 선언이 아니다.
 
+**2026-09-17 후속 상태:** V0.3C FIX-01/02/04 구현과 로컬 자동 회귀를 완료했다(착수 HEAD `dd3c3f706023caae693b1e67204531c5df8676f5`, WORK_LOG LOG-046). Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS, check:ci 전후 tracked bytes 불변을 확인했다. 실제 GitHub Actions/Node22 Linux build-test·fresh install 전체·branch protection은 NOT VERIFIED이며 CI YAML 구성을 실제 원격 PASS로 확대하지 않는다. 아래 다른 단계는 여전히 계획이다.
+
 ---
 
 ## 1. 현재 기준선
@@ -99,7 +101,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 
 | 단계 | 목표 | 연구 문서 매핑 | 우선순위 |
 |---|---|---|---|
-| **V0.3C — Trust Baseline** | 설치·CI·실행 권한 계약 고정 | FIX-01, FIX-02, FIX-04 | 즉시 |
+| **V0.3C — Trust Baseline** | 설치·CI·실행 권한 계약 고정 | FIX-01, FIX-02, FIX-04 | 구현·로컬 회귀 완료; 원격 CI 환경 별도 확인 |
 | **V0.3D — Project Context** | 프로젝트 규칙·파일 탐색·JVM risk 보강 | FIX-03, FIX-06, FEAT-02 일부 | 높음 |
 | **V0.3E — Task Contract** | 복합 요청을 검증 가능한 AC로 고정 | FIX-05, FEAT-01 | 높음 |
 | **V0.3F — Measurement & Evidence** | 실제 품질·비용·실패를 측정/설명 | FEAT-03, FEAT-04, FEAT-05, FIX-09 | 높음 |
@@ -111,6 +113,10 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 ---
 
 # 4. V0.3C — Trust Baseline
+
+**상태: 구현·로컬 회귀 완료.** 아래 세 FIX만 반영했다. READ_ONLY 후보 제안은 권한이 아니며 Host가 mode를 확인한 뒤 run에 고정한다. tool surface/Policy/StateStore binding/Kernel no-change guard를 함께 집행한다. legacy 필드 부재는 UNKNOWN으로 조회하고 새 live 실행에 권한을 부여하지 않는다. READ_ONLY/R3는 risk를 낮추지 않고 preflight에서 거부하며 R2 mandatory review는 유지한다.
+
+CI는 `main/devlop` push/PR, non-write `check:ci`, 격리 `test.sh`, launcher syntax 및 final tracked-diff guard로 구성했다. 기존 build의 tracked 모델 카탈로그 재생성을 피하려고 ignored data hydration 뒤 `build:offline`을 사용한다. 실제 Actions 실행과 Node22/Linux 환경 결과는 아직 검증하지 않았다.
 
 ## 목표
 
@@ -151,7 +157,7 @@ npm run check          local developer format/fix 포함 가능
 npm run check:ci       tracked source를 수정하지 않는 CI gate
 ```
 
-`check:ci`는 적어도 다음을 포함한다.
+구현은 `check:ci`에 non-write Biome 및 기존 shared validation 전체를 두고, tests/shell syntax/final diff guard는 CI의 별도 단계로 둔다. CI pipeline은 다음을 포함한다.
 
 - Biome non-write 검사
 - TypeScript/type import/entry graph 검사
@@ -181,13 +187,17 @@ risk
 type ExecutionMode = "READ_ONLY" | "EDIT";
 ```
 
-READ_ONLY는 두 겹으로 강제한다.
+READ_ONLY는 다음 경계로 강제한다.
 
 ```text
+Host-confirmed READ_ONLY / EDIT → frozen Run.executionMode
 READ_ONLY
-   ├─ Worker mutation tool 미노출
-   └─ Policy mutation DENY
+   ├─ Worker write/edit/delete 미노출
+   ├─ Policy mutation DENY + persisted run/mode binding
+   └─ Kernel completion: actual changedFiles = 0
 ```
+
+기존 registered process의 I/O는 sandbox하지 않는다. 관찰된 변경은 READ_ONLY 완료를 막지만 사후 guard를 사전 process 차단으로 과장하지 않는다. mode가 없는 과거 state는 read-only observation만 호환하고 자동 migration/permission default/resume는 하지 않는다.
 
 자연어 분류기나 모델은 execution mode를 제안할 수 있으나 권한 원본이 될 수 없다.
 
@@ -660,7 +670,7 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-다음 구현 단계는 **V0.3C — Trust Baseline**으로 고정한다.
+**V0.3C — Trust Baseline의 아래 범위는 구현·로컬 회귀를 완료했다.** 원격 CI 실행 결과 확인과 사용자 검토 후 V0.3D 착수 여부를 별도로 결정한다. 자동으로 다음 기능을 구현하지 않는다.
 
 범위:
 
@@ -683,4 +693,4 @@ MCP
 COMPLEX / Parallel Agents
 ```
 
-V0.3C가 완료된 뒤 실제 regression/evidence를 보고 V0.3D 착수를 결정한다.
+V0.3C의 실제 regression/evidence와 NOT VERIFIED 환경은 WORK_LOG LOG-046을 따른다. V0.3D 이후 범위는 별도 사용자 승인 전까지 계획으로 유지한다.

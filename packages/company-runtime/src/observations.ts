@@ -70,6 +70,7 @@ export function decisionEntries(run: Run, actions: readonly ObservationAction[])
 			details: [
 				`Goal: ${run.goal}`,
 				`Intent: ${run.classification.intent}; complexity: ${run.classification.complexity}`,
+				`Execution contract: ${run.executionMode ?? "UNKNOWN (legacy; no permission inferred)"}`,
 				`Revision limit: ${run.maxRevisionCycles ?? "not recorded"}`,
 			],
 		},
@@ -176,6 +177,7 @@ export function formatRunView(
 		`Run: ${displayText(run.runId)} | recorded ${timestamp(run.updatedAt)} | revision ${run.revision}`,
 		`Workflow: ${run.workflow} | Reviewer: ${run.workflow === "QUICK" ? "not required" : (run.review?.result ?? "not performed")}`,
 		`Status: ${run.status} | Phase: ${run.phase} | Risk: ${run.risk}`,
+		`Execution contract: ${run.executionMode ?? "UNKNOWN (legacy; no permission inferred)"}`,
 		`Agent: ${run.activeAgents.join(", ") || (run.workflow === "QUICK" ? "Executor (idle)" : "idle")}`,
 		`Review: ${run.workflow === "QUICK" ? "not required" : (run.review?.result ?? "not performed")}`,
 		...(run.risk === "R2" ? ["Review enforcement: REQUIRED (STANDARD/R2); no self-approval"] : []),

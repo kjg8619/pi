@@ -65,6 +65,7 @@ function handoff(context: Context, override: Partial<ExecutorHandoff> = {}) {
 const submit = (context: Context) => handoff(context);
 function create(taskGoal = goal) {
 	workflow = new StandardWorkflow({
+		executionMode: taskGoal.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal: taskGoal,
 		config,
@@ -74,8 +75,9 @@ function create(taskGoal = goal) {
 				onEvent?.(event);
 			},
 		},
-		createAgents: async (store, quickScope) => {
+		createAgents: async (store, quickScope, _r2RunId, _r3Scope, executionContract) => {
 			const executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,

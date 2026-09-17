@@ -151,6 +151,7 @@ const grant = (request: ApprovalRequest) => ({
 });
 function create(goal = "Fix bug") {
 	workflow = new StandardWorkflow({
+		executionMode: "EDIT",
 		cwd,
 		goal,
 		config,
@@ -160,9 +161,10 @@ function create(goal = "Fix bug") {
 				events.push(event);
 			},
 		},
-		createAgents: async (owned, quickScope, r2RunId, r3Scope) => {
+		createAgents: async (owned, quickScope, r2RunId, r3Scope, executionContract) => {
 			store = owned;
 			executor = await PiAgentExecutor.create({
+				executionContract,
 				cwd,
 				agentDir,
 				config,
@@ -483,6 +485,7 @@ describe("S6 ownership must outlive resource cleanup", () => {
 		"an effect failure after human approval is not recorded as consumed consent",
 		async () => {
 			const owner = new StandardWorkflow({
+				executionMode: "EDIT",
 				cwd,
 				goal: "Delete file src/obsolete.ts",
 				config,
@@ -492,9 +495,10 @@ describe("S6 ownership must outlive resource cleanup", () => {
 						return grant(request);
 					},
 				},
-				createAgents: async (owned, quickScope, r2RunId, r3Scope) => {
+				createAgents: async (owned, quickScope, r2RunId, r3Scope, executionContract) => {
 					store = owned;
 					const runner = await PiAgentExecutor.create({
+						executionContract,
 						cwd,
 						agentDir,
 						config,

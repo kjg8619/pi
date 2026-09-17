@@ -73,6 +73,7 @@ function verificationResult(request: VerificationRequest): VerificationResult {
 
 function fixture() {
 	const request: CreateRunRequest = {
+		executionMode: "EDIT",
 		runId: "run-1",
 		task: { id: "task-1", goal: "Fix login error", status: "pending", requirements: ["Expired token returns 401"] },
 		classification: classifyRequest("Fix login error").classification,
@@ -558,6 +559,7 @@ function completionFixture(): CompletionEvidence {
 		step: { stepId: "test", attempt: 1 },
 	} satisfies VerificationResult;
 	const result = agentResult({
+		executionMode: "EDIT",
 		runId: "run-1",
 		revision: 0,
 		step: { stepId: "review", attempt: 1 },
@@ -569,6 +571,7 @@ function completionFixture(): CompletionEvidence {
 	});
 	if (result.role !== "Reviewer") throw new Error("Invalid test fixture");
 	return {
+		executionMode: "EDIT",
 		runId: "run-1",
 		revision: 0,
 		task,

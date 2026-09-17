@@ -24,6 +24,7 @@ async function openStore(options?: FileStateStoreOptions, path = root) {
 async function kernel(store: FileStateStore, id = "run-1") {
 	return CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: id,
 			task: { id: "task-1", goal: "Fix bug", requirements: ["Regression covered"], status: "pending" },
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Bug fix" },
@@ -44,6 +45,7 @@ async function kernel(store: FileStateStore, id = "run-1") {
 	);
 }
 const decision: PolicyDecision = {
+	executionMode: "EDIT",
 	runId: "run-1",
 	actionId: "action-1",
 	role: "Developer",

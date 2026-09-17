@@ -20,6 +20,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.2C: `~/.weavra/agent` user-level 격리, 명시적 `weavra setup`과 읽기 전용 `weavra doctor`.
 - V0.3A: `runtime_read`의 anchored snapshot과 `runtime_edit`의 선택적 full-file stale guard. QUICK/R1 단일 파일 편집에서 우선 사용.
 - V0.3B: explicit opt-in LSP diagnostics/definition/references/document symbols, verifier-owned advisory evidence와 읽기 전용 `/lsp status`.
+- V0.3C: READ_ONLY/EDIT Execution Contract, devlop 설치 기준, non-mutating CI gate.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -27,7 +28,8 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 현재는 checkout을 유지하는 개발/개인 설치다. Node.js `>=22.19.0`, npm, Git, Bash와 **이 checkout에서 빌드한 coding-agent CLI**가 필요하다. global Pi 설치는 필요 없다. 실제 Runtime 검증 환경은 macOS/POSIX, Node `26.7.0`이다. 다른 OS/Node 조합은 NOT VERIFIED이며 Windows는 지원하지 않는다.
 
 ```sh
-git clone https://github.com/kjg8619/pi.git weavra
+git clone --branch devlop --single-branch \
+  https://github.com/kjg8619/pi.git weavra
 cd weavra
 npm install --ignore-scripts
 npm run build  # workspace 의존성과 fork-local Pi CLI 빌드
@@ -38,6 +40,14 @@ weavra doctor  # 읽기 전용 로컬 검사
 cd /absolute/path/to/my-project
 weavra
 ```
+
+브랜치/태그의 역할은 다음과 같다. 기본 브랜치를 생략한 clone으로 현재 Weavra 개발판을 설치했다고 가정하지 않는다.
+
+| 기준 | 의미 |
+|---|---|
+| `main` | upstream/base Pi 계열 |
+| `devlop` | current Weavra development |
+| `weavra-v0.1-rc1` | immutable historical RC baseline; 현재 개발 기능을 포함하지 않으며 이동하지 않음 |
 
 위의 workspace 한정 `npm link`는 npm global prefix에 **`weavra`만** 연결한다. 해당 `bin` 디렉터리가 PATH에 있어야 한다. `packages/coding-agent`를 global link하거나 기존 `pi`를 덮어쓰지 않는다. checkout 이동/삭제 후에는 다시 link해야 한다. publish는 필요 없다.
 
@@ -411,6 +421,38 @@ line/column은 모두 **1-based**, column은 **UTF-16 code units**다. 허용된
 
 [실제 TS/Provider smoke](docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)에서 설치된 TypeScript 서버의 네 query, workspace 무변경·종료, 실제 모델의 diagnostics 도구 선택과 독립 Reviewer evidence 전달을 확인했다. 다른 서버/OS·monorepo multi-root는 미검증이다. 상세 범위와 한도는 [Runtime 문서](packages/company-runtime/README.md#v03b-read-only-lsp)를 따른다.
 
+## V0.3C — Trust Baseline
+
+### READ_ONLY / EDIT Execution Contract
+
+`intent / complexity / risk`는 routing 정보다. **R0 label 자체가 read-only 권한을 보장하지 않는다.** 새 run은 Host가 확인한 별도의 `executionMode`를 고정한다.
+
+- READ_ONLY: Worker에 `runtime_write`, `runtime_edit`, `runtime_delete`를 설치하지 않고, 직접 만든 registered mutation action도 Policy에서 DENY한다. 완료 시 실제 workspace·양쪽 verification·handoff의 changed files가 모두 0이어야 한다.
+- EDIT: 기존 allowed/protected path와 risk floor를 유지한 mutation만 가능하다. STANDARD/R2의 bound run·독립 Reviewer, R3의 scoped deletion·별도 Human Approval을 대체하지 않는다. Reviewer는 run의 mode와 관계없이 항상 read-only다.
+- read/search/설정된 read-only LSP/구조화 제출은 READ_ONLY에서도 사용한다. `/workflow status`, `/state`, `/risk`는 `Execution contract`를 표시한다. 과거 필드 없는 run은 `UNKNOWN (legacy; no permission inferred)`이며 EDIT로 간주하지 않는다.
+
+자연어 해석은 **후보 제안**일 뿐 권한 원본이 아니다. `/workflow run`은 명확한 explain/analyze/inspect/설명/분석/검토와 fix/implement/update/수정/구현 요청을 보수적으로 구분하고, 기존 확인 창에 READ_ONLY/EDIT를 표시하여 명시적으로 확인받는다. 모호한 요청이나 설명+수정의 혼합은 preflight에서 거부하므로 새 명확한 요청이 필요하다. quoted words/code/path는 후보 판정에서 data로 취급하며 English/Korean negation을 제한된 규칙으로 처리한다.
+
+예: `삭제하지 말고 삭제 로직을 설명해줘`는 READ_ONLY 후보이지 삭제 권한 요청이 아니다. 다만 기존 raw risk heuristic은 R3를 유지할 수 있다. **READ_ONLY/R3는 worker/승인 전에 fail closed**하며, 편의를 위해 R3를 낮추거나 approval 의무를 우회하지 않는다. READ_ONLY/R2도 기존 STANDARD 독립 review 의무를 유지한다. 일반 자연어의 모든 의미를 이해하는 classifier가 아니다.
+
+QUICK EDIT 경로는 한글과 quote/backtick으로 감싼 공백 경로, unquoted 경로 뒤 단일 문장부호(`src/a.ts:` 등)를 지원한다. 이는 goal 문법만의 처리이며 실제 tool path를 fuzzy 보정하거나 `..`/절대 경로를 정규화해 허용하는 기능은 아니다.
+
+`executionMode`는 설정이나 모델 tool argument가 아니다. 프로그램 Host도 `WorkflowOptions.executionMode`를 명시해야 하며, run ID에 bound된 contract를 Agent/Policy에 전달해야 한다. 누락·불일치·같은 run의 mode 변경은 거부한다. 과거 state를 자동 migration/overwrite하거나 실행 재개하지 않는다.
+
+**READ_ONLY는 OS sandbox가 아니다.** 등록된 verifier와 LSP 서버는 기존처럼 trusted programs다. 이들이 만든 workspace 변경이 관찰되면 READ_ONLY COMPLETED로 만들지 않지만, 사후 Git guard를 사전 process mutation 차단이라고 설명하지 않는다. Verifier Trust/Sandbox는 후속 범위다.
+
+### devlop CI / non-mutating check
+
+`main`/`devlop` push 및 해당 base branch PR에서 CI를 실행하도록 구성했다.
+
+- `npm run check`: 개발자용 Biome `--write` 후 공통 검증.
+- `npm run check:ci`: Biome **non-write** 후 동일 `check:base` 검증.
+- `check:base`: pinned/runtime deps, TS imports, entry graphs, shrinkwrap, coding-agent install lock, `tsgo --noEmit`, browser smoke를 모두 유지한다.
+- CI는 ignored JSON model data만 hydrate하고 `build:offline`으로 committed source를 빌드한다. 일반 `build`가 tracked 모델 카탈로그를 재생성하는 경로를 CI에서 피하며, checkout/reset/ignore로 diff를 숨기지 않는다.
+- 기존 workspace tests는 `bash ./test.sh`의 빈 환경/격리 HOME에서 실행한다. 일반 CI에 실제 Provider/auth/유료 smoke를 넣지 않는다. launcher syntax와 마지막 `git diff --exit-code HEAD --`도 검사한다.
+
+로컬 Node 26 및 Node 22/macOS 회귀와 check:ci 전후 tracked bytes 불변을 확인한다. 실제 GitHub Actions 실행·branch protection 및 Node 22/Linux build/test 결과는 별도 확인 대상이다. V0.3C 검증의 실제 범위는 [WORK_LOG](docs/WORK_LOG.md)의 LOG-046을 따른다.
+
 ## Workflow & Risk
 
 | 범위 | 실행과 완료 조건 |
@@ -509,7 +551,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.m
 npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
 npm run build         # Refresh model data, then build all packages
 npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
+npm run check         # Local format/fix and shared validation
+npm run check:ci      # Non-mutating lint and the same shared validation
 ./test.sh            # Run tests (skips LLM-dependent tests without API keys)
 ./pi-test.sh         # Run pi from sources (can be run from any directory)
 ```

@@ -27,7 +27,7 @@ export class LspFiles {
 		if (!isPolicyPath(path) || path.length > 4096 || safeLspText(path, 4096) !== path) return false;
 		const decision = evaluatePolicy(
 			{
-				runId: this.policy.r2RunId ?? this.policy.r3Scope?.runId ?? "lsp",
+				runId: this.policy.executionRunId,
 				actionId: "lsp-read",
 				role: "Reviewer",
 				tool: "runtime_read",

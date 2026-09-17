@@ -194,6 +194,7 @@ describe("S6 filesystem/crash safety", () => {
 		stores.push(store);
 		const kernel = await CompanyKernel.create(
 			{
+				executionMode: "EDIT",
 				runId: "run",
 				task: { id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
 				classification: {
@@ -233,8 +234,8 @@ describe("S6 filesystem/crash safety", () => {
 			const code =
 				await childScript(`import {FileStateStore} from ${JSON.stringify(statePath)}; import {CompanyKernel} from ${JSON.stringify(kernelPath)}; import {writeFileSync} from 'node:fs'; import {join} from 'node:path';
 let armed=false; const store=await FileStateStore.open(process.argv[2],{beforeAtomicStep(file,step){if(armed && ${JSON.stringify(phase)}==='state-before-projection' && file==='tasks.json' && step==='rename') process.exit(23);}});
-const kernel=await CompanyKernel.create({runId:'crash',task:{id:'task',goal:'Fix bug',requirements:['Fix bug'],status:'pending'},classification:{intent:'bugfix',complexity:'STANDARD',risk:'R1',confidence:null,reason:'Fixture'}},{store,agents:{execute:async()=>{throw Error('Unused')}},verifier:{verify:async()=>{throw Error('Unused')}}});
-armed=true; await kernel.start(); await store.prepare({runId:'crash',actionId:'effect',role:'Developer',risk:'R1',decision:'ALLOW',reason:'Fixture effect',actionDigest:'input',configDigest:'config'}); writeFileSync(join(process.argv[2],'effect.txt'),'effect happened'); process.exit(23);`);
+const kernel=await CompanyKernel.create({executionMode:'EDIT',runId:'crash',task:{id:'task',goal:'Fix bug',requirements:['Fix bug'],status:'pending'},classification:{intent:'bugfix',complexity:'STANDARD',risk:'R1',confidence:null,reason:'Fixture'}},{store,agents:{execute:async()=>{throw Error('Unused')}},verifier:{verify:async()=>{throw Error('Unused')}}});
+armed=true; await kernel.start(); await store.prepare({executionMode:'EDIT',runId:'crash',actionId:'effect',role:'Developer',risk:'R1',decision:'ALLOW',reason:'Fixture effect',actionDigest:'input',configDigest:'config'}); writeFileSync(join(process.argv[2],'effect.txt'),'effect happened'); process.exit(23);`);
 			expect(code).toBe(23);
 			const before = await FileStateStore.readSnapshot(cwd);
 			expect(before.state?.runs[0].status).toBe("RUNNING");

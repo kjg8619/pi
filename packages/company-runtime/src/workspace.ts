@@ -219,7 +219,7 @@ export class GitWorkspace {
 			}
 			const decision = evaluatePolicy(
 				{
-					runId: this.policy.r2RunId ?? "evidence",
+					runId: this.policy.executionRunId,
 					actionId: "evidence",
 					role: "Developer",
 					tool: "runtime_edit",

@@ -205,6 +205,7 @@ describe("read-only StateStore observation", () => {
 		try {
 			const created = {
 				...run(),
+				executionMode: "EDIT" as const,
 				status: "CREATED" as const,
 				phase: "PREFLIGHT" as const,
 				tasks: [{ ...run().tasks[0], status: "pending" as const }],
@@ -227,7 +228,7 @@ describe("read-only StateStore observation", () => {
 		const cwd = await directory();
 		const store = await FileStateStore.open(cwd);
 		try {
-			await store.save({ ...run(), status: "CREATED", phase: "PREFLIGHT" });
+			await store.save({ ...run(), executionMode: "EDIT", status: "CREATED", phase: "PREFLIGHT" });
 			const writes = (async () => {
 				for (let index = 0; index < 12; index++) {
 					const current = store.snapshot.runs[0];
@@ -252,7 +253,7 @@ describe("read-only StateStore observation", () => {
 	it("does not perform interruption recovery on an abandoned active snapshot or export-only open", async () => {
 		const cwd = await directory();
 		const store = await FileStateStore.open(cwd);
-		await store.save({ ...run(), status: "CREATED", phase: "PREFLIGHT" });
+		await store.save({ ...run(), executionMode: "EDIT", status: "CREATED", phase: "PREFLIGHT" });
 		await store.close();
 		const before = await readFile(join(cwd, ".ai/state.json"), "utf8");
 		expect((await FileStateStore.readSnapshot(cwd)).state?.runs[0].status).toBe("CREATED");

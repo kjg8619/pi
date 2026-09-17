@@ -46,6 +46,8 @@ const action: PolicyAction = {
 	paths: ["src/obsolete.ts"],
 };
 const context: PolicyContext = {
+	executionMode: "EDIT",
+	executionRunId: "run",
 	tools: [
 		{ id: "runtime_delete", operation: "delete" },
 		{ id: "write", operation: "write" },
@@ -206,6 +208,7 @@ async function fixture(now?: () => number) {
 	const goal = "Delete file src/obsolete.ts";
 	const kernel = await CompanyKernel.create(
 		{
+			executionMode: "EDIT",
 			runId: "run",
 			task: { id: "task", goal, requirements: [goal], status: "pending" },
 			classification: classifyRequest(goal).classification,
