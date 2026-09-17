@@ -9,11 +9,12 @@ import {
 	validateContract,
 } from "./contracts.ts";
 import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
+import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
 
 /** Trusted adapter metadata, never a worker-supplied tool registration or risk override. */
 export interface RegisteredActionTool {
 	id: string;
-	operation: "read" | "search" | "write" | "edit" | "delete";
+	operation: "read" | "search" | "list" | "write" | "edit" | "delete";
 }
 export interface PolicyContext {
 	/** Frozen trusted Host contract, never a worker argument or inferred from risk. */
@@ -22,6 +23,8 @@ export interface PolicyContext {
 	tools: readonly RegisteredActionTool[];
 	allowedPaths: readonly string[];
 	configDigest: string;
+	/** Metadata for the one configured instruction file; content stays in the run's adapter memory. */
+	projectInstruction?: ProjectInstructionMetadata | null;
 	/** Additional protected literal workspace-relative paths; cannot relax built-in protection. */
 	protectedPaths?: readonly string[];
 	/** Trusted QUICK scope, frozen by the adapter. Never accepted from a tool argument. */
@@ -86,11 +89,12 @@ export function evaluateRegisteredCheck(
 		!shell &&
 		!inline &&
 		(request.cwd === "." ||
-			(isPolicyPath(request.cwd) && !protectedPath(request.cwd, context.protectedPaths ?? []))) &&
+			(isPolicyPath(request.cwd) && !isProtectedPath(request.cwd, context.protectedPaths ?? []))) &&
 		JSON.stringify(request) === JSON.stringify(registered);
 	return validateContract(PolicyDecisionSchema, {
 		...identity,
 		role: "Verifier",
+		projectInstructionDigest: context.projectInstruction?.digest ?? null,
 		risk: "R1",
 		decision: allow ? "ALLOW" : "DENY",
 		reason: allow ? "Exact trusted check registration" : "Unregistered or unsafe check execution",
@@ -114,15 +118,16 @@ export function isPolicyPath(path: string): boolean {
 	);
 }
 export function isDependencyPath(path: string): boolean {
-	return /(?:^|\/)(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.(?:toml|lock)|requirements[^/]*\.txt|pyproject\.toml|go\.(?:mod|sum))$/i.test(
+	return /(?:^|\/)(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.(?:toml|lock)|requirements[^/]*\.txt|pyproject\.toml|go\.(?:mod|sum)|pom\.xml|(?:build|settings)\.gradle(?:\.kts)?|gradle\.properties|gradle\/libs\.versions\.toml|gradle\/wrapper\/gradle-wrapper\.properties|\.mvn\/wrapper\/maven-wrapper\.properties)$/i.test(
 		path,
 	);
 }
 function within(path: string, root: string): boolean {
 	return path === root || path.startsWith(`${root}/`);
 }
-function protectedPath(path: string, additional: readonly string[]): boolean {
-	const lower = path.toLowerCase();
+export function isProtectedPath(path: string, additional: readonly string[] = []): boolean {
+	// Comparison only, never rewrite an actual filesystem path. Protect canonical Unicode aliases too.
+	const lower = path.normalize("NFC").toLowerCase();
 	return (
 		lower
 			.split("/")
@@ -132,7 +137,19 @@ function protectedPath(path: string, additional: readonly string[]): boolean {
 					/^\.env(?:\..*)?$/.test(part) ||
 					/^(?:auth\.json|\.npmrc|\.netrc|id_rsa|id_ed25519|policy(?:-paths)?\.[^/]+|config\.[^/]+)$/.test(part) ||
 					/\.(?:pem|key|p12|pfx)$/.test(part),
-			) || additional.some((root) => within(lower, root.toLowerCase()))
+			) || additional.some((root) => within(lower, root.normalize("NFC").toLowerCase()))
+	);
+}
+
+/** Listing-specific read boundary. Generated dirs are not excluded when explicitly allowed. */
+export function isListablePath(path: string, context: Pick<PolicyContext, "allowedPaths" | "protectedPaths">): boolean {
+	return (
+		isPolicyPath(path) &&
+		path.length <= 4096 &&
+		!/[\x00-\x1f\x7f-\x9f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/.test(path) &&
+		!isProtectedPath(path, context.protectedPaths) &&
+		!path.split("/").some((part) => part.toLowerCase() === "node_modules") &&
+		context.allowedPaths.some((root) => within(path, root))
 	);
 }
 
@@ -148,6 +165,7 @@ export function evaluatePolicy(
 	let reason = "Action is not authorized";
 	const tool = context.tools.find((item) => item.id === action.tool);
 	const deletion = tool?.operation === "delete";
+	const listing = tool?.operation === "list";
 	const mutation = tool?.operation === "write" || tool?.operation === "edit" || deletion;
 	if (deletion && ["R0", "R1", "R2"].includes(risk)) risk = "R3";
 	if (mutation && risk === "R0") risk = "R1";
@@ -171,7 +189,7 @@ export function evaluatePolicy(
 	else if (invalidConfig) reason = "Invalid policy configuration";
 	else if (
 		!tool ||
-		!["read", "search", "write", "edit", "delete"].includes(tool.operation) ||
+		!["read", "search", "list", "write", "edit", "delete"].includes(tool.operation) ||
 		/^(?:bash|sh|shell|exec)$/i.test(tool.id)
 	)
 		reason = "Unregistered tool or arbitrary execution is unsupported";
@@ -209,7 +227,10 @@ export function evaluatePolicy(
 		action.paths.some((path) => !isPolicyPath(path))
 	)
 		reason = "Invalid or missing literal target paths";
-	else if (action.paths.some((path) => protectedPath(path, context.protectedPaths ?? []))) reason = "Protected target";
+	else if (action.paths.some((path) => isProtectedPath(path, context.protectedPaths ?? [])))
+		reason = "Protected target";
+	else if (listing && action.paths.some((path) => !isListablePath(path, context)))
+		reason = "Target outside listing boundary";
 	else if (action.paths.some((path) => !context.allowedPaths.some((root) => within(path, root))))
 		reason = "Target outside allowed paths";
 	else if (
@@ -218,15 +239,19 @@ export function evaluatePolicy(
 			(item, index) =>
 				item.path !== action.paths[index] ||
 				!item.safe ||
-				item.kind === "directory" ||
-				((!mutation || deletion) && item.kind !== "file"),
+				(!listing && item.kind === "directory") ||
+				(!listing && (!mutation || deletion) && item.kind !== "file"),
 		)
 	)
 		reason = "Unsafe, unresolved or non-file target";
 	else {
 		if (risk === "R0" || risk === "R1") {
 			decision = "ALLOW";
-			reason = mutation ? "Registered ordinary file mutation" : "Registered file read/search";
+			reason = mutation
+				? "Registered ordinary file mutation"
+				: listing
+					? "Registered bounded file listing"
+					: "Registered file read/search";
 		} else if (risk === "R2") {
 			const bound = mutation && action.role === "Developer" && context.r2RunId === action.runId;
 			decision = bound ? "ALLOW" : "REVIEW_REQUIRED";
@@ -255,6 +280,7 @@ export function evaluatePolicy(
 		runId: action.runId,
 		actionId: action.actionId,
 		role: action.role,
+		projectInstructionDigest: context.projectInstruction?.digest ?? null,
 		risk,
 		decision,
 		reason,

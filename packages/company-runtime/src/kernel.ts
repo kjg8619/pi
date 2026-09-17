@@ -34,10 +34,12 @@ import {
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
 import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
 import type { KernelPorts } from "./ports.ts";
+import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
 import { assertQuickWorkspace, selectQuickScope } from "./quick.ts";
 
 export interface CreateRunRequest {
 	executionMode: ExecutionMode;
+	projectInstruction?: ProjectInstructionMetadata | null;
 	runId: string;
 	task: Task;
 	classification: Classification;
@@ -347,6 +349,7 @@ export class CompanyKernel {
 			phase: "PREFLIGHT",
 			workflow: selection.workflow,
 			executionMode: request.executionMode,
+			projectInstruction: request.projectInstruction ?? null,
 			...(request.classification.risk === "R3"
 				? { r3Scope: selectR3Scope(request.task.goal, request.runId), approvals: [] }
 				: {}),
@@ -549,7 +552,14 @@ export class CompanyKernel {
 			this.busy = false;
 			throw new Error("Missing live execution contract");
 		}
-		const request = { runId: this.state.runId, executionMode, revision, step: structuredClone(step), task };
+		const request = {
+			runId: this.state.runId,
+			executionMode,
+			projectInstruction: this.state.projectInstruction ?? null,
+			revision,
+			step: structuredClone(step),
+			task,
+		};
 		const startEvents: RuntimeEventDetail[] = [{ type: "StepStarted", step }];
 		const role =
 			expectedStep === "implement"

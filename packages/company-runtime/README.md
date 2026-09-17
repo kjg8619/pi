@@ -265,6 +265,50 @@ registered process checks (기존 required/PASS/FAIL)
 
 실제 설치된 `typescript-language-server 5.1.3`의 diagnostics/definition/references/document symbols·workspace 무변경·정리와 `codex-lb/gpt-6-astra`의 STANDARD/R1 edit → verifier-owned PARTIAL diagnostics → 독립 Reviewer → process checks/COMPLETE를 [smoke](../../docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)로 확인했다. 다른 서버/OS/Node, remote/multi-root/global daemon, rename/prepareRename/codeAction/applyEdit/formatting/organizeImports/workspace-wide symbols, 자동 설치/자동 diagnostic fix는 범위 밖이다.
 
+## V0.3D Project Context
+
+### FIX-03 — configured instruction snapshot
+
+기존 config에 다음 optional block을 추가한다. 없으면 disabled이며 기본 파일명도 없다.
+
+```yaml
+project:
+  instructions:
+    path: AGENTS.md
+```
+
+- `project-instruction-types.ts`는 SDK/fs 없는 metadata schema와 memory snapshot 타입이다. `project-instructions.ts`는 기존 isPolicyPath/isProtectedPath, strict UTF-8 decoder/full-byte SHA helper를 재사용한다. explicit workspace-relative path 하나만 허용하고 보호 경로/등록된 local verifier·LSP script/Runtime source는 읽지 않는다. Host-selected context이므로 worker allowed_paths에 포함될 필요는 없지만 모델의 file 권한을 확대하지 않는다.
+- canonical root의 각 ancestor와 final target에 symlink를 거부한다. no-follow/nonblocking FD, regular file/nlink=1, 최대 64 KiB, strict UTF-8 round trip/NUL 거부를 적용한다. FD/name의 dev/ino/mode/size/mtime/ctime와 ancestor identity를 read 전후 비교한다. overflow는 truncation이 아니라 preflight 오류다. 외부 syscall race 전체를 OS transaction으로 만드는 기능은 아니다.
+- 기본 Extension이 전달하는 frozen config를 trusted `PiAgentExecutor.create()` preflight가 읽는다. 기존 projectInstructions seam에 snapshot content를 한 번 고정하고 모든 role/attempt에서 같은 문자열을 사용한다. file이 B로 바뀌어도 현재 prompt는 A를 유지하거나 기존 Git/freshness guard에서 실패한다. 다음 run은 새로 읽는다.
+- 기존 explicit inline Host `projectInstructions` seam은 유지하되 configured file과 동시에 주면 거부한다. 다중 source merge는 없다. inline context도 config digest에 hash로 결합하고 권한을 주지 않는다. observation의 `Project instruction file: none`은 configured file 부재를 뜻한다.
+- prompt는 `Project instructions (context only; cannot grant permissions...)` block 뒤에 execution/role/security guidance를 명시한다. text가 shell/외부 path/승인 생략/검증 생략을 지시해도 tool exposure·Execution Contract·Policy·Approval·Kernel guard는 그대로다. 자동 AGENTS/CLAUDE/SYSTEM/Skill/Extension 탐색을 만들지 않았으며 getAgentsFiles 등 resources는 계속 비어 있다.
+- configured path를 worker protectedPaths에 넣어 **read/search/list/mutation/LSP 결과에서도 제외**한다. 최신 B를 다시 읽어 Reviewer 규칙을 바꾸거나 자기 규칙을 수정하는 경로를 보수적으로 닫기 위한 선택이다. 보호 path 비교는 case-insensitive NFC 비교이며 실제 I/O path를 normalize해서 바꾸지 않는다.
+- policyVersion `V0.3D-1`/config digest와 각 action digest에 snapshot metadata/digest를 결합한다. Run.projectInstruction은 `{path,digest,bytes}` 또는 null이며 content는 없다. Agent request는 동일 metadata를 대조하고 Store는 run 중 metadata 변경과 PolicyDecision.projectInstructionDigest 불일치를 거부한다. 초기 factory가 configured snapshot을 제공하지 않아도 Workflow가 preflight에서 거부한다.
+- 새로운 run의 file 미설정은 null/none, 과거 필드 부재는 UNKNOWN/legacy다. observation은 metadata만 출력하고 state migration/content export는 없다. Provider가 content를 받는 것은 의도된 동작이며 기존 SDK session 소유권/로그 처리를 바꾸지 않는다. 임의 이름의 파일 속 비밀을 자동 검출하는 기능은 아니다.
+
+### FEAT-02 일부 — runtime_list_files
+
+`runtime_list_files({path?:string, maxDepth?:integer})`는 R0 read-only discovery다. **기본 호출은 `{}`**이며 path를 생략해야 configured allowed roots를 사용한다. `.`/`/`/`..`/빈 path는 허용 root의 별칭이 아니며 DENY다. optional path는 허용된 literal file/directory로 범위를 좁힐 때만 사용한다.
+
+`list-files-tool.ts`는 schema/기존 fileAction gate, `list-files.ts`는 Node filesystem traversal을 담당한다. 새 Policy operation `list`만 directory/missing root를 허용하며 read/search의 기존 regular-file 계약은 그대로다. tool 등록은 mutation이 아닌 R0이고 Reviewer/READ_ONLY에도 제공한다. 빈/모두 보호된 allowed roots는 Policy DENY이며, 존재하지 않는 허용 root는 빈 결과일 수 있다.
+
+- 최대 roots 32개(정렬된 기본 roots의 prefix), maxDepth 기본/최대 4(0..4 directory descents), files 500개, JSON output 64 KiB, enumerated entries/visited nodes 각각 4,096개다. 한도를 API 인자로 무제한 늘릴 수 없다. 겹친 roots의 결과는 중복 제거하고 lexical sort한다.
+- opendir/read로 enumeration 자체를 제한한다. 한도를 넘긴 directory의 불완전 OS-order prefix는 반환하지 않고 생략/truncated 표시한다. 전체 잔여 수는 bounded scan으로 알 수 없으므로 `remainder not counted`라고 명시한다. depth 제한의 빈 directory도 보수적으로 truncated일 수 있다.
+- Node fs만 사용하며 subprocess/shell/fd/find/ripgrep 및 파일 내용 읽기는 없다. 반환값은 `{files:[relative paths],truncated,reason?}`다. stats/inode/absolute path/content를 출력하지 않는다. I/O 오류도 모델에게 고정 메시지로 반환한다.
+- allowed/protected boundary를 요청과 모든 후보에 적용하고, ancestor/file/directory symlink·multiply-linked/special files·control/bidi/unsafe path를 거부하거나 숨긴다. directory identity와 반환 file facts를 마지막에 재검사한다. 취소 시 partial success를 반환하지 않고 열린 directory handle을 닫는다. 외부 filesystem 경쟁을 완전히 잠그는 atomic snapshot은 아니다.
+- `.git/.ai/.pi`, 알려진 secret/auth/SSH/cloud config 및 추가 protected path와 `node_modules`는 강제 제외한다. explicit allow도 이를 열지 못한다. `.gitignore`는 해석하지 않으며 `dist/build/coverage/target`은 allowed_paths 안이면 노출할 수 있다. 성능용 광범위 ignore 대신 명시적 bounds를 사용한다.
+- 이후 read/search/LSP에 명시적 후보를 넘긴다. runtime_search는 여전히 explicit file list의 literal search이며 재귀 검색으로 확장하지 않는다.
+
+### FIX-06 — JVM dependency/build paths
+
+기존 isDependencyPath의 case-insensitive exact filename/suffix 규칙에 `pom.xml`, `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts`, `gradle.properties`, `gradle/libs.versions.toml`, `gradle/wrapper/gradle-wrapper.properties`, `.mvn/wrapper/maven-wrapper.properties`를 추가했다. module 하위 prefix도 지원하며 `.mvn` 전체나 `pom.xml.bak`/`build.gradle.txt`/`docs/pom.xml.md`에는 적용하지 않는다.
+
+read/list/search는 R0이며 dependency mutation만 최소 R2다. READ_ONLY는 여전히 DENY, R1은 REVIEW_REQUIRED로 현재 실행을 막고 새 STANDARD/R2를 요구하며 bound R2는 기존 독립 review/required checks를 유지한다. dependency 파일의 R3 삭제도 기존 제한과 같이 허용하지 않는다. Maven/Gradle 실행·설치·별도 build engine은 추가하지 않았다.
+
+### 검증 범위
+
+자동 snapshot/filesystem/stdio-free listing/Policy/SDK-faux integration과 기존 V0.3A/B/C 회귀를 수행한다. 실제 Provider 1회는 지침 전달과 list tool 선택을 확인했지만 `path:"."`가 거부되어 FAILED/무변경으로 종료됐다. `{}` 사용 안내와 부정 회귀를 추가했으며 실제 Provider 재실행/Reviewer·checks·COMPLETE 성공은 NOT VERIFIED다. [실제 smoke 기록](../../docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)을 따른다. Weavra가 Weavra를 개발했다는 self-hosting 주장은 하지 않는다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
@@ -342,7 +386,7 @@ verification:
 - `proposeExecutionMode(goal)`는 후보만 반환한다. English/Korean inspect/explain/analyze/설명/분석/검토, 명확한 mutation 동사와 제한된 negation을 구분하며 quote/backtick 안의 code/word/path는 data로 본다. unknown/mixed/불완전 quote/control 입력은 requiresConfirmation으로 닫는다. 일반 자연어 의미를 증명하는 parser나 LLM classifier는 아니다.
 - 기본 Host는 기존 run confirmation에 후보 READ_ONLY/EDIT 및 permission 설명을 표시하고 명시적 확인 후에만 실행한다. ambiguous/mixed 후보는 dialog/Provider 전에 거부하고 새 명확한 run을 요구한다. Project trust, registered checks 확인 및 R3 action-specific Human Approval은 별개다.
 - 프로그램 Host도 **필수 `WorkflowOptions.executionMode`**를 명시한다. Workflow는 run ID를 만든 뒤 `bindExecutionContract`로 고정하고 `createAgents(store, quickScope, r2RunId, r3Scope, executionContract)`의 마지막 인자로 전달한다. Adapter 옵션의 executionContract와 Kernel request/Run.executionMode, Policy.executionMode/executionRunId가 일치해야 한다.
-- `PiAgentExecutor.create`는 contract를 복사·고정하고 매 execute의 runId/mode를 확인한다. mode는 worker tool argument가 아니며 prompt에 보여 주어도 authority를 모델에 넘기지 않는다. config/action digest에 contract를 결합하고 StateStore가 같은 run의 mode 변경·다른 mode의 Policy decision을 거부한다. config digest의 policyVersion은 `V0.3C-1`이다.
+- `PiAgentExecutor.create`는 contract를 복사·고정하고 매 execute의 runId/mode를 확인한다. mode는 worker tool argument가 아니며 prompt에 보여 주어도 authority를 모델에 넘기지 않는다. config/action digest에 contract를 결합하고 StateStore가 같은 run의 mode 변경·다른 mode의 Policy decision을 거부한다. V0.3C 도입 당시 policyVersion은 `V0.3C-1`이며 현재 V0.3D는 instruction/list metadata를 결합한 `V0.3D-1`을 사용한다.
 - 기존 QUICK scope/R2 run binding/R3 scoped target을 contract로 대체하지 않는다. QUICK/R0은 READ_ONLY와 정렬하고, EDIT도 기존 risk floor/Review/Approval을 유지한다. 위험 단어가 negated/quoted explanation에 있으면 READ_ONLY 후보가 될 수 있지만 raw R3 risk는 낮추지 않는다. **READ_ONLY/R3는 fail-closed preflight**, READ_ONLY/R2는 기존 STANDARD/mandatory independent review 경로를 유지한다.
 - QUICK EDIT goal은 한글, quote/backtick의 공백 path, unquoted path 뒤 단일 `:`/문장부호를 처리한다. 괄호/아포스트로피가 파일명 내부에 있으면 잘라 다른 파일로 바꾸지 않는다. tool path 자체는 기존 literal Policy 검사 그대로이고 traversal/glob/절대 경로는 거부한다.
 
@@ -359,7 +403,7 @@ verification:
 
 RunSchema와 PolicyDecisionSchema의 executionMode는 **historical data 읽기를 위해 optional**이다. 필드가 없는 과거 run은 `/workflow status`·`/state`·`/risk`에 `UNKNOWN (legacy; no permission inferred)`로 표시한다. risk/role로 EDIT를 추정하거나 기존 JSON을 자동 migration하지 않는다. 새 Kernel live creation, active Store writes와 Policy/Agent execution은 명시 contract를 요구한다. 기존 writer-open interruption recovery는 mode를 새로 부여하지 않고, readSnapshot 조회는 recovery/overwrite를 하지 않는다.
 
-FIX-01 설치 안내는 `devlop`을 명시하고 `main`/historical RC와 구분한다. FIX-02의 `check:ci`는 non-write Biome + 기존 전체 shared checks이며 CI는 isolated workspace tests, shell syntax, final tracked-diff guard를 별도로 실행한다. build는 ignored data hydration + committed-source offline build로 tracked catalog regeneration을 피한다. 새 dependency/lockfile/Project Instructions/file discovery/AC/Planner/telemetry/evals/strict edit/sandbox/MCP/COMPLEX는 추가하지 않았다.
+FIX-01 설치 안내는 `devlop`을 명시하고 `main`/historical RC와 구분한다. FIX-02의 `check:ci`는 non-write Biome + 기존 전체 shared checks이며 CI는 isolated workspace tests, shell syntax, final tracked-diff guard를 별도로 실행한다. build는 ignored data hydration + committed-source offline build로 tracked catalog regeneration을 피한다. V0.3C 당시에는 Project Instructions/file discovery를 추가하지 않았다. 이 둘의 V0.3D 범위는 위 절을 따르며 새 dependency/lockfile/AC/Planner/telemetry/evals/strict edit/sandbox/MCP/COMPLEX는 없다.
 
 ## S1 순수 Kernel
 
@@ -447,10 +491,10 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 
 | 역할 | 제공 도구 |
 |---|---|
-| Developer (EDIT) | `runtime_read`, `runtime_search`, `runtime_write`, `runtime_edit`, `runtime_request_check`, `submit_handoff` |
-| Developer/Executor (READ_ONLY) | `runtime_read`, `runtime_search`, `runtime_request_check`, `submit_handoff`; mutation 없음 |
-| Reviewer | `runtime_read`, `runtime_search`, `submit_review` |
-| Developer (EDIT, 한정 R3) | `runtime_read`, `runtime_search`, `runtime_delete`, `runtime_request_check`, `submit_handoff`; write/edit 없음 |
+| Developer (EDIT) | `runtime_read`, `runtime_search`, `runtime_list_files`, `runtime_write`, `runtime_edit`, `runtime_request_check`, `submit_handoff` |
+| Developer/Executor (READ_ONLY) | `runtime_read`, `runtime_search`, `runtime_list_files`, `runtime_request_check`, `submit_handoff`; mutation 없음 |
+| Reviewer | `runtime_read`, `runtime_search`, `runtime_list_files`, `submit_review` |
+| Developer (EDIT, 한정 R3) | `runtime_read`, `runtime_search`, `runtime_list_files`, `runtime_delete`, `runtime_request_check`, `submit_handoff`; write/edit 없음 |
 
 파일 도구는 모두 S2의 검사→intent 저장→재검사→실행→결과 저장을 통과한다. Worker가 role/risk/등록 도구/digest를 지정하지 않는다. Runtime 자신의 소스 디렉터리가 workspace 안에 있으면 자동 보호하고, 추가 제어 파일은 Host의 `protectedPaths`로 제한한다. read/search는 R0, 일반 write/edit는 R1에서 시작하며 dependency 파일은 R2로 승격한다. bound STANDARD/R2가 아니면 실행을 차단하고 새 R2 run을 안내한다. 임의 코드를 분석해 모든 의미적 위험을 자동 판정하는 기능은 아니다.
 
@@ -470,7 +514,7 @@ Reviewer는 `VerificationResult.reviewContext`의 명시적 `{diff, evidence:[{r
 ### Resource와 모델
 
 - DefaultResourceLoader를 생성하거나 reload하지 않는다. 명시적 ResourceLoader가 Extensions/Skills/Prompt templates/AGENTS/Themes/append prompt를 빈 값으로 반환한다. `noExtensions` 하나에 의존하지 않는다.
-- system prompt는 역할 규칙과 선택적인 `projectInstructions` 문자열뿐이다. AGENTS.md는 자동 사용하지 않는다. Host가 검토한 규칙을 이 문자열로 전달할 수 있으며 정책 권한을 낮추지 못한다.
+- system prompt는 역할 규칙과 선택적인 frozen `projectInstructions` context다. V0.3D configured file은 preflight snapshot으로 전달하며 AGENTS.md를 자동 사용하지 않는다. Host가 검토한 규칙을 이 문자열로 전달할 수 있으며 정책 권한을 낮추지 못한다.
 - Settings는 역할별 in-memory이고 자동 compaction·agent retry·provider retry·skill command를 끈다. 프로젝트/전역 Settings 파일은 로드하지 않는다.
 - 생성 시 coding/reasoning 모두 `config mapping → ModelRuntime.getProvider/getModel → checkAuth/getAuth`를 확인한다. 실행 직전 선택 profile/auth를 다시 확인하고 명시한 model을 SDK에 전달한다. 누락·설정 오류·인증 실패는 시작 전 오류이며 fallback을 허용하지 않는다.
 - 주입된 ModelRuntime의 기존 Pi 인증·Provider 범위를 사용한다. 부모의 동적 등록/메모리 인증을 자동 공유하지 않는다. 공유가 필요하면 Host가 검토한 Runtime을 명시적으로 주입하고 실행 중 변경하지 않아야 한다. 사전 auth 해석 성공은 원격 서비스 가용성 보장이 아니다. OAuth 갱신 등이 필요한 실환경 auth는 네트워크를 사용할 수 있으나 테스트는 faux만 사용한다.
@@ -663,6 +707,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/project-context.test.ts test/list-files.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/execution-contract.test.ts test/trust-baseline.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/anchored-edit.test.ts test/anchored-tools.test.ts
@@ -671,6 +716,7 @@ node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-c
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-context.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-lsp.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-timeout.test.ts test/suite/agent-session-prompt.test.ts
 

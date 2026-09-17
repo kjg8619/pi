@@ -86,7 +86,12 @@ function review(verdict: Review["result"] = "PASS") {
 		expect(
 			request.verification.reviewContext?.evidence.some((item) => item.content.includes("R2_CHECK_PASSED")),
 		).toBe(true);
-		expect(context.tools?.map((tool) => tool.name)).toEqual(["runtime_read", "runtime_search", "submit_review"]);
+		expect(context.tools?.map((tool) => tool.name)).toEqual([
+			"runtime_read",
+			"runtime_search",
+			"runtime_list_files",
+			"submit_review",
+		]);
 		return fauxAssistantMessage(
 			fauxToolCall("submit_review", {
 				runId: request.runId,

@@ -21,6 +21,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.3A: `runtime_read`의 anchored snapshot과 `runtime_edit`의 선택적 full-file stale guard. QUICK/R1 단일 파일 편집에서 우선 사용.
 - V0.3B: explicit opt-in LSP diagnostics/definition/references/document symbols, verifier-owned advisory evidence와 읽기 전용 `/lsp status`.
 - V0.3C: READ_ONLY/EDIT Execution Contract, devlop 설치 기준, non-mutating CI gate.
+- V0.3D: 명시적 project instruction snapshot, bounded `runtime_list_files`, JVM dependency/build 파일의 최소 R2 분류.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -452,6 +453,49 @@ QUICK EDIT 경로는 한글과 quote/backtick으로 감싼 공백 경로, unquot
 - 기존 workspace tests는 `bash ./test.sh`의 빈 환경/격리 HOME에서 실행한다. 일반 CI에 실제 Provider/auth/유료 smoke를 넣지 않는다. launcher syntax와 마지막 `git diff --exit-code HEAD --`도 검사한다.
 
 로컬 Node 26 및 Node 22/macOS 회귀와 check:ci 전후 tracked bytes 불변을 확인한다. 실제 GitHub Actions 실행·branch protection 및 Node 22/Linux build/test 결과는 별도 확인 대상이다. V0.3C 검증의 실제 범위는 [WORK_LOG](docs/WORK_LOG.md)의 LOG-046을 따른다.
+
+## V0.3D — Project Context
+
+**Project Context는 Permission이 아니다.** 아래 기능은 프로젝트 규칙·파일 이름을 제공할 뿐 Execution Contract/Policy/Review/Approval을 완화하지 않는다.
+
+### 프로젝트 지침 파일 하나 선택
+
+기존 `.ai/config.yaml`에 명시적으로 추가한다. 기본값/자동 검색은 없다.
+
+```yaml
+project:
+  instructions:
+    path: AGENTS.md
+```
+
+Host preflight에서 canonical workspace 안의 일반 single-link UTF-8 파일을 **최대 64 KiB**로 안전하게 읽는다. 보호 경로, directory, symlink/ancestor symlink, traversal, NUL/invalid UTF-8/oversize는 거부하며 truncate하지 않는다. 명시적 Host 선택이므로 worker allowed_paths에 AGENTS.md를 추가할 필요는 없지만 protected 경계를 우회하지는 않는다.
+
+한 run의 Developer/Executor/Reviewer는 같은 frozen content를 받는다. 파일이 바뀌어도 prompt를 다시 읽어 교체하지 않는다. 외부 변경 때문에 기존 clean baseline/freshness 검사가 실패할 수 있으며, 다음 run에서만 새 snapshot을 읽는다. 선택된 path는 worker protected path에 추가하여 read/search/list/edit/delete/LSP로 현재 규칙을 바꾸거나 재읽지 못하게 한다. 자동 AGENTS/CLAUDE 탐색, 여러 파일 merge/inheritance, Skill/Extension 로딩은 없다.
+
+`/state` 등에는 **path/digest/bytes만** 표시한다. 새 run에서 미설정이면 `none`, 과거 metadata가 없으면 `UNKNOWN (legacy)`다. StateStore에 content를 추가 저장하지 않는다. 지침은 Provider에 전달되는 context이므로 비밀을 넣지 말아야 하며, 기존 Pi session/transcript 처리와 권한·완료 guard는 유지한다.
+
+### 파일 탐색
+
+```text
+runtime_list_files({})                          configured allowed roots에서 시작
+runtime_list_files({path:"src", maxDepth:2})    허용 범위 안에서 좁히기
+```
+
+**첫 호출은 path를 생략한다. `"."`, `"/"`, `".."`, 빈 path를 보내지 않는다.** 결과는 workspace-relative file paths와 truncated 여부만 포함한다. 이후 후보를 `runtime_read`, explicit-path `runtime_search`, LSP에 전달한다. search를 recursive tool로 바꾸지 않았다.
+
+- read-only/R0이며 READ_ONLY/EDIT와 Reviewer에 제공한다. 기존 Policy/audit gate를 반드시 통과한다.
+- 기본/최대 depth 4, 최대 500 files/64 KiB output, roots 32개·enumerated entries/visited nodes 각각 4,096개. 잘림은 명시하며 추가 항목 수를 추정하지 않는다.
+- Node fs만 사용하고 shell/fd/find/ripgrep을 실행하지 않는다. deterministic lexical output, symlink 미추적, hardlink/special/unsafe names 제외, 재검사와 cancellation을 적용한다.
+- `.git/.ai/.pi`, secrets/credentials/auth/SSH/cloud config 및 추가 protected paths와 `node_modules`는 숨긴다. configured instruction file도 제외한다.
+- `.gitignore` 전체 의미를 재현하지 않는다. `dist/build/coverage/target`은 allowed_paths 안이면 보일 수 있다. 성능은 traversal bounds로 제한한다. entry 한도를 넘는 directory는 OS 순서의 임의 prefix 대신 해당 directory 결과를 생략하고 truncated로 표시한다.
+
+### JVM risk
+
+`pom.xml`, `build.gradle[.kts]`, `settings.gradle[.kts]`, `gradle.properties`, `gradle/libs.versions.toml`, `gradle/wrapper/gradle-wrapper.properties`, `.mvn/wrapper/maven-wrapper.properties`와 그 module 하위 경로의 mutation은 **최소 R2**다. 기존 portable policy처럼 case-insensitive이며 `.bak/.txt/.notes` 같은 유사 파일명이나 `.mvn` 전체로 넓히지 않는다.
+
+R1에서 해당 mutation을 만나면 계속 실행하도록 자동 승격하지 않고 새 STANDARD/R2 run을 요구한다. READ_ONLY read/list/search는 가능하지만 mutation 권한은 없으며 bound R2·독립 Reviewer/R3 승인 의미도 그대로다.
+
+자동 회귀와 실제 검증 범위는 [WORK_LOG LOG-048](docs/WORK_LOG.md)를 따른다. [Provider smoke 1회](docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)는 snapshot 전달/list tool 선택까지 확인했으나 모델의 `path:"."` 요청이 Policy에서 거부돼 완료하지 못했다. 설명 보완 후 실제 Provider 재실행은 하지 않았으며 end-to-end 성공으로 표시하지 않는다. self-hosting claim도 하지 않는다.
 
 ## Workflow & Risk
 

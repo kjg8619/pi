@@ -2,6 +2,7 @@ import { type Static, type TSchema, Type } from "typebox";
 import { Check } from "typebox/value";
 import { ExecutionModeSchema } from "./execution-contract.ts";
 import { LspEvidenceSchema } from "./lsp/types.ts";
+import { ProjectInstructionMetadataSchema } from "./project-instruction-types.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -191,6 +192,9 @@ export const PolicyDecisionSchema = Type.Object(
 		configDigest: text,
 		// Missing only in historical audit records; never grants live execution permission.
 		executionMode: Type.Optional(ExecutionModeSchema),
+		projectInstructionDigest: Type.Optional(
+			Type.Union([Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }), Type.Null()]),
+		),
 	},
 	strict,
 );
@@ -263,6 +267,8 @@ export const RunSchema = Type.Object(
 		workflow: WorkflowSchema,
 		// Optional for read-only legacy observations, mandatory for new live Kernel/Store writes.
 		executionMode: Type.Optional(ExecutionModeSchema),
+		// null = no configured file; absent = legacy/unknown. No instruction content is durable here.
+		projectInstruction: Type.Optional(Type.Union([ProjectInstructionMetadataSchema, Type.Null()])),
 		classification: ClassificationSchema,
 		risk: RiskSchema,
 		currentTask: text,

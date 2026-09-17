@@ -449,6 +449,8 @@ export class FileStateStore implements StateStore, ActionAudit {
 			validateContract(RunSchema, run);
 			const index = next.runs.findIndex((item) => item.runId === run.runId);
 			const previous = next.runs[index];
+			if (previous && JSON.stringify(previous.projectInstruction) !== JSON.stringify(run.projectInstruction))
+				throw new Error("Project instruction metadata cannot change within a run");
 			if (
 				(!isExecutionMode(run.executionMode) && (!previous || active(run))) ||
 				(previous && previous.executionMode !== run.executionMode)
@@ -527,6 +529,8 @@ export class FileStateStore implements StateStore, ActionAudit {
 		await this.mutate((next) => {
 			validateContract(PolicyDecisionSchema, decision);
 			const owner = next.runs.find((run) => run.runId === decision.runId);
+			if ((owner?.projectInstruction?.digest ?? null) !== (decision.projectInstructionDigest ?? null))
+				throw new Error("Policy project instruction digest differs from the persisted run");
 			if (!isExecutionMode(owner?.executionMode) || decision.executionMode !== owner.executionMode)
 				throw new Error("Policy execution contract differs from the persisted run");
 			if (

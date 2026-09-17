@@ -6,6 +6,7 @@ import { Check } from "typebox/value";
 import { parseDocument } from "yaml";
 import { CheckKindSchema, WorkflowSchema } from "./contracts.ts";
 import { LspConfigSchema, normalizeLspConfig } from "./lsp/config.ts";
+import { isPolicyPath, isProtectedPath } from "./policy.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
 const strict = { additionalProperties: false } as const;
@@ -70,6 +71,12 @@ export const RuntimeConfigSchema = Type.Object(
 					// Literal workspace-relative file/directory roots, not shell or glob patterns.
 					allowed_paths: Type.Optional(Type.Array(text, { uniqueItems: true })),
 				},
+				strict,
+			),
+		),
+		project: Type.Optional(
+			Type.Object(
+				{ instructions: Type.Object({ path: Type.String({ minLength: 1, maxLength: 4096 }) }, strict) },
 				strict,
 			),
 		),
@@ -145,6 +152,11 @@ export function parseRuntimeConfig(source: string) {
 			"Invalid runtime config: check schemaVersion, model profiles, supported fields and policy limits",
 		);
 	}
+	if (
+		value.project &&
+		(!isPolicyPath(value.project.instructions.path) || isProtectedPath(value.project.instructions.path))
+	)
+		throw new Error("Project instruction path must be an unprotected literal workspace-relative file");
 	const allowedPaths = value.files?.allowed_paths ?? [];
 	for (const path of allowedPaths) validateRelativePath(path);
 	const ids = new Set<string>();
@@ -173,6 +185,7 @@ export function parseRuntimeConfig(source: string) {
 		risk: { approval_required: ["R3"] as ["R3"] },
 		files: { allowed_paths: allowedPaths },
 		verification: { checks },
+		...(value.project ? { project: structuredClone(value.project) } : {}),
 		...(value.code_intelligence
 			? { code_intelligence: { lsp: normalizeLspConfig(value.code_intelligence.lsp) } }
 			: {}),

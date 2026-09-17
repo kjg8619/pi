@@ -17,7 +17,9 @@
 
 로드맵의 버전명은 개발 단계 표기이며 정식 release/tag 선언이 아니다.
 
-**2026-09-17 후속 상태:** V0.3C FIX-01/02/04 구현과 로컬 자동 회귀를 완료했다(착수 HEAD `dd3c3f706023caae693b1e67204531c5df8676f5`, WORK_LOG LOG-046). Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS, check:ci 전후 tracked bytes 불변을 확인했다. 실제 GitHub Actions/Node22 Linux build-test·fresh install 전체·branch protection은 NOT VERIFIED이며 CI YAML 구성을 실제 원격 PASS로 확대하지 않는다. 아래 다른 단계는 여전히 계획이다.
+**2026-09-17 후속 상태:** V0.3C FIX-01/02/04 구현과 로컬 자동 회귀를 완료했다(착수 HEAD `dd3c3f706023caae693b1e67204531c5df8676f5`, WORK_LOG LOG-046). Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS, check:ci 전후 tracked bytes 불변을 확인했다. 실제 GitHub Actions/Node22 Linux build-test·fresh install 전체·branch protection은 NOT VERIFIED이며 CI YAML 구성을 실제 원격 PASS로 확대하지 않는다. 아래 다른 단계는 별도 상태 표기를 따른다.
+
+**V0.3D 후속 상태:** FIX-03/FIX-06/runtime_list_files를 구현하고 자동 회귀를 수행했다(WORK_LOG LOG-048). Provider smoke 1회는 snapshot 전달/list tool 선택 후 `path:"."`를 Policy가 거부해 FAILED/무변경으로 끝났다. `{}` 안내 보완 후 실제 end-to-end 성공은 NOT VERIFIED이며 self-hosting claim은 하지 않는다.
 
 ---
 
@@ -102,7 +104,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | 단계 | 목표 | 연구 문서 매핑 | 우선순위 |
 |---|---|---|---|
 | **V0.3C — Trust Baseline** | 설치·CI·실행 권한 계약 고정 | FIX-01, FIX-02, FIX-04 | 구현·로컬 회귀 완료; 원격 CI 환경 별도 확인 |
-| **V0.3D — Project Context** | 프로젝트 규칙·파일 탐색·JVM risk 보강 | FIX-03, FIX-06, FEAT-02 일부 | 높음 |
+| **V0.3D — Project Context** | 프로젝트 규칙·파일 탐색·JVM risk 보강 | FIX-03, FIX-06, FEAT-02 일부 | 구현·자동 검증; Provider 완료 smoke 실패/후속 미검증 |
 | **V0.3E — Task Contract** | 복합 요청을 검증 가능한 AC로 고정 | FIX-05, FEAT-01 | 높음 |
 | **V0.3F — Measurement & Evidence** | 실제 품질·비용·실패를 측정/설명 | FEAT-03, FEAT-04, FEAT-05, FIX-09 | 높음 |
 | **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | 후속 |
@@ -227,19 +229,22 @@ READ_ONLY에서는 `write/edit/delete`가 실제 mutation 전에 거부되어야
 
 # 5. V0.3D — Project Context
 
+**상태: 세 범위의 구현·자동 검증 완료.** 실제 Provider 1회 결과와 아직 확인하지 못한 성공 경로는 [smoke 기록](WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)에 구분한다. 전체 JVM build 실행이나 self-hosting을 검증한 단계가 아니다.
+
 ## 목표
 
 Agent가 프로젝트의 명시적 규칙과 관련 파일을 더 정확하게 찾도록 하되 자동 resource discovery로 권한 경계를 넓히지 않는다.
 
 ### FIX-03 — Project Instructions Snapshot
 
-기존 `projectInstructions` seam을 실제 Host composition에 연결한다.
+기존 `projectInstructions` seam을 기본 Host가 전달하는 explicit config에 연결했다. trusted Agent adapter의 run preflight에서 한 번 안전하게 snapshot하고 동일 instance의 Developer/Executor/Reviewer에 고정한다.
 
 초기 범위는 사용자가 명시한 파일 하나다.
 
 ```yaml
 project:
-  instructions: AGENTS.md
+  instructions:
+    path: AGENTS.md
 ```
 
 Run 시작 시 다음을 고정한다.
@@ -251,7 +256,7 @@ size
 selected-at-run-start
 ```
 
-Developer와 Reviewer는 동일 instruction snapshot을 받는다.
+Developer/Executor/Reviewer는 동일 instruction snapshot을 받는다. 64 KiB strict UTF-8/regular/single-link/no-follow/ancestor identity 경계를 적용하고 truncate하지 않는다. Host-selected path는 worker allowed_paths 밖일 수 있지만 protected 경계는 넘지 못한다. Run/Policy에는 path/digest/bytes와 digest binding만 남기고 content는 frozen memory input이다. 선택 path는 worker protected path에 추가하여 list/read/search/LSP/mutation에서 숨기고 외부 변경을 prompt에 다시 읽어 넣지 않는다.
 
 금지:
 
@@ -261,9 +266,9 @@ Developer와 Reviewer는 동일 instruction snapshot을 받는다.
 
 ### FEAT-02 일부 — runtime_list_files
 
-현재 `runtime_search`는 이미 파일 목록을 알아야 한다. 따라서 bounded read-only discovery를 추가한다.
+`runtime_search`는 기존 explicit paths 계약을 유지한다. 새 Node fs read-only discovery를 추가했다. 기본 호출은 `runtime_list_files({})`이며 path를 생략해야 configured allowed roots를 사용한다. `.`/`/`/`..`는 허용 root의 별칭이 아니다.
 
-후보:
+구현:
 
 ```text
 runtime_list_files
@@ -274,9 +279,11 @@ runtime_list_files
 - allowed paths 내부
 - protected path 제외
 - symlink traversal 금지
-- result count/depth/bytes 제한
-- deterministic ordering
-- shell/find 호출 없음
+- 최대 500 files/64 KiB, maxDepth 0..4(default 4), roots 32, enumeration/visit 각각 4,096
+- deterministic lexical ordering 및 명시적 truncated/remainder-not-counted
+- shell/find/fd/ripgrep 호출 없음; content/stat/absolute path 반환 없음
+- node_modules·security protected 경로만 강제 제외; dist/build/coverage/target은 explicit allowed 범위면 유지
+- .gitignore 전체 semantics와 무제한 recursive search는 구현하지 않음
 
 V0.3B LSP와 조합한다.
 
@@ -302,10 +309,11 @@ settings.gradle
 settings.gradle.kts
 gradle.properties
 gradle/libs.versions.toml
-gradle/wrapper/*
+gradle/wrapper/gradle-wrapper.properties
+.mvn/wrapper/maven-wrapper.properties
 ```
 
-R1 run이 R2 최소 위험 파일을 만나면 현재 run을 자동 승격하지 않고 새 적절한 run을 요구한다.
+exact suffix/filename을 case-insensitive로 검사하고 module prefix를 지원한다. `.bak/.txt/.notes` 등 유사 이름과 `.mvn` 전체는 포함하지 않는다. R1 run이 R2 최소 위험 파일을 만나면 현재 run을 자동 승격하지 않고 새 STANDARD/R2 run을 요구한다. READ_ONLY read/list/search는 가능하지만 mutation permission은 없다.
 
 ### DoD
 
@@ -670,21 +678,21 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**V0.3C — Trust Baseline의 아래 범위는 구현·로컬 회귀를 완료했다.** 원격 CI 실행 결과 확인과 사용자 검토 후 V0.3D 착수 여부를 별도로 결정한다. 자동으로 다음 기능을 구현하지 않는다.
+**V0.3D — Project Context의 아래 범위를 구현·자동 검증했다.** Provider smoke의 `path:"."` 거부 뒤 안내 보완은 실제 재검증하지 않았다. 사용자 검토 및 후속 smoke 승인 여부를 먼저 결정하고 자동으로 V0.3E나 dogfooding을 시작하지 않는다.
 
 범위:
 
 ```text
-FIX-01  devlop 설치 기준 명확화
-FIX-02  devlop CI + non-mutating check
-FIX-04  READ_ONLY / EDIT Execution Contract
+FIX-03  Host-selected instruction snapshot
+FIX-06  JVM dependency/build risk paths
+FEAT-02 일부  bounded runtime_list_files
 ```
 
 이번 단계에서는 다음을 함께 구현하지 않는다.
 
 ```text
-Project Instructions
-runtime_list_files
+multiple/nested instructions / auto discovery
+Repo Map / workspace-wide symbol index
 Acceptance Criteria / Planner
 Telemetry / Evals
 Strict Edit
@@ -693,4 +701,4 @@ MCP
 COMPLEX / Parallel Agents
 ```
 
-V0.3C의 실제 regression/evidence와 NOT VERIFIED 환경은 WORK_LOG LOG-046을 따른다. V0.3D 이후 범위는 별도 사용자 승인 전까지 계획으로 유지한다.
+V0.3C 기록은 LOG-046, V0.3D의 실제 결과/한계는 LOG-048을 따른다. 실제 Provider 성공·JVM build matrix·self-hosting을 완료로 표시하지 않는다. V0.3E 이후 범위는 별도 사용자 승인 전까지 계획으로 유지한다.

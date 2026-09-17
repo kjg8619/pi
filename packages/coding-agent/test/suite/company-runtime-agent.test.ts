@@ -231,6 +231,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(JSON.stringify(contexts[1])).not.toContain("DEVELOPER_PRIVATE_REASONING");
 		expect(JSON.stringify(store.snapshot)).not.toContain("DEVELOPER_PRIVATE_REASONING");
 		expect(contexts[1].tools?.map((tool) => tool.name).sort()).toEqual([
+			"runtime_list_files",
 			"runtime_read",
 			"runtime_search",
 			"submit_review",

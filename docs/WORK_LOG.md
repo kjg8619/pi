@@ -41,11 +41,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.2C Product Isolation / Setup / Doctor | 완료 / 커밋 확인 | `e7f37f777`에 반영. `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
 | V0.3A Hash-Anchored Edit | 완료 / 코드·evidence 게시 | 구현 `473256de6`, evidence `e09100fe3`. LOG-039 자동 44개 파일·1,470개 PASS. LOG-041 실제 `codex-lb/gpt-6-astra` duplicate-second·stale 거부 2건 PASS |
 | V0.3B Read-only LSP | 완료 / 게시 | `a3eae0c86`에 반영. LOG-043 자동 47개 파일·1,565개 및 실제 TS/Provider smoke PASS |
-| V0.3C Trust Baseline | FIX-01/02/04 구현·로컬 회귀 완료 / 게시 승인(LOG-047) | explicit READ_ONLY/EDIT·devlop 설치/CI·non-mutating check. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
+| V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
+| V0.3D Project Context | 구현·자동 회귀 완료 / 게시 승인(LOG-049); Provider 완료 smoke 실패 | instructions/list/JVM risk. LOG-048 Node26 52개 파일·1,738개, Node22/macOS 7개 파일·308개 PASS. 실제 1회는 dot-root DENY/무변경 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.3C — Trust Baseline(FIX-01/02/04만)**이다. devlop 설치 기준과 non-mutating CI, classification과 독립된 trusted READ_ONLY/EDIT contract를 구현했다. 새 run/Agent/Policy/Store에 mode를 고정하고 READ_ONLY tool 미노출·직접 mutation DENY·완료 시 no-change를 함께 집행한다. legacy state에는 permission을 추정하지 않는다. 기존 R2/R3 Review/Approval·required process checks·LSP/anchored edit/Graph/Worktree/Product Isolation 의미를 유지한다. 이번 LOG-046은 Node26/macOS **49개 파일·1,646개**, Node22.22.3/macOS targeted **18개 파일·800개 PASS**와 check/check:ci/diff/bash PASS, check:ci 전후 tracked bytes 불변을 확인했다. Node22/Linux/GitHub Actions 실제 실행·fresh install/build 전체·새 contract의 Provider smoke는 NOT VERIFIED다. LOG-043의 1,565개 및 실제 TS/Provider smoke, 이전 V0.3A/V0.2C 기록은 당시 결과이며 이번 실행으로 승계하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. 실제 Provider 1회는 Developer의 정확한 snapshot/list tool 선택을 확인했지만 `path:"."`가 DENY되어 FAILED/무변경으로 끝났다. 설명 보완 후 Provider 재호출은 하지 않았고 실제 Reviewer/anchored edit/checks/COMPLETE 성공은 NOT VERIFIED다. 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -2308,6 +2309,112 @@ bash -n packages/company-runtime/bin/weavra
 - **문제·해결:** 추가 문제 없음. 명시적 50개 경로만 stage하며 일반 commit/push와 검사를 유지한다. 원격 선행 변경이 발견되면 확인 후 충돌 없는 통합만 수행하며 강제 푸시는 하지 않는다.
 - **남은 제한·다음 작업:** 실제 Actions/Node22 Linux build-test·fresh install 전체·새 contract의 Provider 검증은 아직 NOT VERIFIED다. 게시 후 로컬·원격 HEAD 일치, clean과 RC 태그 불변을 확인한다. CI 원격 결과는 별도 evidence로 구분한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): establish Weavra execution contracts and devlop CI`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-048 — V0.3D: Project Context (FIX-03 / FIX-06 / bounded list_files)
+
+- **기록일:** 2026-09-17 20:55 (KST), 착수 19:52 KST.
+- **상태:** 세 범위 구현·자동 회귀 완료 / 미커밋. Provider 완료 smoke 1회 FAIL, 후속 실제 성공 미검증.
+- **목적:** 명시적 프로젝트 규칙과 파일 탐색 출발점을 제공하고 JVM build/dependency risk를 보강한다. Project Context를 permission authority로 사용하지 않는다.
+- **착수 확인:** `git status --short --branch`가 clean인 상태에서 `git fetch origin devlop`을 실행하고 clean인 경우만 rebase했다(already up to date). 로컬/원격 HEAD는 사용자 기준 **`08c04daf17e5d3ee5846fff3ab45b9e2bbd990d5`**와 일치했다. stash/reset/clean이나 branch 이동은 없었다. roadmap/research/작업 이력과 기존 path/anchored/Policy 경계를 확인했다.
+
+### FIX-03 — 설정·snapshot·전달
+
+- optional config는 **`project.instructions.path: AGENTS.md`** 형태다. absent는 disabled이며 기본 filename/auto-discovery가 없다. 파일 하나만 지원하고 glob/directory/parent/absolute/symlink/outside/protected 경로와 unsupported settings는 거부한다.
+- Host가 전달한 frozen config를 trusted `PiAgentExecutor.create()` preflight가 읽는다. `project-instructions.ts`에서 기존 isPolicyPath/isProtectedPath·strict UTF-8 decoder·exact SHA helper를 재사용했다. canonical root/ancestors와 final target, no-follow/nonblocking FD, regular/nlink=1, **64 KiB**와 UTF-8 round trip/NUL 경계를 확인한다. overflow는 truncate하지 않는다. read 전후 FD/name dev/ino/mode/size/mtime/ctime 및 ancestor identity도 비교한다.
+- Host의 explicit context 선택이므로 worker allowed_paths에 AGENTS.md를 추가할 필요는 없다. 단 built-in 보호, Runtime source와 등록된 local verifier/LSP script 보호는 그대로 적용한다. 이것이 일반 worker read 권한 확대를 뜻하지 않는다.
+- snapshot `{path,digest,bytes,content}`는 생성 후 immutable memory input이다. 기존 projectInstructions seam에 content를 한 번 고정하고 같은 Agent adapter의 Developer/Executor/Reviewer와 재작업에 동일하게 전달한다. run 도중 파일 B를 다시 읽어 현재 A prompt를 바꾸지 않는다. 외부 변경은 기존 clean/freshness guard에서 실패할 수 있으며, 다음 run만 B를 읽는다.
+- 기존 trusted inline Host string seam은 유지하지만 configured file과 동시 지정하면 거부한다. 파일 merge/inheritance는 없다. prompt는 context-only block과 별도의 execution/role/security guidance를 구분하며, no extensions/skills/implicit AGENTS 및 fixed resource loader를 유지한다.
+
+### metadata / protection / freshness
+
+- `project-instruction-types.ts`는 pure metadata schema/type이다. **Run.projectInstruction에는 path/digest/bytes만** 저장한다. content는 state나 `/state`에 추가 복제하지 않는다. 새 run의 no-file은 null/none, legacy absent는 UNKNOWN으로 구분한다. SDK/Provider로 전달되는 지침은 context이므로 임의 파일 속 비밀을 자동 탐지한다고 주장하지 않는다.
+- policyVersion `V0.3D-1`, config/action digest 및 PolicyDecision.projectInstructionDigest에 snapshot identity를 결합했다. Kernel request/Agent의 metadata가 달라지거나 Store의 run metadata/digest binding을 바꾸면 거부한다. inline string도 config digest에는 hash만 결합한다.
+- **configured instruction path는 worker protectedPaths에 추가**하여 read/search/list/LSP/mutation에서 모두 제외했다. 민감한 규칙 파일을 다시 읽거나 최신 B를 읽어 Reviewer context를 바꾸지 못하게 하는 보수적 선택이다. path 비교는 case-insensitive NFC이며 실제 I/O path를 normalize해 다른 파일로 바꾸지 않는다. 내부 alias로 protection을 놓치지 않기 위한 비교다.
+- instructions의 shell 허용/외부 수정/승인 생략/check 생략 문구가 tool surface, Execution Contract, Policy, Approval, Kernel guard를 변경하지 않음을 SDK/faux에서 검증했다. metadata-only persistence와 config 없는 auto-discovery trap도 유지했다.
+
+### FEAT-02 일부 — runtime_list_files
+
+- 입력은 **`{path?: string, maxDepth?: integer}`**다. 기본 호출은 **`runtime_list_files({})`**, path 생략은 configured allowed roots이며 `.`/`/`/`..`/빈 문자열을 root alias로 취급하지 않는다. maxDepth 기본/최대 4, 0..4 directory descents를 지원한다.
+- 별도 Policy **operation=list / risk R0**로 등록하고 기존 fileAction의 Policy→intent→재검사→실행→audit를 거친다. list만 directory/missing root를 허용하며 read/search의 regular explicit-file 계약은 완화하지 않는다. READ_ONLY/Reviewer에도 제공하지만 mutation capability는 없다.
+- `list-files.ts`는 Node fs opendir/read/lstat만 사용한다. shell/fd/find/ripgrep 또는 파일 내용 읽기는 없다. 최대 **500 files, 64 KiB JSON output, roots 32, enumerated entries/visited nodes 각각 4,096**이다. 결과는 relative file paths/truncated/reason뿐이며 stat/inode/absolute path/content를 반환하지 않는다.
+- 요청·후보에 allowed/protected/unsafe-name 필터를 적용하고 symlink를 따라가지 않는다. hardlink/special files도 숨기고 traversed directory identity·결과 file facts를 재검사한다. cancellation은 열린 directory를 닫고 partial success를 반환하지 않는다.
+- lexical root/entry/output ordering과 de-duplication을 사용한다. bounded enumeration 도중 한도 초과한 directory는 OS 순서의 임의 prefix를 반환하지 않고 그 directory를 생략한다. depth/root/file/byte/entry 제한은 truncated로 알리며 잔여 총수를 추정하지 않는다. 원자 filesystem snapshot이나 외부 syscall race 완전 방지는 아니다.
+- 강제 ignore는 `.git/.ai/.pi` 등 기존 security protected rules·configured instruction/local protected paths와 `node_modules`다. **dist/build/coverage/target은 allowed 범위면 유지**한다. explicit allow를 무시하는 성능용 global ignore나 .gitignore 재구현은 하지 않았다. runtime_search를 recursive search로 바꾸지 않았다.
+
+### FIX-06 — JVM risk
+
+- `isDependencyPath`에 pom.xml, build/settings.gradle[.kts], gradle.properties, gradle/libs.versions.toml, gradle/wrapper/gradle-wrapper.properties, .mvn/wrapper/maven-wrapper.properties를 추가했다. module prefix와 기존 portable policy의 case-insensitive exact suffix 규칙을 따른다.
+- backup/docs 유사 이름(pom.xml.bak, build.gradle.txt, my-build.gradle.notes, docs/pom.xml.md)과 .mvn 전체는 확대하지 않는다. R1 mutation은 R2/REVIEW_REQUIRED, bound STANDARD/R2는 기존 independent review, READ_ONLY는 여전히 mutation DENY다. read/list/search 자체는 R0로 유지한다. 기존 dependency 파일의 R3 삭제 제한도 그대로 적용된다.
+
+### 변경 파일과 회귀 의미
+
+- 신규 `src/project-instruction-types.ts`, `src/project-instructions.ts`, `src/list-files.ts`, `src/list-files-tool.ts` 및 Runtime `project-context.test.ts`, `list-files.test.ts`, SDK `company-runtime-context.test.ts`.
+- config/Policy/tools/runner/Kernel metadata/Workflow binding/Store/observation/Host confirmation에 연결했다. 기존 Reviewer/R3 tool list와 anchored action digest tests는 **read-only tool 1개 및 instruction digest metadata**를 명시적으로 검증하도록 보완했다. 기존 mutation/role/approval assertions는 유지했다.
+- 문서 `README.md`, `packages/company-runtime/README.md`, roadmap/research/WORK_LOG 및 별도 Provider smoke 기록을 갱신했다. roadmap의 구현 완료와 실제 Provider 성공 미검증을 구분했다.
+- 새 dependency/lockfile, Project Instructions 다중 파일/자동 discovery/inheritance, Repo Map/index, AC/Planner, telemetry/evals/Facts, strict edit/sandbox/browser/MCP/COMPLEX/parallel은 추가하지 않았다. Pi로 개발했으며 Weavra self-hosting claim은 없다.
+
+### 이번 자동 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime — Node26/macOS
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/project-context.test.ts test/list-files.test.ts test/execution-contract.test.ts test/trust-baseline.test.ts test/lsp.test.ts test/lsp-config.test.ts test/anchored-edit.test.ts test/anchored-tools.test.ts test/launcher-home.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/graph.test.ts test/graph-command.test.ts test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent — Node26/macOS
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-context.test.ts test/suite/company-runtime-lsp.test.ts test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts test/args.test.ts test/sdk-session-manager.test.ts test/session-manager/file-operations.test.ts
+
+# 별도 Node22/macOS shell; 각 package root
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/project-context.test.ts test/list-files.test.ts test/config.test.ts test/policy.test.ts test/execution-contract.test.ts
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-context.test.ts test/suite/company-runtime-lsp.test.ts
+
+# root / Node26
+npm run check
+python3 /tmp/weavra-v03d-smoke.741ncw/check-ci-bytes.py  # npm run check:ci + before/after source byte/mode comparison
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- **Node v26.7.0/macOS 최종(20:50 KST 시작): Runtime 33개 파일·1,110개 + SDK/관련 Pi 19개 파일·628개 = 52개 파일·1,738개 PASS**, 실패/skip 0. 기존 1,646개 + 신규 unit/filesystem/config/JVM 69개 + SDK 23개이며 과거 결과를 합산하지 않는다.
+- **Node v22.22.3/macOS targeted(20:52 KST 시작): 5개 파일·251개 + SDK 2개 파일·57개 = 7개 파일·308개 PASS**, 실패/skip 0. 위 set과 중복이므로 고유 tests 총수로 더하지 않는다.
+- Snapshot valid/missing/directory/links/hardlink/protected/outside/invalid UTF-8/NUL/oversize/64 KiB boundary/deterministic CRLF·Unicode·freeze, list depth/order/count/output/enumeration/cancel/root denial/filter/explicit generated dirs, JVM positive/negative/case/risk semantics를 검증했다.
+- SDK/faux로 Developer/Executor/Reviewer 동일 snapshot, actual list→anchored edit→checks→review→COMPLETE, READ_ONLY read/list 및 malicious instruction 권한 불변, 선택 파일 mutation 거부/hidden listing, snapshot 뒤 외부 변경 preflight 실패·실행 중 A 유지, 다음 run B, metadata/digest tampering 거부, none/legacy observation을 검증했다.
+- V0.3A/B/C와 QUICK/STANDARD READ_ONLY/EDIT, R2/R3, Reviewer/stale review/cancel, setup/doctor/worktree/graph/viewer/lsp status/session isolation 회귀를 재실행했다.
+- root check/check:ci/diff/bash **PASS**. check:ci 전후 **tracked 1,814개 경로와 non-ignored untracked source bytes/modes가 동일**했다. 초기 TypeScript 검사에서 test Context.systemPrompt의 optional narrowing과 readonly roots 타입 두 문제를 보완했다. 검사/의존성을 낮추지 않았으며 최종 warning/info/error는 없다. 자동 tests 실패는 없었다.
+
+### 실제 Provider 1회와 발견 문제
+
+- `node /tmp/weavra-v03d-smoke.741ncw/provider.mjs`로 임시 synthetic Git fixture에서 실제 **codex-lb/gpt-6-astra, medium, STANDARD/EDIT/R1** 한 run을 실행했다(20:35 KST). 원본 RC fixture는 읽기만 했고 config profile을 재사용했으며 product source를 worker에게 수정시키지 않았다.
+- Developer에 391-byte AGENTS snapshot이 정확히 전달됐고 모델이 runtime_list_files를 선택했다. 그러나 **`{path:".",maxDepth:4}`**를 보내 literal-path Policy에서 **R0/DENY**됐다. Run `df979d42-907e-4ef4-8893-9b49251c42a2`는 FAILED, changedFiles=[], edits/checks/Reviewer 없음, lock 해제로 종료했다. 7,303ms, reported 1,448 tokens이며 실제 청구 비용은 미확인이다.
+- `inspect.mjs`로 필요한 session tool arguments와 durable DENIED action을 별도 확인하고, fixture `git diff --exit-code HEAD --`로 tracked 무변경을 확인했다. 이를 실제 listing/filtering·anchored edit·Reviewer·checks·COMPLETED PASS로 확대하지 않는다.
+- tool/schema description을 **`runtime_list_files({})`, OMIT path**로 명확히 하고 dot-root 거부 SDK/unit regression을 추가했다. `.`을 broader root alias로 자동 보정하거나 Policy를 완화하지 않았다. **요청된 1회 제한에 따라 Provider 재호출 없음.** 설명 보완 후 실제 성공 경로는 NOT VERIFIED다.
+- 상세 결과는 [WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md](WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)에 기록한다. credential/전체 conversation/reasoning/tool 로그는 문서에 복제하지 않는다. 개인 설정 bytes 비교 assertion은 smoke 성공 뒤에 배치되어 이번 실패 run에서는 미실행이므로 PASS로 기록하지 않는다.
+
+### 제한·다음 작업·커밋
+
+- shared context는 권한이 아니다. registered verifier/LSP의 직접 I/O, 외부 syscall races/daemon은 기존 비-sandbox 한계다. snapshot content는 Provider로 전달되므로 사용자 지침에서 secret을 제거해야 하며 임의 secret detection은 없다.
+- `.gitignore` semantics, 여러 instruction files, auto-discovery/inheritance, directory-wide rules, Repo Map/workspace index는 미구현이다. entry/depth/root/bytes 한도로 결과를 생략할 수 있으며 잔여 수를 추정하지 않는다.
+- 실제 Java/Spring/Maven/Gradle build matrix, Node22/Linux/GitHub Actions, full fresh install/build/TUI, 다른 Provider/OS는 NOT VERIFIED다. 전체 GPT RC-01~08·전체 upstream/e2e를 재실행하지 않았다.
+- 최종 문서 반영 뒤 check/check:ci/diff/bash를 다시 실행해 자동 수정·warning/info/error 없이 PASS했다. tracked 1,814개 및 untracked source의 bytes/modes 불변을 재확인했다. 별도 검사로 변경 30개 파일, 문서 링크/fence, LOG-001~047 본문, V0.3C CI/contract와 Approval/Anchored/LSP transport/Graph/Launcher/Pi Core/dependency·HEAD/RC 태그 불변을 확인했다(PASS).
+- 실제 smoke fixture의 tracked 무변경을 재확인한 뒤 생성한 임시 fixture/session/harness/검사 script만 정리하고 임시 루트 부재를 확인했다. 원본 사용자 RC fixture는 clean 상태로 유지됐다.
+- **다음 작업:** 실제 Provider의 omitted-path 안내 효과 재검증은 별도 사용자 승인 후 한정 smoke로 수행한다. 자동 재시도·self-hosting·V0.3E/다른 후속 기능은 이번에 진행하지 않는다.
+- **커밋·푸시·태그 변경:** 하지 않음. `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 유지한다.
+
+---
+
+## LOG-049 — V0.3D Project Context 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 21:09 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-048의 FIX-03/06 및 runtime_list_files 구현·테스트·문서를 커밋하고 `origin/devlop`에 게시한다.
+- **변경 파일:** LOG-048의 instruction snapshot/metadata·list adapter·JVM Policy 연결, 기존 tool/digest contract tests와 신규 unit/SDK tests, README/roadmap/research/작업 이력/Provider smoke 문서 총 30개. 이번 준비에서는 현재 요약과 본 항목만 추가했다. dependency/lockfile 및 후속 기능 변경은 없다.
+- **이번 검증:** `npm run check`, `npm run check:ci` 재실행 PASS, Biome 자동 수정 및 warning/info/error 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. status/변경 목록으로 대상 30개 경로와 기존 staged 변경 없음, HEAD 및 RC 태그 불변을 확인했다.
+- **과거 검증과 구분:** Node26/macOS 52개 파일·1,738개, Node22/macOS 7개 파일·308개 PASS 및 source bytes 불변 검사는 LOG-048 당시 결과다. 이번 커밋 준비에서는 targeted tests/Provider/TUI/build를 재실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 30개 경로만 stage하고 일반 commit/push를 사용한다. 실제 Provider 1회의 dot-root DENY/FAILED·무변경 사실과 설명 보완 후 성공 미검증을 그대로 포함하며 PASS로 바꾸지 않는다.
+- **남은 제한·다음 작업:** omitted-path 안내의 실제 Provider 재검증, JVM build matrix/다른 환경 미검증 및 기존 비-sandbox 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean 및 RC 태그 불변을 확인한다. 강제 푸시는 하지 않는다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add Weavra project context and bounded file discovery`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

@@ -25,6 +25,7 @@ import {
 	validateContract,
 } from "./contracts.ts";
 import { assertExecutionContract, bindExecutionContract } from "./execution-contract.ts";
+import { createListFilesTool } from "./list-files-tool.ts";
 import { createLspTools } from "./lsp/tools.ts";
 import {
 	type ActionAudit,
@@ -46,6 +47,7 @@ const RUNTIME_OBLIGATION_ONLY =
 export const WORKER_FILE_TOOLS = [
 	{ id: "runtime_read", operation: "read" },
 	{ id: "runtime_search", operation: "search" },
+	{ id: "runtime_list_files", operation: "list" },
 	{ id: "runtime_write", operation: "write" },
 	{ id: "runtime_edit", operation: "edit" },
 ] as const;
@@ -182,6 +184,7 @@ export function createWorkerTools(options: {
 			paths: frozenPaths,
 			actionDigest: workerDigest({
 				executionContract,
+				projectInstructionDigest: options.policy.projectInstruction?.digest ?? null,
 				tool,
 				paths: frozenPaths,
 				input,
@@ -246,6 +249,7 @@ export function createWorkerTools(options: {
 				}),
 		}),
 	];
+	tools.push(createListFilesTool(options.cwd, options.policy, options.paths, signal, fileAction));
 	if (request.lsp) tools.push(...createLspTools(request.lsp, fileAction, signal));
 	if (request.role !== "Reviewer") {
 		tools.push(
@@ -465,7 +469,12 @@ export function createWorkerTools(options: {
 						tool: "runtime_delete",
 						risk: "R3" as const,
 						paths: [params.path],
-						actionDigest: workerDigest({ executionContract, path: params.path, step: request.step }),
+						actionDigest: workerDigest({
+							executionContract,
+							projectInstructionDigest: options.policy.projectInstruction?.digest ?? null,
+							path: params.path,
+							step: request.step,
+						}),
 					};
 					const initial = evaluatePolicy(action, options.policy, await options.paths.inspect(action.paths));
 					if (initial.decision !== "APPROVAL_REQUIRED") {
@@ -479,6 +488,7 @@ export function createWorkerTools(options: {
 					const fingerprint = deletionFingerprint(path);
 					action.actionDigest = workerDigest({
 						executionContract,
+						projectInstructionDigest: options.policy.projectInstruction?.digest ?? null,
 						operation: "delete-file",
 						path: params.path,
 						...fingerprint,

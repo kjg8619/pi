@@ -142,6 +142,9 @@ export class StandardWorkflow {
 			this.store = store;
 			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope, contract);
 			executor = agents.executor;
+			const configuredInstruction = this.options.config.project?.instructions.path;
+			if ((agents.policy.projectInstruction?.path ?? undefined) !== configuredInstruction)
+				throw new Error("Project instruction snapshot differs from the selected configuration");
 			if (agents.policy.executionMode !== contract.mode || agents.policy.executionRunId !== contract.runId)
 				throw new Error("Agent Policy execution contract differs from the frozen run");
 			if (JSON.stringify(agents.policy.r3Scope) !== JSON.stringify(r3Scope))
@@ -158,6 +161,7 @@ export class StandardWorkflow {
 				{
 					runId,
 					executionMode: contract.mode,
+					projectInstruction: agents.policy.projectInstruction ?? null,
 					task: {
 						id: randomUUID(),
 						goal: this.options.goal,

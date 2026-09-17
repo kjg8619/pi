@@ -16,6 +16,7 @@ import type {
 import type { RuntimeEventSink } from "./events.ts";
 import type { ExecutionMode } from "./execution-contract.ts";
 import type { LspPort } from "./lsp/types.ts";
+import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
 
 export type { LspPort } from "./lsp/types.ts";
 
@@ -30,6 +31,7 @@ interface StepRequest {
 
 export type AgentExecutionRequest = StepRequest & {
 	executionMode: ExecutionMode;
+	projectInstruction?: ProjectInstructionMetadata | null;
 	/** Trusted run-owned code intelligence; excluded from worker prompts and data clones. */
 	lsp?: LspPort;
 	/** Adapter calls once, before prompting. Rejection prevents worker execution. No Pi types cross this boundary. */

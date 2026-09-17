@@ -3,10 +3,10 @@
 > 작성일: 2026-09-17 (KST)  
 > 검토 브랜치: `devlop`  
 > 검토 기준 소스: `e09100fe3e0ce08610b48a056ed6cd03714e0f97`  
-> 상태: **원래 본문은 정적 개선 제안. FIX-01/02/04만 V0.3C 구현·로컬 검증 완료**<br>
+> 상태: **원래 본문은 정적 개선 제안. V0.3C 및 V0.3D의 표시된 범위만 구현·자동 검증**<br>
 > 목적: 현재 보완점을 실행 가능한 작업으로 정리하고, 추가 기능을 기존 구조의 재사용·안전 경계·실사용 효과에 따라 선별한다.
 
-원래 조사는 제품 코드, 설정, 기존 검증 기록을 변경하지 않았으며 전체 build/test, 실제 Provider 호출, 외부 도구 설치 및 통합 실험을 수행하지 않았다. 해당 시점의 관찰·고정 SHA 근거는 보존한다. 후속 V0.3C에서는 **FIX-01/02/04만 구현**하고 Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS 및 non-mutating check:ci를 확인했다(WORK_LOG LOG-046). 실제 GitHub Actions/Node22 Linux build-test·전체 fresh install·branch protection·새 contract의 실제 Provider는 NOT VERIFIED다. 아래 다른 후보의 완료 기준은 여전히 계획이다.
+원래 조사는 제품 코드, 설정, 기존 검증 기록을 변경하지 않았으며 전체 build/test, 실제 Provider 호출, 외부 도구 설치 및 통합 실험을 수행하지 않았다. 해당 시점의 관찰·고정 SHA 근거는 보존한다. 후속 V0.3C에서는 **FIX-01/02/04만 구현**하고 Node26/macOS 49 files / 1,646 PASS, Node22/macOS targeted 18 files / 800 PASS 및 non-mutating check:ci를 확인했다(WORK_LOG LOG-046). 실제 GitHub Actions/Node22 Linux build-test·전체 fresh install·branch protection·새 contract의 실제 Provider는 NOT VERIFIED다. 후속 V0.3D는 FIX-03/FIX-06과 FEAT-02의 file listing만 구현했다(LOG-048). 지침 snapshot/안전성·JVM risk·bounded discovery의 자동 회귀는 통과했지만 Provider smoke 1회는 `path:"."` 거부로 FAILED였다. 설명 보완 후 실제 성공은 미검증이며 self-hosting을 주장하지 않는다. 아래 다른 후보의 완료 기준은 여전히 계획이다.
 
 기존 `MASTER_SPEC`, `DECISIONS`, 구현 계획과 작업 로그를 대체하지 않는다. 새로운 명령·설정·자료 구조의 예시는 모두 설계 후보이며 **현재 `.ai/config.yaml`에 그대로 넣으면 안 된다.** 현재 config는 미지원 필드를 거부한다.[S10]
 
@@ -101,7 +101,9 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FIX-03 — 프로젝트 지침을 고정된 입력으로 전달
 
-**관찰:** `PiAgentExecutorOptions.projectInstructions`와 prompt 연결은 있지만, 기본 extension의 `PiAgentExecutor.create()` 호출은 값을 전달하지 않는다. worker는 자동 AGENTS/Skill/Extension 탐색도 하지 않는다.[S3][S4]
+**V0.3D 반영:** `project.instructions.path`의 explicit 파일 하나를 trusted adapter preflight에서 64 KiB strict UTF-8/regular/single-link/no-follow·identity 검사로 snapshot한다. 모든 role은 같은 frozen content를 사용하고 다음 run만 재읽는다. selected file은 worker protected path/list 결과에서 제외하며 durable state와 observation에는 path/digest/bytes만 남긴다. config/action/Policy/Agent request의 digest binding을 대조한다. context는 권한이 아니며 자동 AGENTS/CLAUDE/Skill/Extension discovery나 여러 파일 merge는 없다. 기존 inline Host seam과 configured file의 동시 지정도 거부한다.
+
+**관찰(조사 기준 SHA):** `PiAgentExecutorOptions.projectInstructions`와 prompt 연결은 있지만, 기본 extension의 `PiAgentExecutor.create()` 호출은 값을 전달하지 않는다. worker는 자동 AGENTS/Skill/Extension 탐색도 하지 않는다.[S3][S4]
 
 **제안:** Host가 사용자가 선택한 지침 파일만 읽고, 경로·내용 digest·크기·선택 내역을 이번 Run의 instruction snapshot으로 고정한다. Developer와 Reviewer에 같은 작업 규칙을 전달하되 정책 권한으로 해석하지 않는다. 초기에는 명시적인 파일 하나부터 지원하고, 중첩 지침의 상속·우선순위는 별도 설계한다.
 
@@ -131,7 +133,9 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FIX-06 — JVM 파일과 프로젝트별 위험 경로
 
-**관찰:** `isDependencyPath()`에는 npm/Cargo/Python/Go 계열이 있으나 `pom.xml`, `build.gradle`, `build.gradle.kts` 등은 없다. allowed path 안의 해당 파일을 파일명만으로 의존성 변경으로 승격하는 규칙이 빠져 있다. 실제 요청문에 따라 더 높은 risk가 선택될 수 있으므로 모든 JVM 변경이 반드시 R1이 된다는 뜻은 아니다.[S6][S7]
+**V0.3D 반영:** pom.xml, build/settings.gradle[.kts], gradle.properties, gradle/libs.versions.toml, gradle/wrapper/gradle-wrapper.properties, .mvn/wrapper/maven-wrapper.properties의 exact case-insensitive suffix와 module prefix를 최소 R2 mutation 대상으로 추가했다. 유사 backup/docs 파일과 .mvn 전체로 확장하지 않는다. R1 자동 승격은 없고 READ_ONLY mutation DENY 및 bound R2 independent review를 유지한다. 실제 Maven/Gradle build matrix를 실행했다는 뜻은 아니다.
+
+**관찰(조사 기준 SHA):** `isDependencyPath()`에는 npm/Cargo/Python/Go 계열이 있으나 `pom.xml`, `build.gradle`, `build.gradle.kts` 등은 없다. allowed path 안의 해당 파일을 파일명만으로 의존성 변경으로 승격하는 규칙이 빠져 있다. 실제 요청문에 따라 더 높은 risk가 선택될 수 있으므로 모든 JVM 변경이 반드시 R1이 된다는 뜻은 아니다.[S6][S7]
 
 **제안:** Maven/Gradle manifest, settings, version catalog, wrapper 설정 등 우선 지원할 목록을 테스트와 함께 정의한다. 프로젝트 설정은 기본 deny를 제거하지 못하고 보호·최소 위험도를 더하는 방향으로 설계한다. `config.*` 같은 기존 넓은 보호 규칙 때문에 정상 수정이 막히는 사례는 따로 수집하되, 편의를 위해 일괄 해제하지 않는다.
 
@@ -199,7 +203,9 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FEAT-02 — 코드 위치를 찾는 도구부터, 그다음 LSP
 
-**현재 한계:** runtime_search는 이미 아는 파일 목록을 받아 literal text를 찾으며 재귀 탐색을 하지 않는다. 관련 파일을 모르는 작업에서는 탐색 출발점이 약하다.[S8]
+**V0.3D 반영 범위:** `runtime_list_files({path?,maxDepth?})`만 추가했다. 첫 호출은 `{}`로 path를 생략한다. Node fs/Policy R0/allowed+protected 필터, no symlink traversal, 500 files/64 KiB/depth 4/roots 32/entry+visit 4,096, lexical ordering과 명시적 truncation을 적용한다. node_modules 및 security protected 경로는 숨기되 explicit allowed generated dirs는 유지한다. .gitignore 전체/Repo Map/index/recursive search는 구현하지 않는다. Reviewer/READ_ONLY도 사용 가능하며 V0.3B LSP와 기존 explicit search의 책임은 유지한다. 실제 Provider는 list tool을 선택했으나 `path:"."` 때문에 거부됐고 1회 제한에 따라 재호출하지 않았다.
+
+**수정 전 한계(조사 기준 SHA):** runtime_search는 이미 아는 파일 목록을 받아 literal text를 찾으며 재귀 탐색을 하지 않는다. 관련 파일을 모르는 작업에서는 탐색 출발점이 약하다.[S8]
 
 **조사 근거:** Aider는 주요 심볼·서명과 관계를 요약한 repository map을 token budget 안에서 선택한다. Microsoft 문서는 LSP 기반 diagnostics와 정의 이동 등을 설명한다. 이는 서로 대체재가 아니라, 저비용 구조 요약과 언어 분석이라는 다른 계층이다.[R2][R3]
 
@@ -302,12 +308,12 @@ Repo map·LSP 응답은 문맥이지 완료 증거를 자동 대체하지 않는
 | 묶음 | 범위 | 종료 조건 |
 |---|---|---|
 | M1 — 기본 신뢰 | FIX-01/02/04 | V0.3C 구현·로컬 회귀 완료; Actions/Linux/fresh-install 전체 검증은 별도 |
-| M2 — 작업 이해 | FIX-03/05/06 + FEAT-01 + FEAT-02의 파일 목록 | 지침 snapshot, 개별 AC, 위험 파일 분류, 관련 파일 발견 |
+| M2 — 작업 이해 | FIX-03/05/06 + FEAT-01 + FEAT-02의 파일 목록 | V0.3D 지침/list/JVM risk만 반영; AC/Planner는 미구현 |
 | M3 — 효과 측정 | FEAT-03/04/05 + FIX-09 | 로컬 사용량·제한, 비교 평가, 사람이 읽을 수 있는 결과 |
 | M4 — 선택 강화 | FIX-07/08 + 필요한 LSP / FEAT-07 | 실제 실패 사례를 줄이는 검증 결과와 새 권한 경계 테스트 |
 | 이후 선택 | FEAT-06/08/09 | 반복 작업·UI·외부 도구에 실제 수요가 있고 선행 조건 충족 |
 
-**설치·CI·read-only 계약**은 V0.3C에서 구현·로컬 검증했다. 다음 **지침 전달·AC·파일 탐색**은 로드맵의 V0.3D/E 및 별도 사용자 승인 범위로 유지한다. UI 장식이나 agent 수 확대를 위해 이 순서를 미루지 않는다.
+**설치·CI·read-only 계약**은 V0.3C에서 구현·로컬 검증했다. V0.3D의 지침 전달·파일 탐색·JVM risk는 구현/자동 검증했으며 AC/Planner는 V0.3E 및 별도 사용자 승인 범위로 유지한다. UI 장식이나 agent 수 확대를 위해 이 순서를 미루지 않는다.
 
 ## 6. 실사용 평가 설계
 

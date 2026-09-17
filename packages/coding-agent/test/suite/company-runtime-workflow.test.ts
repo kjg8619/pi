@@ -81,7 +81,12 @@ function review(result: Review["result"] = "PASS") {
 			true,
 		);
 		expect(request.verification.changedFiles).toEqual(["src/app.js"]);
-		expect(context.tools?.map((tool) => tool.name)).toEqual(["runtime_read", "runtime_search", "submit_review"]);
+		expect(context.tools?.map((tool) => tool.name)).toEqual([
+			"runtime_read",
+			"runtime_search",
+			"runtime_list_files",
+			"submit_review",
+		]);
 		return fauxAssistantMessage(
 			fauxToolCall("submit_review", {
 				runId: request.runId,

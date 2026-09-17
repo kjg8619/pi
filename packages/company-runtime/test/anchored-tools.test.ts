@@ -113,6 +113,7 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 		expect(WORKER_FILE_TOOLS).toEqual([
 			{ id: "runtime_read", operation: "read" },
 			{ id: "runtime_search", operation: "search" },
+			{ id: "runtime_list_files", operation: "list" },
 			{ id: "runtime_write", operation: "write" },
 			{ id: "runtime_edit", operation: "edit" },
 		]);
@@ -269,6 +270,7 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 		expect(original).toBe(
 			workerDigest({
 				executionContract: { runId: "run", mode: "EDIT" },
+				projectInstructionDigest: null,
 				tool: "runtime_edit",
 				paths: [params.path],
 				input: params,
@@ -288,6 +290,7 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 			"runId",
 			"actionId",
 			"role",
+			"projectInstructionDigest",
 			"risk",
 			"decision",
 			"reason",
@@ -324,7 +327,12 @@ describe("anchored runtime tools through the existing Policy/audit gate", () => 
 		};
 		policy.executorScope = undefined;
 		await create();
-		expect(worker.tools.map((tool) => tool.name)).toEqual(["runtime_read", "runtime_search", "submit_review"]);
+		expect(worker.tools.map((tool) => tool.name)).toEqual([
+			"runtime_read",
+			"runtime_search",
+			"runtime_list_files",
+			"submit_review",
+		]);
 		expect(await call("runtime_read", { path: "src/app.ts", anchors: true })).toContain("fileDigest:");
 		await expect(call("runtime_edit", await anchored())).rejects.toThrow("Tool unavailable");
 		expect(bytes().toString()).toBe("foo()\nfoo()\n");

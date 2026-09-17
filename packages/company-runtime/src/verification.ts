@@ -144,6 +144,7 @@ export class RegisteredVerifier implements Verifier {
 					actionId: randomUUID(),
 					actionDigest: workerDigest({
 						executionContract: { runId: this.policy.executionRunId, mode: this.policy.executionMode },
+						projectInstructionDigest: this.policy.projectInstruction?.digest ?? null,
 						request: action,
 						step: request.step,
 						revision: request.revision,

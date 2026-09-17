@@ -86,7 +86,12 @@ function review(verdict: Review["result"] = "PASS") {
 		if (request.role !== "Reviewer") throw new Error("Independent review required");
 		expect(request.verification.changedFiles).toEqual([target]);
 		expect(request.verification.reviewContext?.diff).toContain("obsolete source");
-		expect(context.tools?.map((tool) => tool.name)).toEqual(["runtime_read", "runtime_search", "submit_review"]);
+		expect(context.tools?.map((tool) => tool.name)).toEqual([
+			"runtime_read",
+			"runtime_search",
+			"runtime_list_files",
+			"submit_review",
+		]);
 		return fauxAssistantMessage(
 			fauxToolCall("submit_review", {
 				runId: request.runId,
@@ -268,6 +273,7 @@ describe("S5C human-approved single-file deletion", () => {
 					expect(context.tools?.map((tool) => tool.name)).toEqual([
 						"runtime_read",
 						"runtime_search",
+						"runtime_list_files",
 						"runtime_request_check",
 						"submit_handoff",
 						"runtime_delete",
