@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiAgentExecutor } from "../../../company-runtime/src/agent-runner.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "../../../company-runtime/src/config.ts";
 import type { ApprovalDecision, ApprovalRequest, Run } from "../../../company-runtime/src/contracts.ts";
+import type { RuntimeEventSink } from "../../../company-runtime/src/events.ts";
 import { registerCompanyRuntime } from "../../../company-runtime/src/extension.ts";
+import { projectRunGraph, renderGraphText } from "../../../company-runtime/src/graph.ts";
 import type { AgentExecutionRequest, ApprovalPort } from "../../../company-runtime/src/ports.ts";
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
@@ -133,7 +135,7 @@ function workflow(goal = "Fix bug", approval?: ApprovalPort, failObserver = fals
 		},
 	});
 }
-function host(allowRun = false) {
+function host(allowRun = false, events?: RuntimeEventSink) {
 	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
 	const notify = vi.fn();
 	const createModels = vi.fn(async () => {
@@ -154,7 +156,7 @@ function host(allowRun = false) {
 			},
 			on: (_name: string, _handler: unknown) => {},
 		},
-		{ agentDir, createModels },
+		{ agentDir, createModels, events },
 	);
 	return {
 		notify,
@@ -226,6 +228,128 @@ afterEach(() => {
 });
 
 describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
+	it.each([
+		{ goal: "Explain src/app.ts", workflow: "QUICK", risk: "R0" },
+		{ goal: "Fix typo in src/app.ts", workflow: "QUICK", risk: "R1" },
+		{ goal: "Fix bug", workflow: "STANDARD", risk: "R1" },
+		{ goal: "Update dependency in src/app.ts", workflow: "STANDARD", risk: "R2" },
+	])(
+		"V0.2A reconstructs $workflow/$risk after Host reload without Provider/writer calls",
+		async ({ goal, workflow: kind, risk }) => {
+			reviseUntil = 0;
+			const report = await workflow(goal).execute();
+			expect(report.run?.status, report.error).toBe("COMPLETED");
+			const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
+			const calls = harness.faux.state.callCount;
+			const opens = vi.spyOn(FileStateStore, "open");
+			const reader = host();
+			const text = await reader.call("graph", report.run!.runId);
+			expect(text).toContain(`${kind} / ${risk} / COMPLETED`);
+			expect(text).toContain(renderGraphText(projectRunGraph(report.run)));
+			expect(await host().call("graph", "latest")).toBe(text);
+			expect(reader.createModels).not.toHaveBeenCalled();
+			expect(harness.faux.state.callCount).toBe(calls);
+			expect(opens).not.toHaveBeenCalled();
+			expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		},
+	);
+	it.each(["Explain src/app.ts", "Fix bug", "Delete file src/obsolete.ts"])(
+		"V0.2A queries live snapshot at RuntimeEvent boundaries without replay: %s",
+		async (goal) => {
+			reviseUntil = goal === "Fix bug" ? 1 : 0;
+			let owner: ReturnType<typeof host>;
+			const phases = new Set<string>();
+			const opens = vi.spyOn(FileStateStore, "open");
+			owner = host(true, {
+				emit: async (event) => {
+					const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
+					const calls = harness.faux.state.callCount;
+					const opened = opens.mock.calls.length;
+					const text = await owner.call("graph", "latest");
+					if (event.type === "RunCreated") expect(text).toContain("preflight in progress");
+					else {
+						const run = (JSON.parse(before) as { runs: Run[] }).runs.at(-1)!;
+						expect(text).toContain(renderGraphText(projectRunGraph(run)));
+						expect(text).toContain("Source: live Kernel");
+						phases.add(run.status === "WAITING_APPROVAL" ? "APPROVAL" : run.phase);
+					}
+					expect(harness.faux.state.callCount).toBe(calls);
+					expect(opens).toHaveBeenCalledTimes(opened);
+					expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
+				},
+			});
+			owner.ctx.ui.select = async () => "Approve once";
+			await owner.call("workflow", `run ${goal}`);
+			await vi.waitFor(
+				() => expect(owner.notify).toHaveBeenCalledWith(expect.stringContaining("Status: COMPLETED"), "info"),
+				{ timeout: 10000 },
+			);
+			expect(phases).toContain("IMPLEMENT");
+			expect(phases).toContain("SELF_CHECK");
+			expect(phases).toContain("COMPLETE");
+			if (goal.startsWith("Delete")) expect(phases).toContain("APPROVAL");
+			const graph = await owner.call("graph");
+			expect(graph).not.toContain("Observer delivery failures");
+			expect(opens).toHaveBeenCalledTimes(1);
+		},
+	);
+	it.each([false, true])("V0.2A keeps R3 approval and mutation distinct after approval=%s", async (approved) => {
+		const report = await workflow("Delete file src/obsolete.ts", {
+			requestApproval: async (request) => answer(request, approved),
+		}).execute();
+		expect(report.run?.status).toBe(approved ? "COMPLETED" : "BLOCKED");
+		const text = await host().call("graph");
+		expect(text).toContain(`[Human Approval #1] ${approved ? "PASS (CONSUMED)" : "BLOCKED (DENIED)"}`);
+		expect(text).toContain(`[Mutation #1] ${approved ? "PASS" : "SKIPPED"}`);
+		expect(report.run?.phase).toBe(approved ? "COMPLETE" : "IMPLEMENT");
+	});
+	it("V0.2A cancels a live Worker without graph queries executing or resuming it", async () => {
+		let entered = false;
+		harness.setResponses([
+			async (_context, options) => {
+				entered = true;
+				await new Promise<void>((resolve) => {
+					if (options?.signal?.aborted) resolve();
+					else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("late");
+			},
+		]);
+		const owner = host(true);
+		await owner.call("workflow", "run Fix bug");
+		await vi.waitFor(() => expect(entered).toBe(true));
+		const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
+		const calls = harness.faux.state.callCount;
+		const opens = vi.spyOn(FileStateStore, "open");
+		expect(await owner.call("graph")).toContain("[Developer #1] RUNNING");
+		expect(opens).not.toHaveBeenCalled();
+		expect(harness.faux.state.callCount).toBe(calls);
+		expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
+		await owner.call("workflow", "cancel");
+		const text = await host().call("graph");
+		expect(text).toContain("[Developer #1] CANCELLED");
+		expect(text).toContain("[Complete #1] SKIPPED");
+		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+	});
+	it("V0.2A preserves historical PASS but shows a real stale-evidence BLOCK at COMPLETE", async () => {
+		reviseUntil = 0;
+		const owner = host(true, {
+			emit: (event) => {
+				if (event.type === "StepStarted" && event.step.stepId === "complete")
+					writeFileSync(join(cwd, "src/stale.ts"), "external change\n");
+			},
+		});
+		await owner.call("workflow", "run Fix bug");
+		await vi.waitFor(
+			() => expect(owner.notify).toHaveBeenCalledWith(expect.stringContaining("Status: BLOCKED"), "warning"),
+			{ timeout: 10000 },
+		);
+		const text = await host().call("graph");
+		expect(text).toContain("[Reviewer #1] PASS");
+		expect(text).toContain("[Complete #1] BLOCKED");
+		expect(text).toContain("review is stale");
+	});
 	it("honors configured three revision cycles and preserves every accepted review/handoff/check step", async () => {
 		const report = await workflow().execute();
 		expect(report.run?.status).toBe("COMPLETED");
@@ -251,6 +375,10 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 		expect(await reader.call("state", "review")).toContain("REVISE | code revision 2");
 		expect(await reader.call("state", "decisions")).toContain(`review:${report.run!.runId}:3`);
 		expect(await reader.call("team")).toContain("4 session(s)");
+		const graph = await reader.call("graph");
+		expect(graph).toContain("-- REVISE --> [Developer #2]");
+		expect(graph).toContain("[Reviewer #4] PASS");
+		expect(graph).toContain("[Complete #4] PASS");
 		expect(reader.createModels).not.toHaveBeenCalled();
 		expect(harness.faux.state.callCount).toBe(calls);
 		expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
@@ -267,6 +395,9 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 			"REVISE",
 		]);
 		expect(report.run?.roleSessionRefs).toHaveLength(8);
+		const graph = await host().call("graph");
+		expect(graph).toContain("[Reviewer #4] BLOCKED (review REVISE)");
+		expect(graph).not.toContain("Developer #5");
 	});
 	it.each(["QUICK", "R3"])("keeps %s at zero revisions despite STANDARD's config value three", async (kind) => {
 		const report = await workflow(kind === "QUICK" ? "Fix typo in src/app.ts" : "Delete file src/obsolete.ts", {
@@ -342,6 +473,9 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 		const reader = host();
 		expect(await reader.call("state")).toContain("WAITING_APPROVAL");
 		expect(await reader.call("risk")).toContain("Human approval: PENDING");
+		expect(await reader.call("graph")).toContain(
+			"[Human Approval #1] WAITING_APPROVAL (PENDING) [inside implement:1]",
+		);
 		expect(await reader.call("state", "export")).toContain("active/unconfirmed writer");
 		expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
 		expect(reader.createModels).not.toHaveBeenCalled();
@@ -386,6 +520,10 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 		const output = await reader.call("state");
 		expect(output).toContain("Status: FAILED");
 		expect(output).toContain("Durable status: RUNNING");
+		const graph = await reader.call("graph");
+		expect(graph).toContain("STANDARD / R1 / FAILED");
+		expect(graph).toContain("[Complete #1] FAIL");
+		expect(graph).toContain("Durable status: RUNNING");
 		expect(readFileSync(join(cwd, ".ai/state.json"), "utf8")).toBe(before);
 	});
 	it("state corruption is never hidden by a previous successful local command result", async () => {
@@ -398,6 +536,7 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 		);
 		writeFileSync(join(cwd, ".ai/state.json"), "CORRUPTED");
 		expect(await reader.call("state")).toContain("integrity");
+		expect(await reader.call("graph")).toContain("integrity");
 		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
 		expect(reader.createModels).toHaveBeenCalledTimes(1);
 	});

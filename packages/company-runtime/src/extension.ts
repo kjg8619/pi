@@ -9,6 +9,7 @@ import {
 import { PiAgentExecutor } from "./agent-runner.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
+import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
 import {
 	displayText,
 	formatConfiguration,
@@ -129,8 +130,9 @@ export function registerCompanyRuntime(
 		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state export",
 		team: "/team [runId]",
 		risk: "/risk [runId]",
+		graph: "/graph [latest|runId]",
 	};
-	for (const name of ["team", "state", "workflow", "risk"] as const) {
+	for (const name of ["team", "state", "workflow", "risk", "graph"] as const) {
 		pi.registerCommand(name, {
 			description: `Weavra ${name} (QUICK R0/R1, STANDARD R0/R1/R2, scoped R3); /${name} help`,
 			handler: async (args, ctx) => {
@@ -144,7 +146,7 @@ export function registerCompanyRuntime(
 					if (argument === "help") {
 						ctx.ui.notify(
 							[
-								"Weavra v0.1 RC1 (development)",
+								name === "graph" ? "Weavra Graph — V0.2A (read-only)" : "Weavra v0.1 RC1 (development)",
 								usage[name],
 								...(name === "workflow"
 									? [
@@ -157,9 +159,17 @@ export function registerCompanyRuntime(
 											usage.state,
 											usage.team,
 											usage.risk,
+											usage.graph,
 										]
 									: [
 											"Read-only snapshots: omitted runId/latest selects the latest run; stored PASS is not a live check.",
+											...(name === "graph"
+												? [
+														"DAG projection only: attempts are unrolled; Approval/Mutation remain inside IMPLEMENT.",
+														"No lock, repair, resume, Provider, Agent or Git calls. Missing outcomes are UNKNOWN.",
+														"No scheduler, node retry, parallel execution, Planner/Lead or COMPLEX graph.",
+													]
+												: []),
 											...(name === "state"
 												? ["Only /state export writes derived views; it does not resume a run."]
 												: []),
@@ -378,14 +388,32 @@ export function registerCompanyRuntime(
 						if (parts.length > 1) throw new ObservationInputError(usage[name]);
 						id = parts[0];
 					}
-					if (pending && project === ctx.cwd && !workflow?.snapshot && !id) {
+					if (
+						pending &&
+						project === ctx.cwd &&
+						!workflow?.snapshot &&
+						(!id || (name === "graph" && id === "latest"))
+					) {
 						ctx.ui.notify("Weavra: preflight in progress; /workflow cancel is available.", "info");
 						return;
 					}
 					const view = await inspect(ctx, id);
+					if (name === "graph") {
+						const output = [
+							view.run
+								? renderGraphText(projectRunGraph(view.run))
+								: "Weavra Graph: state missing or no run recorded.",
+							`Source: ${displayText(view.source)}; stored active state is not proof of a live worker.`,
+							...(view.diagnostics ?? []).map((message) => `Warning: ${displayText(message)}`),
+							...(view.report?.diagnostics ?? []).map((message) => `Warning: ${displayText(message)}`),
+							...(view.report?.error ? [`Local report: ${displayText(view.report.error)}`] : []),
+						].join("\n");
+						ctx.ui.notify(displayText(output, 32000, true), view.run ? "info" : "warning");
+						return;
+					}
 					ctx.ui.notify(formatRunView(name, view, detail, number), view.run ? "info" : "warning");
 				} catch (error) {
-					if (error instanceof ObservationInputError) {
+					if (error instanceof ObservationInputError || error instanceof GraphProjectionError) {
 						ctx.ui.notify(error.message, "warning");
 						return;
 					}
@@ -403,7 +431,7 @@ export function registerCompanyRuntime(
 			statusUI = ctx.ui;
 			clearStatus();
 			ctx.ui.notify(
-				"Weavra Runtime loaded — v0.1 RC1 (development)\nQUICK / STANDARD · R0–R2 / scoped R3\n/workflow · /state · /team · /risk — /workflow help",
+				"Weavra Runtime loaded — v0.1 RC1 (development)\nQUICK / STANDARD · R0–R2 / scoped R3\n/workflow · /state · /team · /risk · /graph — /workflow help",
 				"info",
 			);
 		}

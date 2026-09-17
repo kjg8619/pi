@@ -64,9 +64,9 @@ afterEach(async () => {
 });
 
 describe("S4 extension and S0 loader/trust regression", () => {
-	it("registers four commands and lifecycle/input guards without starting anything", async () => {
+	it("registers five commands and lifecycle/input guards without starting anything", async () => {
 		const host = commands();
-		expect([...host.registered.keys()]).toEqual(["team", "state", "workflow", "risk"]);
+		expect([...host.registered.keys()]).toEqual(["team", "state", "workflow", "risk", "graph"]);
 		expect(host.on.mock.calls.map(([name]) => name)).toEqual([
 			"session_start",
 			"input",
@@ -89,7 +89,7 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		expect(result.errors).toEqual([]);
 		expect(result.extensions).toHaveLength(1);
 		const extension = result.extensions[0];
-		expect([...extension.commands.keys()]).toEqual(["team", "state", "workflow", "risk"]);
+		expect([...extension.commands.keys()]).toEqual(["team", "state", "workflow", "risk", "graph"]);
 		expect(extension.tools.size).toBe(0);
 		expect(extension.handlers.size).toBe(8);
 		expect(result.runtime.pendingProviderRegistrations).toEqual([]);
@@ -154,7 +154,7 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		await writeFile(join(cwd, ".ai/config.yaml"), config);
 		await writeFile(join(cwd, ".ai/state.json"), "corrupt state");
 		const host = commands();
-		for (const name of ["team", "state", "workflow", "risk"]) {
+		for (const name of ["team", "state", "workflow", "risk", "graph"]) {
 			await host.call(name);
 			expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("integrity"), "error");
 		}

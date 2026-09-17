@@ -15,6 +15,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - Scoped R3: Git 추적 텍스트 파일 한 개 삭제에 한정한 1회 Human Approval.
 - 실제 Git diff/digest, 등록 checks, 부분 변경 보고, 명시적 취소와 읽기 전용 상태 조회.
 - Pi 기본 footer에 로컬 workflow/risk/phase·active role 및 마지막 종료 결과를 표시하는 Status Projection.
+- V0.2A: `/graph`로 기존 Run·attempt·Review·Check·Approval을 읽는 순수 DAG Projection과 ASCII 조회.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -179,6 +180,7 @@ verification:
 | `/state export` | idle/terminal 상태에서 파생 결정·check 파일 생성 |
 | `/team [runId]` | 역할·profile·독립 세션 참조 |
 | `/risk [runId]` | 분류·Policy·Approval 상태 |
+| `/graph [latest\|runId]` | 읽기 전용 DAG Projection; 실행/재시도 기능 없음 |
 
 runId 생략 또는 `latest`는 최신 run이다. 조회는 worker/check를 재실행하지 않는다. 저장된 PASS는 기록 시점의 증거이며 현재 파일 상태나 프로세스 생존을 보장하지 않는다.
 
@@ -203,6 +205,49 @@ Weavra · CANCELLED
 - 실행 소유권이 끝났는데 snapshot이 active라면 `Weavra · UNCONFIRMED · /state`, final report에 별도 저장/정리 오류가 있으면 `Weavra · ATTENTION · /state`로 표시한다.
 - 다른 extension의 status 키를 건드리지 않고 footer를 교체하지 않는다. 외부 footer도 Pi의 extension statuses를 표시하면 공존할 수 있다. `pi-footer` 설치는 필요 없다.
 - TUI에만 표시한다. 표시/clear 실패는 best-effort이며 실행 결과·취소·cleanup을 바꾸지 않는다. UI API 자체가 고장 난 경우 실제 화면의 stale 문자 제거까지 보장할 수는 없다.
+
+## V0.2A — Read-only DAG Projection
+
+```text
+/graph
+/graph latest
+/graph <full-run-id>
+/graph help
+```
+
+DAG는 순환 없는 방향 그래프다. V0.2A는 **기존 순차 실행을 표시할 뿐 실행 순서를 결정하지 않는다.** `/state`와 같은 조회 경계를 사용하며, 현재 Host 소유 run은 live Kernel snapshot을, 그 밖에는 `.ai/state.json`을 읽는다. reload 후 terminal graph도 state.json만으로 다시 만든다. 알려지지 않은 run ID는 다른 run으로 대체하지 않는다.
+
+출력 예시(헤더와 check 상세를 생략한 STANDARD 일부):
+
+```text
+[Developer #1] PASS
+  -- sequence --> [Self Check #1]
+[Self Check #1] PASS
+  -- sequence --> [Reviewer #1]
+[Reviewer #1] REVISE (review REVISE)
+  -- REVISE --> [Developer #2]
+[Developer #2] PASS
+  -- sequence --> [Self Check #2]
+[Self Check #2] PASS
+  -- sequence --> [Reviewer #2]
+[Reviewer #2] PASS (review PASS)
+  -- PASS required --> [Test #2]
+[Test #2] PASS
+  -- sequence --> [Complete #2]
+[Complete #2] PASS
+```
+
+- QUICK에는 Reviewer node가 없다. STANDARD 재작업은 `review:1 -> implement:2`처럼 attempt별 node로 펼쳐 순환을 만들지 않는다. 이전 REVISE attempt에서 선택되지 않은 TEST/COMPLETE를 실행된 것으로 그리지 않는다.
+- R3의 `approval:1`, `mutation:1`은 `implement:1` 안의 projection detail이다. `contains`/`approval required` 관계로 표시하며 독립 Kernel step이나 Developer 종료를 뜻하지 않는다. APPROVED는 consent일 뿐 mutation PASS가 아니다. Run에 CONSUMED가 남았을 때만 scoped mutation을 PASS로 표시하고, 이후 실패/취소가 이를 rollback했다고 해석하지 않는다. 소비 기록이 불확실하면 UNKNOWN이며 `/state decisions`에서 action 기록을 별도로 확인한다.
+- node 상태는 PENDING/RUNNING/PASS/FAIL/BLOCKED/CANCELLED/SKIPPED/WAITING_APPROVAL/REVISE/UNKNOWN으로 표시한다. 원본 Run/Review/Check/Approval 값을 재작성하지 않는다. 헤더 status는 원본 Run의 기록이고, node PASS도 현재 파일 검증이나 전체 run 성공을 뜻하지 않는다. stale evidence로 COMPLETE가 BLOCKED여도 과거 Reviewer/check PASS는 그대로 남는다.
+- 전체 step 이력은 저장돼 있지 않다. 구현 결과 또는 후속 check/review가 남은 attempt만 구현 결과를 확인하며, step metadata 없는 check는 SELF_CHECK/TEST에 임의 배정하지 않는다. 누락 결과는 UNKNOWN, 모순된 identity/phase/attempt·손상 source는 graph 거부다. 저장된 COMPLETED라도 step 근거가 불완전하면 Complete node를 UNKNOWN으로 남긴다.
+- RUNNING은 snapshot의 현재 단계 표시이며 OS process liveness 보장이 아니다. 저장된 active 상태와 writer 존재도 live 실행의 증거로 승격하지 않는다. 로컬 저장 실패와 durable 상태가 다르면 기존 `/state`처럼 출처와 차이를 표시한다.
+
+**조회에서 writer lock 획득, state repair/resume, Provider/Agent 실행, approval 변경, Git 실행·mutation을 하지 않는다.** config/auth 없이 조회할 수 있지만 project trust와 알림 가능한 TUI/RPC는 필요하다. Print/JSON에서는 기존 명령과 같이 명시적으로 거부한다. 그래프 출력은 약 32,000자로 제한하고 제어 문자를 escape한다.
+
+`src/graph.ts`의 `GraphProjection`/`GraphNode`/`GraphEdge`는 Pi/UI/파일 시스템 타입 없는 DTO다. node ID와 node/edge/check 순서는 deterministic하다. `/graph` 호출마다 계산하며 자동 갱신·event replay·graph DB/cache는 없다. RuntimeEvent는 향후 viewer에서 snapshot 재계산 trigger로만 연결할 수 있고, 현재 자동 테스트는 실제 event 경계에서도 같은 snapshot projection과 무변경 조회를 확인한다.
+
+DAG Scheduler, node 실행/retry, drag/drop, workflow 편집, parallel node, dynamic scheduling, Planner/Lead, COMPLEX, T3Code, Web UI는 구현하지 않았다. 기존 Status Projection과 Worktree Launcher도 그대로다.
 
 ## Workflow & Risk
 
@@ -234,7 +279,7 @@ DeepSeek/다른 Provider, Linux/다른 OS·Node 조합, 전체 upstream e2e 및 
 
 ## Roadmap
 
-다음 후보는 기존 state/event를 **읽기 전용 DAG Projection으로 시각화**하는 단계다. 아직 구현되지 않았다. 실행 scheduler나 workflow semantics 변경과 분리하여 설계·검증한다. COMPLEX/Planner/Lead/병렬화/T3Code는 별도 향후 범위이며 이번 제품 기능이 아니다.
+V0.2A는 순수 DTO와 `/graph` ASCII 조회다. 이 단계가 안정화된 뒤 **V0.2B — TUI DAG Viewer**에서 동일 `GraphProjection` DTO를 재사용할 수 있다. V0.2B는 아직 구현하지 않았으며 Kernel을 UI에 종속시키지 않는다. 실행 scheduler/COMPLEX/Planner/Lead/병렬화/T3Code는 별도 범위다.
 
 내부 `CompanyKernel`, `CompanyExtensionOptions`, `registerCompanyRuntime`, `packages/company-runtime`, 세션 경로와 package `0.85.1` 메타데이터는 유지한다. 이는 Weavra 제품 버전이 아니다. 안정된 worker prompt와 역사적 설계/validation 기록의 기존 명칭도 보존한다. 상세 구현은 [Runtime 문서](packages/company-runtime/README.md), 작업 기록은 [WORK_LOG](docs/WORK_LOG.md)를 참고한다.
 

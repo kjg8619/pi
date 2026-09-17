@@ -138,14 +138,14 @@ describe("Weavra fork-local launcher (POSIX)", () => {
 		expect(result.status).toBe(0);
 		expect(JSON.parse(result.stdout)).toMatchObject({ cli, cwd, args: ["-e", extension] });
 	});
-	it("registers the four commands through the public Pi loader using the injected absolute Extension path", async () => {
+	it("registers the five commands through the public Pi loader using the injected absolute Extension path", async () => {
 		const result = run();
 		expect(result.status).toBe(0);
 		const { args } = JSON.parse(result.stdout) as { args: string[] };
 		const loaded = await discoverAndLoadExtensions([args[1]], cwd, join(root, "agent"));
 		expect(loaded.errors).toEqual([]);
 		expect(loaded.extensions).toHaveLength(1);
-		expect([...loaded.extensions[0].commands.keys()].sort()).toEqual(["risk", "state", "team", "workflow"]);
+		expect([...loaded.extensions[0].commands.keys()].sort()).toEqual(["graph", "risk", "state", "team", "workflow"]);
 		for (const command of loaded.extensions[0].commands.values()) expect(command.description).toContain("Weavra");
 	});
 	it("returns the local Pi exit code", () => {

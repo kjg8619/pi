@@ -79,8 +79,9 @@ Weavra Extension의 소스 TypeScript는 local Pi가 로드하므로 **company-r
 | `/state review [runId]`, `/state decisions [runId] [page]` | 회차별 review / 구조화 운영 결정 |
 | `/team [runId]`, `/risk [runId]` | 역할/profile/session 참조 / 분류·Policy·Approval 상태 |
 | `/state export` | idle/terminal 상태의 운영 결정·check projection을 명시적으로 생성 |
+| `/graph [latest\|runId]`, `/graph help` | V0.2A 읽기 전용 DAG Projection; 실행 기능 없음 |
 
-Factory는 네 명령과 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
+Factory는 기존 네 명령 및 `/graph`와 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
 
 ## Weavra Status Projection
 
@@ -96,6 +97,22 @@ TUI에서 현재 Host가 소유한 `StandardWorkflow.snapshot`(기존 Kernel sna
 - 기존 Pi footer와 다른 키의 status를 유지한다. 외부 footer가 공식 extension status map(`getExtensionStatuses()`)을 렌더링하면 같은 키를 사용할 수 있다. 외부 extension 의존성·footer 교체·RPC/Print/JSON status 출력은 추가하지 않는다.
 
 구체적인 live transition·승인·취소·lifecycle·UI 실패 검증은 `test/status.test.ts` 및 `packages/coding-agent/test/suite/company-runtime-status.test.ts`의 기존 harness/faux 통합을 따른다.
+
+## V0.2A Graph Projection
+
+`src/graph.ts`의 `projectRunGraph(snapshot)`과 `renderGraphText(graph)`는 순수 함수다. `GraphProjection`은 `{runId, workflow, risk, status, stateRevision, recordedAt, nodes, edges, diagnostics}`이며 원본 Run status를 유지한다. node에는 deterministic `id`, `kind`, `label`, 정규화 `status`, 선택적 `stepId/attempt/role/parentId/verdict/approvalStatus/checks/detail`이 있다. edge의 `kind`는 `sequence/pass/revise/next_attempt/contains/approved`다. 실행 명령이나 scheduler dependency로 사용하지 않는다.
+
+- `implement:1`, `self-check:1`, `review:1` 등 실제 Step/attempt를 사용한다. QUICK은 implement/self-check/test/complete, STANDARD는 review를 포함한다. role은 해당 workflow 단계의 Executor/Developer/Reviewer이며 per-attempt 정보가 없는 session 참조를 임의 배정하지 않는다.
+- `revisionCycle + 1`까지 기록된 attempt만 펼친다. 이전 attempt는 implement/self-check/review까지만 표시하고 현재 attempt에는 남은 TEST/COMPLETE를 포함한다. 실제 REVISE 기록이면 다음 attempt로 `revise` edge를, 과거 review가 누락됐으면 `next_attempt`와 UNKNOWN을 표시한다. 순환·추가 실행 attempt를 만들지 않는다.
+- 현재 node는 Run의 현재 단계/종료 결과를 반영한다. 이전 implement는 같은 attempt의 수락된 handoff 또는 후속 check/review로 확인한다. verification은 정확한 step/attempt에 연결된 결과를 정렬해 표시하며 required 미실행·FAIL과 원본 PASS/exit를 구분한다. 이력의 PASS는 현재 diff/check 재검증이나 전체 완료 판정이 아니다.
+- node 상태는 `pending/running/passed/failed/blocked/cancelled/skipped/waiting_approval/revised/unknown`이다. current 단계 RUNNING은 선택된 단계 표시이며 실제 process 생존 증명이 아니다. 미진입 terminal 후속 단계는 skipped, 기록 누락/INTERRUPTED의 실행 결과 미확인은 unknown이다. 원본의 INTERRUPTED를 CANCELLED로 재기록하지 않는다.
+- R3 `approval:1`/`mutation:1`은 `parentId: implement:1`, `stepId: implement`을 가진 projection-only detail이다. `contains` 관계는 Developer 완료나 새로운 Kernel step을 뜻하지 않는다. PENDING은 waiting_approval, DENIED/EXPIRED는 blocked, APPROVED/CONSUMED는 승인 결과 passed다. mutation은 CONSUMED만 passed이며, 승인 후 소비 기록 없이 종료되면 effect를 unknown으로 남긴다. action audit 추가 확인은 `/state decisions`를 사용한다. 소비 이후 실패/취소는 이미 기록된 mutation을 rollback하지 않는다.
+- Run shape 및 identity/phase/attempt/중복 metadata가 잘못됐으면 `GraphProjectionError`로 거부한다. 선택적 과거 기록 누락은 UNKNOWN과 진단으로 표시한다. COMPLETED 헤더를 보존하더라도 current-attempt 근거가 불완전하면 completion node는 unknown이다. Kernel guard를 실행하거나 완료 상태를 수정하는 기능이 아니다.
+- V0.2A 한도는 attempt 4개, review 4개, scoped approval 1개, check 1,000개다. 출력은 약 32,000자로 제한하고 원본 데이터의 terminal/bidi 제어 문자를 escape한다. malformed/과대 state를 무제한 node로 확장하지 않는다.
+
+`/graph`, `/graph latest`, `/graph <full-run-id>`는 기존 Extension `inspect`와 `FileStateStore.readSnapshot`의 read-only 경계를 공유한다. live owner snapshot 또는 저장 Run만 읽고 lock/repair/recovery/resume, config/model/auth, Provider/Agent, Approval/State 변경, Git 호출을 하지 않는다. missing source/orphan/corrupt state는 이전 graph/export로 대체하지 않는다. source/recorded 정보, 저장 active 상태의 liveness 미확인, local failure/durable status 차이를 기존 조회처럼 알린다. 별도 graph 저장·캐시·polling·RuntimeEvent 재생은 없다.
+
+첫 버전은 호출 시점의 ASCII adjacency 출력이며 자동 갱신 UI가 아니다. 실제 RuntimeEvent 경계의 faux 통합 테스트에서 현재 snapshot을 다시 읽어도 node/edge가 동일하고 조회 중 state bytes·Provider 호출 수·writer 획득 수가 변하지 않음을 검증한다. 그래프는 이벤트 내용을 다음 상태로 해석하지 않는다. **V0.2B TUI Viewer는 이 DTO를 재사용하는 후속 단계**이며 이번에 구현하지 않았다. Scheduler/parallel/dynamic dependencies/node retry/Planner/Lead/COMPLEX/T3Code/Web UI, 기존 Runtime/Status/Worktree semantics 변경은 없다.
 
 ## 설정 schema 1
 
@@ -465,6 +482,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/host-boundary.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider

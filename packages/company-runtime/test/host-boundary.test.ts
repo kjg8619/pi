@@ -3,9 +3,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 
-it("keeps Kernel and Policy import graphs free of Pi, UI, provider and filesystem adapters", () => {
+it("keeps Kernel, Policy and Graph import graphs free of Pi, UI, provider and filesystem adapters", () => {
 	const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
-	const pending = ["kernel.ts", "classification.ts", "ports.ts", "events.ts", "policy.ts"].map((name) =>
+	const pending = ["kernel.ts", "classification.ts", "ports.ts", "events.ts", "policy.ts", "graph.ts"].map((name) =>
 		resolve(sourceRoot, name),
 	);
 	const visited = new Set<string>();
