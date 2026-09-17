@@ -101,8 +101,9 @@ Weavra Extension의 소스 TypeScript는 local Pi가 로드하므로 **company-r
 | `/state export` | idle/terminal 상태의 운영 결정·check projection을 명시적으로 생성 |
 | `/graph [latest\|runId]`, `/graph help` | V0.2A 읽기 전용 ASCII snapshot; 실행 기능 없음 |
 | `/graph view [latest\|runId]` | V0.2B 정적 read-only TUI overlay; navigation/close만 지원 |
+| `/lsp [status]` | V0.3B read-only 프로젝트 LSP 설정/process 조회; 서버/Provider 시작 없음 |
 
-Factory는 기존 네 명령 및 `/graph`와 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
+Factory는 기존 네 명령 및 `/graph`, `/lsp`와 lifecycle/input 보호 훅, TUI `session_start`의 짧은 Weavra 로드 알림만 등록한다. 시작 시 config/state I/O·Agent 실행은 하지 않고 기존 Pi 헤더를 교체하지 않는다. Print/JSON/RPC에는 시작 배너를 출력하지 않는다. 모든 명령은 project trust를 요구한다. run/config는 `.ai/config.yaml`을 검사하지만 상태 조회는 config/model/auth 없이 저장된 source를 읽는다. run은 부모 Agent가 idle일 때만 시작하며 등록된 check 실행을 UI에서 확인받는다. 활성 run 동안 일반 입력·부모 도구·user bash를 차단한다. 명령은 빠르게 반환하므로 status/cancel을 계속 사용할 수 있다. 설정 생성·자동 모델 대체·일반 대화의 조직 실행 변환은 없다.
 
 ## Weavra Status Projection
 
@@ -192,6 +193,77 @@ Runtime이 직접 만든 `StaleAnchorError`만 tool call ID에 묶어 runner가 
 QUICK/R1 prompt와 edit 설명에 `Existing-file edits should prefer an anchored read followed by anchored edit. If an anchor is stale, re-read the file. Never guess or reconstruct an anchor.`를 넣는다. 이 안내는 권한이 아니며 실제 enforcement는 도구 구현이다. anchored mode는 기존 edit 권한 안에서 optional이고 STANDARD/R2에 강제하지 않는다. QUICK scope와 STANDARD/R2 binding의 분리, Reviewer read-only, R3 삭제·승인, Kernel/Verification/Graph/Viewer/Worktree/Product Isolation 의미는 그대로다.
 
 **Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 실제 사용 검증 뒤 별도 결정한다. 자동 unit/filesystem/SDK-faux와 별도로 `codex-lb / gpt-6-astra`의 [실제 Provider smoke](../../docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)에서 anchored mode 선택·두 번째 occurrence만 수정→QUICK COMPLETE와 외부 변경→old anchor→STALE_ANCHOR/bytes 보존을 확인했다. stale run은 실패 확인 뒤 harness가 취소했으며 실제 모델의 stale 후 재읽기/복구는 이번 smoke 범위가 아니다.
+
+## V0.3B Read-only LSP
+
+### 설정 / Port / 구조
+
+기존 `.ai/config.yaml`에 명시적으로 추가한다. 생략 시 code intelligence는 disabled이고 기존 normalized config/digest 재료도 유지한다.
+
+```yaml
+code_intelligence:
+  lsp:
+    enabled: true
+    servers:
+      - id: typescript
+        executable: typescript-language-server
+        args: [--stdio]
+        extensions: [.ts, .tsx, .js, .jsx]
+        timeout_ms: 10000
+```
+
+- 서버 최대 4개. ID는 ASCII alphanumeric/underscore/hyphen, 최대 64자이며 unique다. extensions는 lowercase `.ts` 형태, 서버당 최대 32개이며 전체 routing에서 unique다. args는 최대 32개, 문자열당 4,096자다. timeout 기본 10,000ms, 범위 100–60,000ms다. enabled=true는 적어도 한 서버 등록을 요구한다.
+- executable은 PATH 이름 또는 절대 경로를 해석하며 상대 실행 경로·shell command string·shell/wrapper/inline eval·install wrapper는 거부한다. executable resolution/spawn 실패는 UNAVAILABLE이지 PASS가 아니다. env/initialization 설정을 임의로 확장하거나 builtin server/extension 자동 discovery·자동 설치를 하지 않는다.
+- `lsp/types.ts`의 DTO/schema와 `LspPort`(diagnostics/definition/references/symbols, close, safeToRelease/cleanupFailed)는 Host-independent이며 SDK/TUI/Provider/fs 타입을 포함하지 않는다. trusted `AgentExecutionRequest.lsp`는 Workflow가 연결하고 Pi runner의 data clone/prompt에서는 제외한다. Kernel은 LSP를 호출하거나 상태를 판정하지 않는다.
+- `lsp/protocol.ts`는 bounded byte framer/errors, `client.ts`는 stdio connection/document synchronization/process cleanup, `manager.ts`는 run-scoped routing/reuse/retry, `files.ts`/`normalize.ts`는 safe file/URI/result 경계, `evidence.ts`는 verifier-owned snapshot, `tools.ts`/`command.ts`는 Pi adapter다.
+- `code-yeongyu/pi-lsp-client`의 MIT repository commit `1c981dfcacc456fe4ce9f4120a2f0250b54d6844`와 LICENSE/NOTICE를 조사했다. lifecycle/typed crash retry 개념만 참고하고 독립 구현했다. 코드를 직접 복사하거나 extension을 설치하지 않았으며 OMO SUL-1.0 코드를 차용하지 않았다. 새 dependency/lockfile/license 파일 변경은 없다.
+
+### Lifecycle / Protocol
+
+`StandardWorkflow`가 run 하나의 manager를 소유한다. 첫 허가된 query 때 `spawn(shell:false, detached POSIX process group)` → initialize → initialized, 이후 같은 서버를 재사용한다. root는 canonical project root 하나다. query는 순차 1개이며 동시 query는 queue를 무제한 늘리지 않고 거부한다. 따라서 global pool/refCount/idle reaper는 V1에 필요하지 않다.
+
+- 같은 `LspPort`를 worker와 verifier가 공유한다. worker 종료가 server 종료를 뜻하지 않으며 COMPLETE 진입 전 `close()`하고 finally에서도 idempotent cleanup한다. shutdown/exit 유예 후 TERM/KILL과 원래 process group 소멸을 확인한다. timeout은 query 예산이고 정리 완료의 절대 기한이 아니다.
+- cleanup 미확인은 `ProcessCleanupError`/cleanupFailed로 후속 workspace 수집·완료를 막고 기존 writer lease를 보존한다. 실패·취소도 자원 정리를 기다린다. 서버가 종료하며 남긴 같은 group의 descendants도 종료한다. Host 강제 crash나 별도 group으로 탈출한 daemon은 기존 POSIX/비-sandbox 한계다.
+- query는 요청 전 디스크의 exact UTF-8 text를 didOpen으로 보내고 요청 뒤 didClose한다. version은 서버별 단조 증가하고 push diagnostic cache는 현재 문서/요청에만 존재한다. explicit pull을 지원하면 `textDocument/diagnostic`의 full report를 요구한다. push-only는 현재 URI와 일치하는 version 또는 unversioned notification을 기다려 bounded quiet snapshot을 반환한다. **push에는 완료 acknowledgement가 없으므로 빈 배열도 PARTIAL**이며 이전 cache/timeout을 0 diagnostics로 위장하지 않는다.
+- 공개 좌표는 1-based UTF-16, adapter에서 0-based로 변환한다. 파일 범위 밖과 surrogate pair 중간 position은 거부한다. 서버의 다른 positionEncoding은 지원하지 않는다.
+- 최대 frame 1 MiB, receive/write queue buffer 2 MiB, header 4 KiB, pending transport requests 16개, 수신 batch 256 messages, server→client requests connection당 256개, stderr capture 16 KiB다. stderr 원문은 모델/오류 로그로 복제하지 않는다. malformed Content-Length/UTF-8/JSON/envelope/result/range는 실패로 닫는다.
+- client request allowlist에는 initialize/shutdown과 네 read query만 있다. `workspace/applyEdit`는 항상 `applied:false`, 나머지 미지원 server request는 -32601이다. configuration은 최대 64개 항목에 null, workspaceFolders는 고정 root, workDoneProgress/create는 null만 반환한다. dynamic registration/workspace edit를 수락하지 않는다.
+- **typed CLOSED/EXITED만 query당 새 서버에서 최대 1회 retry**한다. 먼저 이전 process cleanup을 확인하며 재시도 전 파일 digest도 재확인한다. timeout/cancellation/malformed/RPC/policy/stale에는 자동 retry가 없다. retired connection은 cleanup 확인 후 참조를 해제한다.
+- 기존 `verificationEnvironment()`를 재사용해 HOME/NODE_OPTIONS/provider credentials 등을 상속하지 않는다. TypeScript의 automatic typing acquisition을 initialize 옵션으로 끈다. 외부 서버/플러그인의 직접 I/O·네트워크를 OS 수준으로 sandbox하는 것은 아니므로 explicit registration은 reviewed executable에 대한 신뢰를 요구한다.
+
+### Policy / freshness / 결과 의미
+
+LSP를 활성화할 때만 `LSP_READ_TOOLS` 4개를 **operation: read / R0**로 Policy metadata에 등록한다. `WORKER_FILE_TOOLS`와 edit/write의 R1/R2 의미는 불변이다. 기존 config digest가 explicit LSP 설정/도구 등록/로컬 보호 script를 포함한다. 이 입력을 tool 인자로 바꾸거나 arbitrary 실행 capability를 모델에게 주지 않는다.
+
+worker 도구는 기존 Policy→durable intent→path 재검사→실행→audit gate를 거친다. manager도 verifier query를 포함해 기존 `runtime_read` 정책으로 file access를 확인한다. literal allowed/protected/regular/single-link/no-follow/nonblocking 및 256 KiB strict UTF-8/non-NUL 경계를 사용한다. bidi/control 경로는 보수적으로 거부한다. 명시적인 workspace-local LSP executable/script도 worker 보호 경로에 포함한다.
+
+- definition/references/SymbolInformation 결과의 URI를 workspace 상대 path로 변환한 뒤 같은 Policy와 path inspector를 적용한다. 외부 workspace, `.git/.ai/.env/credentials`, allowed_paths 밖, symlink/hardlink/unsafe/non-file, remote/query/hash URI는 **항목 전체(이름 포함)를 withheld**하며 raw URI/파일 내용을 노출하지 않는다. documentSymbol의 location도 요청 문서로 제한한다. relatedInformation/외부 URI metadata는 반환하지 않는다.
+- diagnostics/locations/symbols는 position/path/content 기준 deterministic 정렬이다. 최대 128개 항목, 결과 items JSON 약 8 KiB, symbol depth 16이며 withheld/truncated 수와 PARTIAL을 명시한다. message 최대 512 UTF-16 units, name/source/code도 별도 제한 후 control/bidi를 escape한다. 문자열 잘림을 표시한다.
+- disk digest를 query 전후 비교한다. 변경/삭제/unsafe 교체는 **STALE, 결과 arrays 비움, 재-query 필요**다. fuzzy 위치 보정은 하지 않는다. 이 검사는 외부 syscall 경쟁이나 서버의 내부 semantic correctness/다른 문서 cache를 증명하지 않는다.
+- AVAILABLE은 query 성공, UNAVAILABLE은 부재/미지원, PARTIAL은 incomplete/filtered/bounded snapshot, STALE은 변경 감지, ERROR는 timeout/protocol 등이다. diagnostics 0개→PASS, error 존재→FAIL 같은 변환은 없다. audit SUCCEEDED도 도구 응답이 끝났다는 뜻이지 코드 품질 PASS가 아니다.
+
+### Verification / Reviewer
+
+```text
+registered process checks (기존 required/PASS/FAIL)
+  → workspace inspect
+  → routed changed files의 LSP diagnostics
+  → final workspace inspect
+  → VerificationResult {checks, lspEvidence?, evidenceRefs, reviewContext}
+  → 독립 Reviewer
+```
+
+변경 파일 중 설정된 extension에 해당하는 최대 8개만 조회한다. 초과는 PARTIAL summary, 대상이 없거나 삭제/비허용이면 UNAVAILABLE로 명시하고 workspace 전체 diagnostics를 조회했다고 주장하지 않는다. 마지막 workspace digest가 다르면 모든 해당 LSP evidence를 STALE로 표시하며 captured diffDigest를 현재 값으로 바꾸지 않는다. 기존 process CheckResult의 final freshness 검사도 계속 적용한다.
+
+`lspEvidence`는 `{serverId,status,diagnostics,diffDigest,startedAt,finishedAt,evidenceRef,reason,withheld,truncated}`다. `lsp:<runId>:<step>:<attempt>:<index>` refs를 기존 top-level evidenceRefs와 reviewContext.evidence에 정확히 하나씩 추가한다. `trustedReviewEvidenceRefs()`/Reviewer의 exact material count 및 Kernel의 trusted ref guard는 바꾸지 않는다. actual diff/process checks가 항상 함께 제공된다. LSP cancellation 중에도 이미 실행한 process exit/output을 보존하고 기존 cancellation settlement 규칙을 따른다.
+
+**required checks와 Kernel completion rules는 그대로다.** LSP AVAILABLE/빈 진단이 check 누락/실패를 대체하지 않고, UNAVAILABLE/PARTIAL/STALE/ERROR를 PASS로 바꾸지 않는다. LSP 상태 자체는 hard completion gate가 아니지만 cleanup 미확인은 기존 resource guard 대상이다. Reviewer는 계속 mutation 도구 없이 independent 판단을 한다. Run/state schema의 process verification 목록은 바꾸지 않았으며 LSP body는 현재 VerificationResult/Reviewer payload에만 연결한다. 별도 durable LSP cache/evidence store/export는 없고 기존 Pi session 소유권을 유지한다.
+
+### /lsp status / rollout
+
+`/lsp`와 `/lsp status`(help 포함)만 제공한다. project trust/UI를 요구하며 idle에는 현재 config의 executable availability, active run에는 frozen manager metadata를 표시한다. 조회는 config/로컬 PATH만 읽고 서버·Provider·writer/Git process·repair를 시작하지 않는다. READY는 실행 파일 해석일 뿐 initialization/diagnostics/PASS가 아니다. `weavra doctor`의 project-independent 의미는 그대로다.
+
+실제 설치된 `typescript-language-server 5.1.3`의 diagnostics/definition/references/document symbols·workspace 무변경·정리와 `codex-lb/gpt-6-astra`의 STANDARD/R1 edit → verifier-owned PARTIAL diagnostics → 독립 Reviewer → process checks/COMPLETE를 [smoke](../../docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)로 확인했다. 다른 서버/OS/Node, remote/multi-root/global daemon, rename/prepareRename/codeAction/applyEdit/formatting/organizeImports/workspace-wide symbols, 자동 설치/자동 diagnostic fix는 범위 밖이다.
 
 ## 설정 schema 1
 
@@ -353,6 +425,7 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 
 파일 도구는 모두 S2의 검사→intent 저장→재검사→실행→결과 저장을 통과한다. Worker가 role/risk/등록 도구/digest를 지정하지 않는다. Runtime 자신의 소스 디렉터리가 workspace 안에 있으면 자동 보호하고, 추가 제어 파일은 Host의 `protectedPaths`로 제한한다. read/search는 R0, 일반 write/edit는 R1에서 시작하며 dependency 파일은 R2로 승격한다. bound STANDARD/R2가 아니면 실행을 차단하고 새 R2 run을 안내한다. 임의 코드를 분석해 모든 의미적 위험을 자동 판정하는 기능은 아니다.
 
+- V0.3B LSP를 명시적으로 활성화하면 위 네 read-only runtime_lsp_* 도구를 같은 역할들(Executor 포함)에 추가한다. Reviewer에게 mutation authority를 추가하지 않는다.
 - 일반 bash·Pi 기본 도구·외부 custom tool을 설치하지 않는다. 파일 도구는 sequential이며 SDK Agent도 sequential로 설정한다.
 - 텍스트 파일은 256 KiB 이하, legacy edit는 유일한 exact match이며 V0.3A optional anchored edit는 위 계약을 따른다. write는 기존 부모 디렉터리만 지원한다. 검색은 최대 32개 명시 파일의 literal 문자열 검색이며 100개 결과에서 잘림을 표시한다. OS sandbox·원자 코드 변경/rollback은 아니다.
 - `runtime_request_check`는 등록 ID만 받아 Pi tool history에 요청을 남기고 **UNAVAILABLE/미실행**을 반환한다. verifier를 호출하거나 PASS 증거를 만들지 않는다.
@@ -561,12 +634,14 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/anchored-edit.test.ts test/anchored-tools.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/launcher-home.test.ts test/launcher.test.ts test/worktree.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/host-boundary.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-lsp.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-timeout.test.ts test/suite/agent-session-prompt.test.ts
 
 # 저장소 루트에서

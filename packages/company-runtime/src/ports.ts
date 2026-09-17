@@ -14,6 +14,9 @@ import type {
 	VerificationResult,
 } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
+import type { LspPort } from "./lsp/types.ts";
+
+export type { LspPort } from "./lsp/types.ts";
 
 interface StepRequest {
 	runId: string;
@@ -25,6 +28,8 @@ interface StepRequest {
 }
 
 export type AgentExecutionRequest = StepRequest & {
+	/** Trusted run-owned code intelligence; excluded from worker prompts and data clones. */
+	lsp?: LspPort;
 	/** Adapter calls once, before prompting. Rejection prevents worker execution. No Pi types cross this boundary. */
 	onSessionCreated?: (reference: RoleSessionReference) => Promise<void>;
 	onApprovalRequested?: (proposal: ApprovalProposal, signal?: AbortSignal) => Promise<ApprovalDecision>;

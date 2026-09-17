@@ -39,11 +39,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.2A Read-only DAG Projection | 완료 / 커밋·푸시 | `b40c016d3`에 반영. 순수 DTO/ASCII·attempt·R3 detail·UNKNOWN. LOG-032 당시 36개 파일·1,168개 PASS |
 | V0.2B Read-only TUI DAG Viewer | 완료 / 커밋·푸시 | `0834683bd`에 반영. 정적 overlay·navigation/close. LOG-034 당시 38개 파일·1,231개 및 실제 TUI smoke PASS |
 | V0.2C Product Isolation / Setup / Doctor | 완료 / 커밋 확인 | `e7f37f777`에 반영. `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
-| V0.3A Hash-Anchored Edit | 구현 게시·한정 Provider smoke PASS / evidence 게시 승인(LOG-042) | `473256de6`에 반영. LOG-039 자동 44개 파일·1,470개 PASS. LOG-041 실제 `codex-lb/gpt-6-astra` duplicate-second·stale 거부 2건 PASS |
+| V0.3A Hash-Anchored Edit | 완료 / 코드·evidence 게시 | 구현 `473256de6`, evidence `e09100fe3`. LOG-039 자동 44개 파일·1,470개 PASS. LOG-041 실제 `codex-lb/gpt-6-astra` duplicate-second·stale 거부 2건 PASS |
+| V0.3B Read-only LSP | 구현·자동/실제 smoke 완료 / 게시 준비(LOG-045) | run-scoped read-only query·advisory evidence·/lsp status. LOG-043 자동 47개 파일·1,565개 및 실제 TS/Provider smoke PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.3A — Hash-Anchored Edit의 실제 Provider smoke**까지 완료했다. 기존 read/edit에 optional anchor/full-file digest precondition을 추가했으며 QUICK/R1 단일 파일 편집에서 우선 권장한다. 오래된 generation은 Policy ALLOW 뒤 재읽기에서 STALE_ANCHOR/0-byte mutation으로 거부한다. exact edit/runtime_write와 Kernel/Workflow/Policy/Approval/Verification/Reviewer/Graph/Viewer/Status/Worktree/Product Isolation 의미는 유지한다. 자동 **44개 파일·1,470개 PASS** 및 root check는 LOG-039/040 당시 결과다. 이번 LOG-041은 사용자 fixture의 임시 복제본과 `codex-lb/gpt-6-astra`로 두 번째 occurrence만 수정→QUICK COMPLETE, 외부 변경 뒤 old anchor→STALE_ANCHOR/bytes 보존을 실제 검증했다. 후자는 거부 확인 뒤 테스트가 취소했으며 Provider의 후속 복구는 검증하지 않았다. Runtime 코드·원본 fixture·개인 설정은 불변이고 TUI/build·전체 GPT RC/targeted suite는 이번에 재실행하지 않았다. V0.2C의 42개 파일·1,402개 및 임시 HOME launcher/TUI smoke는 LOG-037 당시 결과로 구분한다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.3B — Read-only LSP Diagnostics / Navigation**이다. explicit opt-in/run-scoped 서버의 diagnostics/definition/references/document symbols와 verifier-owned advisory evidence, `/lsp status`를 연결했다. LSP는 mutation/completion authority가 아니며 required process checks·Kernel completion/Review/Approval과 Graph/Worktree/Product Isolation/Anchored Edit 의미를 유지한다. 이번 LOG-043의 자동 회귀는 **47개 파일·1,565개 PASS**, root check/diff/bash 검사 PASS다. 실제 설치된 TS language server의 네 query와 workspace 무변경/정리, `codex-lb/gpt-6-astra` STANDARD/R1의 diagnostics 도구 선택·독립 Reviewer의 PARTIAL evidence 수신·required process checks 4개 PASS·COMPLETED를 확인했다. 기존 V0.3A의 1,470개 및 실제 smoke는 LOG-039/041 당시 기록이며 자동 회귀만 이번에 재실행했다. V0.2C의 42개 파일·1,402개 및 launcher/TUI smoke도 LOG-037 당시 결과다. TUI/build·전체 GPT RC는 이번에 재실행하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -2082,6 +2083,125 @@ bash -n packages/company-runtime/bin/weavra
 - **문제·해결:** 추가 문제 없음. 명시적 문서 5개만 stage하고 일반 commit/push를 사용한다. 기존 smoke의 제한과 stale 거부 후 harness cancellation을 그대로 기록한다.
 - **남은 제한·다음 작업:** 실제 모델의 stale 후 복구, 다른 Provider/OS/Node 및 기존 runtime_write/legacy edit 보호 범위 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `docs(coding-agent): record Weavra anchored edit provider smoke`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-043 — V0.3B: Read-only LSP Diagnostics / Navigation
+
+- **기록일:** 2026-09-17 17:12 (KST), 개발 시작 16:08 KST.
+- **상태:** 구현·자동 targeted·실제 TS/Provider smoke 완료 / 미커밋.
+- **목적:** language server를 read-only code intelligence/advisory evidence로 연결하되 mutation authority와 required process check/Kernel 완료 의미를 바꾸지 않는다.
+- **시작 상태:** `devlop` clean, HEAD/origin `e09100fe3e0ce08610b48a056ed6cd03714e0f97`. V0.3A Provider smoke evidence가 게시된 기준선이다. RC tag peeled commit은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`다.
+
+### 참고 조사·dependency/license 선택
+
+- GitHub API로 `code-yeongyu/pi-lsp-client`의 main commit **`1c981dfcacc456fe4ce9f4120a2f0250b54d6844`**를 고정하고 README/LICENSE/NOTICE 및 manager/client/client-wrapper/connection/transport/process/errors 소스를 전부 읽었다. LICENSE는 MIT, copyright 2026 Yeongyu Kim이다. NOTICE는 원 저자가 해당 port만 MIT로 재라이선스했으며 OMO 본체는 SUL-1.0임을 명시한다.
+- shared pool의 refCount/pending waiters/idle reaping, init timeout, session shutdown, typed crash detection/read-only one-time retry를 조사했다. Weavra는 run-scoped 순차 query이므로 global pool/refCount/idle daemon 대신 Workflow-owned manager를 선택했다.
+- **코드 직접 차용 없음.** 개념만 참고하여 독립 구현했고 외부 Pi extension을 설치/자동 로딩하지 않았다. OMO SUL-1.0 코드를 복사하지 않았다. 코드 차용에 따른 LICENSE/NOTICE 파일 추가는 없으며 문서에 출처/commit/선택을 기록했다.
+- 새 production dependency나 lockfile 변경 없이 Node built-ins로 bounded stdio JSON-RPC를 구현했다. 작은 read-only method 집합과 명시적 frame/buffer/pending limits를 유지하고 malformed/oversize/timeout/EOF/crash tests로 parser 경계를 검증했다. `vscode-jsonrpc`를 추측해서 사용하거나 dependency metadata를 늘리지 않았다.
+
+### 구조·변경 파일
+
+- 신규 `packages/company-runtime/src/lsp/types.ts`: Host-independent DTO/schema, `LspPort`, read/R0 tool metadata. SDK/TUI/Provider/fs 타입 없음.
+- 신규 `lsp/config.ts`: explicit bounded config/중복 routing·shell/eval/install wrapper 거부. `config.ts`에 optional `code_intelligence.lsp`를 연결했다. 생략한 config는 기존 normalized shape/digest 재료를 그대로 유지한다.
+- 신규 `lsp/protocol.ts`, `client.ts`, `manager.ts`: bounded framing, typed failures, stdin/stdout/stdout EOF·process exit 감지, limited server requests, 문서 동기화, run-scoped reuse/retry/close와 POSIX group cleanup.
+- 신규 `lsp/files.ts`, `normalize.ts`: input/result path Policy, safe bounded strict UTF-8 read, 1-based UTF-16 position, diagnostics/location/document-symbol 정규화·정렬/escaping/withheld/truncation.
+- 신규 `lsp/evidence.ts`: advisory snapshot과 captured workspace diffDigest, deterministic verifier-owned refs와 STALE 표시. `contracts.ts`의 VerificationResult에 optional lspEvidence만 추가했다. Run/state와 CheckResult/Kernel guard는 변경하지 않았다.
+- 신규 `lsp/tools.ts`, `command.ts`: 네 read-only worker tools 및 `/lsp [status]` 관찰. `agent-tools.ts`에는 async gate/helper 연결만 추가했다. `agent-runner.ts`는 enabled metadata·로컬 LSP script 보호·prompt 안내와 trusted Port의 clone/prompt 제외를 연결한다. `ports.ts`는 LspPort를 re-export하고 request의 trusted runtime-only 필드로 받는다.
+- `workflow.ts`: 같은 manager를 worker/verifier에 연결하고 COMPLETE 전 및 finally에서 닫는다. `verification.ts`: 기존 checks 뒤 LSP/final inspect, exact evidence material과 cancellation outcome 보존을 연결했다. `extension.ts`는 `/lsp` 등록과 run confirmation의 trusted LSP 실행 안내만 추가했다.
+- 신규 테스트: Runtime `test/lsp.test.ts`, `test/lsp-config.test.ts`, 실제 stdio `test/fixtures/lsp-server.mjs`; SDK suite `packages/coding-agent/test/suite/company-runtime-lsp.test.ts`. 기존 `extension.test.ts`/`launcher.test.ts`는 read-only 명령이 5→6개인 계약을 검증하고 기존 handlers/authority assertions는 유지한다. `config.test.ts`는 완전한 YAML 예제를 계속 동일성 검사하고 partial opt-in snippets는 별도 LSP schema test로 검증한다. snapshot 기대값만 덮어쓰지 않았다.
+- 문서: `README.md`, `packages/company-runtime/README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WORK_LOG.md`, 신규 `docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md`.
+
+### config / lifecycle / protocol
+
+설정 형식은 `code_intelligence.lsp: {enabled:true, servers:[{id,executable,args,extensions,timeout_ms}]}`다. default disabled, root는 project root, 서버 최대 4개·unique ID/extension routing·argv 배열, timeout 기본 10,000ms/허용 100–60,000ms다. executable은 PATH 이름/절대 경로의 실제 파일만 해석하며 없으면 UNAVAILABLE이다. 자동 설치/서버 검색/remote/multi-root/env override는 없다.
+
+`StandardWorkflow → lazy start → initialize → initialized → sequential query/reuse → shutdown → exit → group cleanup` 순서다. 정상 완료 전과 실패/취소 finally에 같은 idempotent close를 사용한다. unconfirmed cleanup은 후속 workspace 작업/COMPLETE/lease 해제를 막는다. worker 사이에 살아 있는 idle server와 cleanup 실패를 구분하며, 서버가 남긴 같은 process group의 descendant도 TERM/KILL·소멸 확인 대상이다. refCount/global daemon/cross-run persistence/idle reaper는 추가하지 않았다.
+
+최대 frame 1 MiB, response/write buffer 2 MiB, header 4 KiB, transport pending 16, 수신 batch/server requests 256, stderr capture 16 KiB다. configuration은 bounded null 응답, workspaceFolders는 고정 root, progress/create는 null만 제공한다. `workspace/applyEdit`는 **applied:false**, unknown request는 -32601이다. client 요청 allowlist에도 rename/prepareRename/codeAction/formatting/organizeImports/workspace symbol은 없다. 실제 파일 mutation 함수는 LSP adapter에 없다.
+
+CLOSED/EXITED typed error만 최대 1회 새 server에서 read query를 재시도한다. 이전 process cleanup 및 retry 전 disk digest를 확인한다. timeout/cancel/malformed/RPC/policy/stale는 자동 retry하지 않는다. 종료된 connection은 정리 확인 후 참조를 해제하여 run 내 반복 오류가 메모리를 누적하지 않게 했다.
+
+### diagnostics / checks / Reviewer / freshness
+
+- AVAILABLE은 query 응답이지 PASS가 아니다. UNAVAILABLE/PARTIAL/STALE/ERROR를 별도로 반환한다. 기존 error diagnostic도 자동 FAIL하지 않는다. push diagnostics는 completion acknowledgement가 없어 **빈 배열도 PARTIAL**이다. timeout을 빈 성공 cache로 바꾸지 않는다.
+- 매 query는 디스크의 exact UTF-8 text로 didOpen하고 version을 증가시키며 결과 뒤 didClose한다. push store는 현재 URI/version(또는 unversioned)에만 제한한다. 1-based UTF-16 좌표를 LSP 0-based로 바꾸고 파일 범위 밖/surrogate 중간 위치는 거부한다. 전후 file digest가 달라지면 STALE/빈 결과와 명시적 재-query를 요구한다.
+- SELF_CHECK/TEST는 **기존 required process checks → workspace inspect → routed changed files 최대 8개 LSP → final inspect**다. captured diffDigest와 final digest가 다르면 LSP evidence를 STALE로 남기고 기존 check freshness guard도 유지한다. LSP가 없거나 실패해도 process checks 자체의 결과를 대체하지 않는다. LSP 대기 중 취소되면 이미 실행한 process exit/output을 보존하고 기존 cancelled settlement를 적용한다.
+- `lsp:<run>:<step>:<attempt>:<index>` refs를 VerificationResult.evidenceRefs와 reviewContext.evidence에 1:1 추가한다. 기존 trustedReviewEvidenceRefs/exact material count/Kernel ref validation은 그대로다. actual diff/check evidence와 함께 Reviewer에 전달하고 UNAVAILABLE/PARTIAL/STALE 사실도 숨기지 않는다.
+- LSP body는 현재 VerificationResult/Reviewer payload에 연결하며 별도 durable state/cache/export를 만들지 않는다. `.ai`의 process check 목록은 그대로고 기존 Pi session ownership을 유지한다. LSP 자체가 hard completion gate가 되는 조건은 추가하지 않았다.
+
+### path filtering / authority
+
+- 네 도구는 enabled run에만 operation read/R0로 등록한다. `WORKER_FILE_TOOLS`는 그대로이며 edit/write의 R1/R2 floor·QUICK target·STANDARD/R2 binding·Reviewer/R3 mutation 권한도 그대로다. explicit LSP config/등록/local protected script는 기존 config digest 재료에 포함된다. 모델은 server 실행 argv나 policy를 도구 인자로 지정할 수 없다.
+- 요청은 기존 literal allowed/protected/regular/single-link/no-follow/nonblocking·256 KiB strict UTF-8/non-NUL 경계다. 결과 URI도 같은 정책으로 검사해 workspace 밖·보호/비허용·symlink/hardlink/non-file/remote 항목 전체(이름 포함)를 withheld하고 raw URI나 그 파일 내용을 반환하지 않는다. symbols는 명시적 document만 지원한다.
+- result items 최대 128개/약 8 KiB, symbol depth 16, message/name/source/code 길이 제한·control/bidi escaping·문자열 잘림 표시·deterministic 정렬을 적용한다. withheld/truncated 수는 숨기지 않는다.
+- `/lsp`와 `/lsp status`는 config 또는 active frozen manager metadata만 조회한다. READY는 executable resolution이며 query/Provider/서버 start/writer/Git/repair를 수행하지 않는다. 기존 project-independent `weavra doctor`는 변경하지 않았다.
+- **외부 language server/플러그인은 trusted code이며 OS sandbox가 아니다.** client mutation 요청은 거부하지만 서버 자체의 직접 I/O/네트워크까지 가로채지 않는다. credential 환경은 기존 verifier 필터를 재사용하고 TypeScript automatic typing acquisition은 initialize 옵션으로 비활성화했다. 탈출 daemon/Host 강제 crash/외부 syscall 경합은 기존 한계다.
+
+### 이번 자동 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/lsp.test.ts test/lsp-config.test.ts test/anchored-edit.test.ts test/anchored-tools.test.ts test/launcher-home.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/graph.test.ts test/graph-command.test.ts test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-lsp.test.ts test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts test/args.test.ts test/sdk-session-manager.test.ts test/session-manager/file-operations.test.ts
+
+# root
+npm run check
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- **최종 targeted(17:09 KST 시작): Runtime 29개 파일·978개 + coding-agent 18개 파일·587개 = 47개 파일·1,565개 PASS**, 실패/skip 0. 신규 95개(LSP transport/manager 54, config 21, SDK 16, command 4)와 기존 1,470개를 이번에 실행했다. LOG-039 등의 과거 결과를 합산하지 않는다.
+- initialize/shutdown/exit/reuse, missing/directory executable, startup/query timeout, active cancel/close, malformed Content-Length/JSON/error/method/range·oversize/buffer/pending limits, process crash 및 살아 있는 process의 stdout EOF 각각의 최대 1회 retry, TERM 무시/descendant/no-orphan을 실제 stdio로 검증했다.
+- Unicode/좌표·diagnostic 정렬/escaping/count/byte bound, definition/references/document symbols, 외부/보호/비허용/링크 URI 필터, input deny before spawn, file STALE, workspace STALE evidence, applyEdit false/unknown request/mutation methods 미지원, fresh disk/version과 push empty/old-version cache 경계를 검증했다.
+- 실제 SDK/harness/faux는 QUICK/R0/R1·STANDARD/R1/R2·R3 consent·Reviewer read-only, exact trusted evidence, optional missing/timeout/push snapshots, required process FAIL/누락 guard, Policy denial·schema scope injection, active LSP 및 verifier LSP 취소·actual process outcome 보존, cleanup 미확인 시 COMPLETE/lease 차단을 검증했다.
+- 기존 `/graph`·`/graph view`·setup/doctor·worktree create/open/list·anchored edit·stale-review·cancellation 및 Pi session/argv 회귀를 다시 통과했다.
+- `npm run check` 최종 PASS(TypeScript/deps/entry graphs/shrinkwrap/install lock/browser smoke). 초기 unused type import 1건과 notification callback이 갱신하는 필드를 TS가 undefined로 고정 추론한 오류를 정리했다. guard/검사/의존성을 낮추지 않았다. Biome은 이번 변경 파일만 포맷했고 그 뒤 위 전체 targeted를 실행했다. `git diff --check`, `bash -n` PASS.
+
+### 실제 TS / Provider smoke
+
+- 이미 설치된 **typescript-language-server 5.1.3**, CLI `tsc` 6.0.3, Node26.7.0을 사용했다. auto-install/build 없음. private `/tmp/weavra-v03b-smoke.uXyt4D`의 synthetic TS fixture에서 `node .../transport.mjs`: TS2322/error 1개(PARTIAL), definition 1개, references 3개, symbols bad/greet(AVAILABLE), 파일 SHA/목록 무변경, close 후 safeToRelease true/process stopped **PASS**. 최종 EOF/parser 보완 뒤 17:09에 같은 네 query를 재실행해 PASS했다. Provider 호출은 없는 transport smoke다.
+- 실제 사용자 profile **codex-lb/gpt-6-astra**, medium으로 `node .../provider.mjs`의 **STANDARD/R1 한 run**을 16:46–16:47 실행했다. Developer가 runtime_lsp_diagnostics를 수정 전후 호출했고 `"wrong"` initializer만 숫자 0으로 바꿨다. Reviewer가 verifier-owned PARTIAL/0 diagnostics와 exact trusted ref/current digest를 받았고 독립 PASS, SELF_CHECK/TEST의 regression/typecheck **4개 PASS** 뒤 COMPLETED했다. Run `f60816fb-f65d-4103-b8b6-d1e0d6032795`, 45,283ms, Provider-reported total 15,152 tokens(실제 비용 미확인). 서버 stopped·writer.lock 없음·개인 auth/models/settings bytes 불변을 확인했다.
+- `node .../verify.mjs`가 saved state/session에서 TS2322→빈 PARTIAL diagnostics, Reviewer refs/독립 PASS 및 실제 checks를 별도로 대조했다(PASS). 마지막 parser/availability/EOF/취소 보완 후에는 자동 회귀와 실제 transport만 재검증했고 유료 Provider를 반복 호출하지 않았다.
+- 상세 관찰 경계·fixture·run/session ID와 한계는 **[WEAVRA_V03B_LSP_SMOKE_2026-09-17.md](WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)**에 기록했다. 전체 conversation/reasoning/tool 로그·credential은 문서에 복제하지 않았다. 사용자 원본 RC fixture는 수정하지 않았다.
+
+### 한계·다음 작업·커밋
+
+- 진단은 changed files 최대 8개, query는 explicit document만 지원한다. push의 completeness/unversioned server cache·서버 semantic correctness를 증명하지 않으며 PARTIAL을 유지한다. 전체 workspace diagnostics나 새로운 hard gate가 아니다.
+- LSP evidence를 별도 durable cache/export로 저장하지 않는다. 다른 language server/OS/Node·Windows·monorepo multi-root·remote/global daemon·TUI 화면 검증은 미실행이다. 전체 GPT RC-01~08·upstream e2e·build는 재실행하지 않았다.
+- rename/prepareRename/codeAction/applyEdit/formatter/organizeImports/workspace-wide symbols/자동 install/autofix/auto merge·commit은 추가하지 않았다. 기존 runtime_write/legacy edit의 anchored 보호 범위도 그대로다.
+- 최종 문서 기록 뒤 root `npm run check`를 다시 실행해 자동 수정 없이 PASS했고 diff/bash 검사도 PASS했다. 임시 Python 검사로 변경 30개 파일, 문서 링크/fence·LOG-001~042 본문 보존, Kernel/Policy/Approval/State/Graph/Launcher/Anchored Edit/Pi Core/dependency·RC 태그 불변을 확인했다(PASS).
+- 조사·smoke에 사용한 임시 소스/fixture/session/harness/검사 script만 정리하고 두 임시 루트의 부재를 확인했다. 안정 태그 `weavra-v0.1-rc1`과 원본 사용자 설정/fixture는 유지했다.
+- **다음 작업:** 실제 프로젝트에 explicit LSP 설정을 opt-in하고 advisory/partial 의미를 확인한다. 성능/coverage·다른 서버·durable evidence 확장은 별도 후속 범위다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음.
+
+---
+
+## LOG-044 — V0.3B Read-only LSP 커밋 준비
+
+- **기록일:** 2026-09-17 17:21 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-043의 V0.3B 구현·테스트·문서를 로컬 `devlop`에 커밋한다. 이번 요청에는 푸시가 없으므로 원격 게시하지 않는다.
+- **변경 파일:** LOG-043의 Runtime 소스 8개와 신규 `src/lsp/` 10개, 기존 Runtime 테스트 3개·신규 테스트/fixture 4개, README/adoption/work log/smoke 문서 5개로 총 30개. 이번 준비에서는 현재 요약과 이 항목만 갱신했다. dependency/lockfile 변경은 없다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 및 warning/info/error 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. `git status --short --branch`, 변경 30개 경로와 기존 staged 변경 없음, HEAD 및 RC tag peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 47개 파일·1,565개 PASS와 실제 TS/Provider smoke는 LOG-043 구현 당시 결과다. 이번 커밋 준비에서는 테스트/Provider/TUI/build를 다시 실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 30개 경로만 stage하고 일반 commit 검사를 유지한다. 다른 작업이나 lockfile은 포함하지 않는다.
+- **남은 제한·다음 작업:** advisory/PARTIAL 의미, trusted language server의 비-sandbox 한계와 다른 서버/OS/Node 미검증을 유지한다. 커밋 후 변경 목록·clean working tree·RC 태그 불변을 확인한다. 푸시는 별도 요청 후 수행한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add read-only Weavra LSP intelligence`이며 실제 SHA는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-045 — V0.3B 게시: 원격 문서 커밋과 충돌 없는 통합
+
+- **기록일:** 2026-09-17 17:30 (KST)
+- **상태·목적:** 사용자의 추가 푸시 요청에 따라 미게시 V0.3B 커밋을 `origin/devlop`에 게시한다.
+- **문제·해결:** 최초 `868cbd0d3` 푸시가 원격 선행 변경으로 거부됐다. `git fetch origin devlop` 후 원격 `8850dd352`가 `docs/WEAVRA_IMPROVEMENT_AND_FEATURE_RESEARCH_2026-09-17.md`만 추가한 커밋임을 확인했다. clean 상태에서 `git rebase origin/devlop`을 수행했고 충돌 없이 완료됐다. `git range-diff e09100fe3..868cbd0d3 8850dd352..HEAD`의 `=`로 V0.3B patch가 그대로임을 확인했다. 강제 푸시는 사용하지 않는다.
+- **변경 파일:** 이번 후속 기록은 `docs/WORK_LOG.md`의 현재 요약과 본 항목뿐이다. 원격 연구 문서와 기존 V0.3B 코드·테스트 내용은 수정하지 않았다.
+- **이번 검증:** rebase 후 `npm run check` PASS, Biome 자동 수정 및 warning/info/error 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. 작업 트리 clean과 원격 대비 V0.3B 커밋 1개 선행 상태를 확인했다.
+- **과거 검증과 구분:** LOG-043의 47개 파일·1,565개 PASS 및 실제 TS/Provider smoke는 구현 당시 결과다. 이번 게시 준비에서는 테스트/Provider/TUI/build를 재실행하지 않았다.
+- **남은 제한·다음 작업:** 기존 advisory/PARTIAL·비-sandbox 및 플랫폼 미검증 한계를 유지한다. 이 기록을 미게시 V0.3B 커밋에 포함한 뒤 일반 push하고 로컬·원격 HEAD 일치, clean과 RC 태그 불변을 확인한다.
+- **커밋 상태:** 최초 커밋은 rebase로 교체됐다. 최종 SHA·실제 푸시 결과는 Git 이력과 최종 응답으로 보고한다. 안정 태그 `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

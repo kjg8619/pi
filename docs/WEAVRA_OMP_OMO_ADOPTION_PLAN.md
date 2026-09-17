@@ -3,8 +3,8 @@
 - 작성일: 2026-09-17 (KST)
 - 대상: Weavra `devlop`
 - 목적: OMP와 OMO Native(Senpi)에서 검증된 아이디어를 조사하고, Weavra의 현재 안전성·상태·검증 철학을 유지하면서 가져올 가치가 있는 기능을 우선순위화한다.
-- 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C/V0.3A를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
-- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection, V0.2B 정적 TUI Viewer, V0.2C Product Isolation/setup/doctor. V0.3A optional Hash-Anchored Edit 구현은 §15 및 WORK_LOG LOG-039를 따른다. `codex-lb / gpt-6-astra`의 한정된 [실제 Provider anchored smoke](WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md) 두 시나리오는 PASS다.
+- 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C/V0.3A/V0.3B를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
+- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection, V0.2B 정적 TUI Viewer, V0.2C Product Isolation/setup/doctor. V0.3A optional Hash-Anchored Edit 구현은 §15 및 WORK_LOG LOG-039를 따른다. `codex-lb / gpt-6-astra`의 한정된 [실제 Provider anchored smoke](WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md) 두 시나리오는 PASS다. V0.3B read-only LSP는 §15 및 LOG-043의 구현/검증 범위를 따른다.
 
 > 핵심 원칙: OMP/OMO의 기능을 그대로 복제하지 않는다. Weavra가 이미 가진 `Kernel → Policy → Verification → Review/Approval → State` 경계를 유지하면서, 필요한 개념만 작은 Port/Adapter 또는 read-only projection으로 흡수한다.
 
@@ -73,7 +73,7 @@ Durable State + Read-only Observation
 |---|---:|---|---|
 | Weavra 전용 setup / agent-dir 분리 | ★★★★★ | V0.2C 구현 | launcher/helper; §15 참조 |
 | Hash-Anchored Edit | ★★★★★ | V0.3A 구현 / 한정 Provider smoke PASS | 기존 read/edit optional mode; §15 참조 |
-| LSP Diagnostics / Navigation | ★★★★★ | V0.3B | read-only Verification/Code Intelligence |
+| LSP Diagnostics / Navigation | ★★★★★ | V0.3B 구현 | run-scoped read-only tools + advisory evidence; §15 |
 | QA Evidence / Doctor | ★★★★★ | V0.3C | 검증/제품 운영 레이어 |
 | AST Edit Preview → Apply | ★★★★☆ | V0.4 전후 | R2 proposal + apply |
 | Bounded Goal / Todo Continuation | ★★★★☆ | COMPLEX 전 | Kernel budget 내부 |
@@ -233,7 +233,7 @@ LspPort
 ├─ diagnostics(file/workspace)
 ├─ definition(symbol/location)
 ├─ references(symbol/location)
-└─ symbols(file/workspace)
+└─ documentSymbols(file)
 ```
 
 ### Verification 연계
@@ -248,17 +248,17 @@ TEST
 └─ final LSP diagnostics snapshot
 ```
 
-가능한 상태:
+V0.3B의 실제 LSP 상태:
 
 ```text
-PASS
-FAIL
+AVAILABLE
 UNAVAILABLE
 PARTIAL
 STALE
+ERROR
 ```
 
-`UNAVAILABLE`을 PASS로 취급하지 않는다.
+query availability와 코드 품질을 구분한다. 빈 diagnostics도 자동 PASS가 아니며 기존 error diagnostic이 있다고 자동 FAIL하지 않는다. push-only snapshot은 완료를 확인할 수 없어 PARTIAL이다. required process checks의 PASS/FAIL/UNAVAILABLE 및 Kernel completion guard를 유지한다.
 
 ## V1에서 제외
 
@@ -284,7 +284,7 @@ LSP diagnostics delta
 
 ## 평가
 
-**Verification 신뢰도를 높이는 가장 직접적인 다음 단계.** Hash-Anchored Edit와 함께 V0.3 핵심 후보.
+**V0.3B에서 read-only advisory evidence로 구현했다.** LSP가 mutation/completion authority가 되지 않도록 explicit routing·run-scoped cleanup·result path filtering·freshness와 required process checks 분리를 적용했다. 상세 범위는 §15와 [실제 smoke](WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)를 따른다.
 
 ---
 
@@ -742,14 +742,22 @@ COMPLEX / Planner / Execution DAG / Parallel Agents
 
 ## V0.3B — LSP
 
-DoD 후보:
+2026-09-17 구현 범위(검증 상세: WORK_LOG LOG-043, [실제 TS/Provider smoke](WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)):
 
-- diagnostics/definition/references/symbols read-only
-- unavailable != pass
-- bounded output
-- no LSP autofix
-- Verification evidence 연결
-- TS/JS 기준 실제 프로젝트 smoke
+- Host-independent `LspPort`와 `lsp/{types,config,protocol,client,manager,files,normalize,evidence,tools,command}.ts`로 분리했다. Kernel/Policy/Reviewer에 SDK/TUI/실행 authority를 옮기지 않는다.
+- `.ai/config.yaml`의 `code_intelligence.lsp`에 enabled/servers(id,executable,args,extensions,timeout_ms)를 명시한다. default disabled, 서버 4개·unique ID/extension routing·argv 배열·root=project root. shell/inline eval/install wrapper 및 임의 env/remote/multi-root는 미지원이다.
+- `StandardWorkflow`가 lazy start/initialize/initialized/query/shutdown/exit와 process-group cleanup을 소유한다. run 안에서만 같은 server를 재사용한다. 순차 query이므로 global refCount pool/idle daemon 없이 COMPLETE 전 및 finally에 닫는다. cleanup 미확인 시 성공/lease 해제를 막는다.
+- `code-yeongyu/pi-lsp-client` MIT commit `1c981dfcacc456fe4ce9f4120a2f0250b54d6844`의 shared lifecycle/refCount/init timeout/idle reaping/crash detection/typed one-time retry와 LICENSE/NOTICE를 조사했다. 개념만 참고한 독립 구현이며 MIT 코드 직접 복사·extension 설치·OMO SUL-1.0 차용은 없다. 기존 Node built-ins로 bounded framing을 구현하여 production dependency/lockfile을 늘리지 않았다.
+- 진단/정의/참조/document symbols만 제공한다. `workspace/applyEdit`는 applied:false, 그 밖의 미지원 server request는 -32601이다. rename/prepareRename/codeAction/formatting/organizeImports/workspace-wide symbols와 자동 install/fix 경로는 없다. config/workspaceFolders/progress 요청만 제한 응답한다.
+- 최대 frame 1 MiB/buffer 2 MiB/header 4 KiB/pending 16/stderr 16 KiB, result items 128/약 8 KiB·symbol depth 16, control/bidi escaping과 truncation을 적용한다. malformed protocol은 실패로 닫고 typed CLOSED/EXITED만 최대 1회 cleanup 후 retry한다. timeout/cancel/protocol/policy/stale는 자동 retry하지 않는다.
+- `runtime_lsp_diagnostics/definition/references/symbols`는 enabled run에만 기존 Policy read/R0로 등록한다. path는 literal allowed/protected/regular/single-link/strict UTF-8 256 KiB 경계, 위치는 1-based UTF-16이다. 결과 URI도 검사하여 외부/protected/disallowed/symlink 항목 전체를 숨기고 withheld 수만 반환한다. arbitrary URI 파일 읽기·출력은 없다.
+- 요청 전후 disk digest가 다르면 STALE/빈 결과로 재-query를 요구한다. diagnostics는 AVAILABLE/UNAVAILABLE/PARTIAL/STALE/ERROR이며 코드 PASS/FAIL이 아니다. push-only는 현재 URI/version을 제한해 수집하지만 완료/완전성 미확인으로 PARTIAL을 유지한다.
+- SELF_CHECK/TEST의 기존 required process checks 이후 workspace inspect→변경 파일 최대 8개의 LSP→최종 inspect를 수행한다. workspace가 바뀌면 captured diffDigest의 LSP evidence를 STALE로 표시하고 기존 check freshness도 유지한다. cancellation 중 기존 process exit/output도 보존한다.
+- verifier-owned LSP refs와 reviewContext.evidence를 정확히 일치시켜 actual diff/checks와 함께 Reviewer에 전달한다. trustedReviewEvidenceRefs/Kernel ref/completion guard 및 mandatory independent review는 불변이다. LSP는 hard completion gate가 아니며 새 durable LSP store/cache/export는 추가하지 않았다.
+- `/lsp`·`/lsp status`는 current config 또는 live frozen manager metadata의 read-only 조회다. server/Provider/writer/Git 실행·repair가 없다. READY는 executable resolution이지 initialization/diagnostics/PASS가 아니다. project-independent `weavra doctor`는 바꾸지 않았다.
+- 외부 language server/플러그인은 reviewed trusted code다. client mutation API는 없지만 서버 자체의 직접 파일 I/O·네트워크를 OS sandbox하지 않는다. credential 환경은 기존 verifier처럼 필터링하고 TypeScript automatic typing acquisition은 initialize 옵션으로 끈다. 탈출 daemon/외부 syscall 경합은 기존 한계다.
+- fake stdio server로 lifecycle/malformed/bounds/timeout/cancel/crash retry/path filtering/applyEdit 거부 및 SDK-faux QUICK/R0/R1·STANDARD/R1/R2·R3/Reviewer/evidence를 검증했다. 기존 Graph/Viewer/setup/doctor/worktree/anchored-edit/stale-review 회귀도 유지했다.
+- 설치된 `typescript-language-server 5.1.3`에서 TS2322 진단, definition/references/document symbols, workspace 무변경과 종료를 확인했다. 실제 `codex-lb/gpt-6-astra` STANDARD/R1 한 run은 diagnostics 도구를 사용하고 Reviewer가 exact PARTIAL evidence를 받아 process checks 4개 PASS 뒤 COMPLETED했다. 전체 GPT RC/다른 server·OS/Node로 확대하지 않는다.
 
 ## V0.3C — QA Evidence
 

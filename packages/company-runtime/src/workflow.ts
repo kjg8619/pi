@@ -5,6 +5,8 @@ import type { RuntimeConfig } from "./config.ts";
 import type { QuickScope, R3Scope, Run } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { CompanyKernel } from "./kernel.ts";
+import { LspManager } from "./lsp/manager.ts";
+import type { LspServerStatus } from "./lsp/types.ts";
 import { formatRunView, type ObservationState } from "./observations.ts";
 import type { PolicyContext } from "./policy.ts";
 import type { AgentExecutor, ApprovalPort } from "./ports.ts";
@@ -43,6 +45,10 @@ export interface WorkflowReport {
 export class StandardWorkflow {
 	private kernel?: CompanyKernel;
 	private store?: FileStateStore;
+	private lsp?: LspManager;
+	get lspStatus(): LspServerStatus[] | undefined {
+		return this.lsp?.status;
+	}
 	private reportValue: WorkflowReport = {
 		changedFiles: [],
 		partialChanges: false,
@@ -123,7 +129,10 @@ export class StandardWorkflow {
 			if (agents.policy.r2RunId !== r2RunId) throw new Error("R2 execution binding differs from the selected run");
 			signal.throwIfAborted();
 			workspace = await GitWorkspace.open(this.options.cwd, agents.policy, signal);
-			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace);
+			const lspConfig = this.options.config.code_intelligence?.lsp;
+			if (lspConfig?.enabled) this.lsp = await LspManager.create(workspace.cwd, lspConfig, agents.policy);
+			const lsp = this.lsp;
+			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace, lsp);
 			signal.throwIfAborted();
 			this.kernel = await CompanyKernel.create(
 				{
@@ -144,7 +153,20 @@ export class StandardWorkflow {
 						required,
 					})),
 				},
-				{ agents: agents.executor, verifier, store, events: this.options.events, approval: this.options.approval },
+				{
+					agents: this.lsp
+						? {
+								execute: (request) => agents.executor.execute({ ...request, lsp: this.lsp }),
+								get safeToRelease() {
+									return agents.executor.safeToRelease !== false && !lsp?.cleanupFailed;
+								},
+							}
+						: agents.executor,
+					verifier,
+					store,
+					events: this.options.events,
+					approval: this.options.approval,
+				},
 			);
 			await this.kernel.start();
 			while (this.kernel.snapshot.status === "RUNNING") {
@@ -154,6 +176,8 @@ export class StandardWorkflow {
 				}
 				const step = this.kernel.snapshot.currentStep;
 				if (!step) throw new Error("Running workflow has no step");
+				// A live/unconfirmed LSP process must not survive a successful terminal commit.
+				if (step.stepId === "complete") await this.lsp?.close();
 				await this.kernel.advance(step.stepId, signal);
 			}
 		} catch (error) {
@@ -164,6 +188,12 @@ export class StandardWorkflow {
 					? error.message
 					: "Workflow failed";
 		} finally {
+			try {
+				await this.lsp?.close();
+			} catch {
+				cleanupUncertain = true;
+			}
+			cleanupUncertain ||= this.lsp?.safeToRelease === false;
 			cleanupUncertain ||=
 				executor?.safeToRelease === false ||
 				verifier?.safeToRelease === false ||

@@ -1,5 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Check } from "typebox/value";
+import { LspEvidenceSchema } from "./lsp/types.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -89,6 +90,7 @@ export const VerificationResultSchema = Type.Object(
 		diffDigest: text,
 		evidenceRefs: Type.Array(text, { minItems: 1 }),
 		checks: Type.Array(CheckResultSchema),
+		lspEvidence: Type.Optional(Type.Array(LspEvidenceSchema, { maxItems: 9 })),
 		changedFiles: Type.Optional(texts),
 		// Explicit verifier-owned review material; no Pi messages or implicit worker context.
 		reviewContext: Type.Optional(

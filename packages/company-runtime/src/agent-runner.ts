@@ -25,6 +25,7 @@ import {
 	VerificationResultSchema,
 	validateContract,
 } from "./contracts.ts";
+import { LSP_READ_TOOLS } from "./lsp/types.ts";
 import { type ActionAudit, isPolicyPath, type PolicyContext } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, AgentExecutor } from "./ports.ts";
@@ -190,10 +191,13 @@ export class PiAgentExecutor implements AgentExecutor {
 		if (inside(paths.projectPath, agentDir)) throw new Error("Pi agent directory must be outside worker workspace");
 		const protectedPaths = [...(options.protectedPaths ?? [])];
 		// Freeze explicitly registered local programs/scripts; a worker must not rewrite its own check.
-		for (const check of config.verification.checks) {
+		for (const check of [
+			...config.verification.checks,
+			...(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers : []),
+		]) {
 			for (const argument of [check.executable, ...check.args]) {
 				if (argument.startsWith("-")) continue;
-				const path = resolve(paths.projectPath, check.cwd, argument);
+				const path = resolve(paths.projectPath, "cwd" in check ? check.cwd : ".", argument);
 				if (!inside(paths.projectPath, path)) continue;
 				try {
 					if ((await lstat(path)).isFile())
@@ -213,6 +217,7 @@ export class PiAgentExecutor implements AgentExecutor {
 			throw new Error("Invalid worker policy paths");
 		const tools: PolicyContext["tools"] = [
 			...WORKER_FILE_TOOLS,
+			...(config.code_intelligence?.lsp.enabled ? LSP_READ_TOOLS : []),
 			...(options.r3Scope ? [{ id: "runtime_delete", operation: "delete" as const }] : []),
 		];
 		const policy: PolicyContext = {
@@ -269,13 +274,14 @@ export class PiAgentExecutor implements AgentExecutor {
 	async execute(input: AgentExecutionRequest): Promise<AgentExecutionResult> {
 		if (this.busy || !this.cleanupConfirmed || this.stoppedRuns.has(input.runId))
 			throw new Error("Worker already active or run stopped");
-		const { signal: parentSignal, onSessionCreated, onApprovalRequested, onApprovalConsumed, ...data } = input;
+		const { signal: parentSignal, onSessionCreated, onApprovalRequested, onApprovalConsumed, lsp, ...data } = input;
 		const request: AgentExecutionRequest = {
 			...structuredClone(data),
 			signal: parentSignal,
 			onSessionCreated,
 			onApprovalRequested,
 			onApprovalConsumed,
+			lsp,
 		};
 		if (
 			this.options.r3Scope &&
@@ -354,6 +360,9 @@ export class PiAgentExecutor implements AgentExecutor {
 							"Do not invent references from filenames, diffDigest or descriptions. All verdicts require at least one top-level reference; PASS also requires at least one reference per requirement. " +
 							"If submit_review returns an evidence validation error, correct the references and resubmit alone in this same session.",
 					request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : "",
+					lsp
+						? "Use runtime_lsp_* for read-only diagnostics/navigation when useful. LSP AVAILABLE is not PASS; UNAVAILABLE/PARTIAL/STALE/ERROR never replace required process checks. Re-query stale results. No LSP mutation is available."
+						: "",
 					request.role === "Developer"
 						? "Handoff unresolved contains only implementation or task-requirement problems you could not solve, including real blockers. " +
 							"Do not list pending Reviewer execution/PASS, SELF_CHECK, TEST or Human Approval as unresolved: these are Runtime-owned obligations enforced by Kernel/Workflow, not your completion decisions. " +

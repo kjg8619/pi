@@ -19,6 +19,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.2B: 같은 GraphProjection을 `/graph view`의 read-only TUI overlay에서 스크롤하며 조회.
 - V0.2C: `~/.weavra/agent` user-level 격리, 명시적 `weavra setup`과 읽기 전용 `weavra doctor`.
 - V0.3A: `runtime_read`의 anchored snapshot과 `runtime_edit`의 선택적 full-file stale guard. QUICK/R1 단일 파일 편집에서 우선 사용.
+- V0.3B: explicit opt-in LSP diagnostics/definition/references/document symbols, verifier-owned advisory evidence와 읽기 전용 `/lsp status`.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -233,6 +234,7 @@ verification:
 | `/risk [runId]` | 분류·Policy·Approval 상태 |
 | `/graph [latest\|runId]` | 읽기 전용 ASCII snapshot; 실행/재시도 기능 없음 |
 | `/graph view [latest\|runId]` | 같은 projection의 read-only TUI overlay viewer |
+| `/lsp [status]` | 프로젝트 LSP 설정/로컬 실행 파일·활성 run의 process 상태 조회; 서버 시작 없음 |
 
 runId 생략 또는 `latest`는 최신 run이다. 조회는 worker/check를 재실행하지 않는다. 저장된 PASS는 기록 시점의 증거이며 현재 파일 상태나 프로세스 생존을 보장하지 않는다.
 
@@ -363,6 +365,51 @@ Policy ALLOW 이후 mutation 직전에 현재 파일을 다시 읽어 **전체 U
 **Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** 기존 exact edit와 `runtime_write`, trusted checks, 일반 Pi 도구는 이 보호 대상이 아니다. 모든 existing-file mutation을 anchored-only로 바꾸지는 않았다.
 
 검증과 쓰기는 같은 descriptor에서 중간 JS yield 없이 수행한다. 이는 OS의 atomic compare-and-swap이 아니므로 비협조적인 외부 프로세스의 최종 검사와 쓰기 syscall 사이 경합·쓰기 중 I/O 실패까지 transaction으로 보호하지 않는다. 이미 달라진 generation의 stale 요청은 거부하며, 최종 syscall 경합은 기존 비-sandbox 한계로 남는다. `codex-lb / gpt-6-astra`에서 anchored mode 선택·두 번째 중복 위치 수정·외부 변경 뒤 STALE_ANCHOR 거부를 [실제 Provider smoke](docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)로 확인했다. stale run은 거부/bytes 보존 확인 후 테스트가 취소했으며, 실제 모델의 후속 복구나 다른 Provider까지 검증한 것은 아니다.
+
+## V0.3B — Read-only LSP Diagnostics / Navigation
+
+LSP(Language Server Protocol)는 언어 서버에서 코드 구조와 진단을 조회하는 프로토콜이다. 기본값은 **disabled**이며, 사용할 서버를 직접 준비하고 기존 `.ai/config.yaml`에 아래 설정을 추가한다. 자동 설치·검색·원격 서버·global daemon은 없다.
+
+```yaml
+code_intelligence:
+  lsp:
+    enabled: true
+    servers:
+      - id: typescript
+        executable: typescript-language-server
+        args: [--stdio]
+        extensions: [.ts, .tsx, .js, .jsx]
+        timeout_ms: 10000
+```
+
+`executable`은 PATH의 이름 또는 절대 경로이고 `args`는 argv 배열이다. shell command string은 받지 않는다. server ID와 extension routing은 중복될 수 없고 root는 project root 하나로 고정한다. 서버가 없으면 `UNAVAILABLE`이며 설치하거나 다른 서버로 몰래 대체하지 않는다. 최대 서버 4개, timeout은 100–60,000ms다.
+
+활성화한 workflow의 Developer/Executor와 Reviewer에는 다음 **R0 read 도구**가 제공된다.
+
+- `runtime_lsp_diagnostics({path})`
+- `runtime_lsp_definition({path, line, column})`
+- `runtime_lsp_references({path, line, column})`
+- `runtime_lsp_symbols({path})` — document symbols만 지원
+
+line/column은 모두 **1-based**, column은 **UTF-16 code units**다. 허용된 안전한 일반 UTF-8 파일만 요청할 수 있으며 잘못된 position은 거부한다. 응답 location도 allowed/protected/workspace/link 경계를 검사해 허용되지 않은 항목 전체를 숨기고 `withheld` 수만 반환한다. arbitrary URI의 파일 내용을 읽어 출력하지 않는다.
+
+| LSP status | 의미 |
+|---|---|
+| AVAILABLE | query가 응답됨. 코드 PASS가 아님 |
+| UNAVAILABLE | disabled/unrouted/missing executable/지원하지 않는 기능·대상 |
+| PARTIAL | push snapshot의 완료 미확인 또는 정책 필터/결과 제한 |
+| STALE | 요청 중 파일 또는 diagnostics 이후 workspace가 변경됨. 재-query 필요 |
+| ERROR | timeout/protocol/RPC 등의 실패. PASS로 간주하지 않음 |
+
+**LSP diagnostics는 required process checks를 대체하지 않는다.** SELF_CHECK/TEST는 기존 checks → workspace inspect → 변경 파일의 LSP diagnostics → 최종 inspect를 수행한다. Reviewer에게 실제 diff/check evidence와 exact verifier-owned LSP refs를 함께 전달한다. error diagnostic이나 빈 diagnostic 배열을 자동 FAIL/PASS로 바꾸지 않으며, 특히 TypeScript 서버의 push diagnostics는 항상 `PARTIAL` snapshot이다. 기존 Kernel 완료·stale-review guard는 그대로다.
+
+서버는 한 run 안에서 lazy start/reuse하고 COMPLETE 전 또는 실패/취소 cleanup에서 shutdown→exit→필요 시 process-group TERM/KILL로 종료를 확인한다. cleanup 미확인 시 완료·writer 해제를 허용하지 않는다. typed connection crash만 최대 한 번 재시도하며 timeout/cancel/malformed/policy/stale는 자동 retry하지 않는다. 요청 전후 disk digest가 다르면 결과를 STALE로 비우고 모델에게 재조회하도록 한다.
+
+`/lsp`와 `/lsp status`는 신뢰한 프로젝트 설정 또는 활성 run의 frozen 설정을 읽는다. 서버/Provider/검증을 시작하거나 Runtime state를 바꾸지 않는다. `READY`는 실행 파일 해석 성공일 뿐 server initialization·진단 성공·PASS가 아니다. `weavra doctor`는 기존처럼 project-independent로 유지한다.
+
+**클라이언트는 LSP mutation authority를 제공하지 않는다.** `workspace/applyEdit`는 `applied:false`, rename/prepareRename/codeAction/formatting/organizeImports/workspace-wide symbols는 미지원이다. 다만 **외부 language server 실행 파일 자체는 trusted code이며 OS sandbox가 아니다.** 서버/플러그인의 직접 파일 I/O·네트워크까지 가로채지 않는다. 리뷰한 실행 파일만 등록해야 하며 credential 환경은 process checks처럼 필터링한다. TypeScript의 automatic typing acquisition은 initialize 옵션으로 비활성화한다.
+
+[실제 TS/Provider smoke](docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)에서 설치된 TypeScript 서버의 네 query, workspace 무변경·종료, 실제 모델의 diagnostics 도구 선택과 독립 Reviewer evidence 전달을 확인했다. 다른 서버/OS·monorepo multi-root는 미검증이다. 상세 범위와 한도는 [Runtime 문서](packages/company-runtime/README.md#v03b-read-only-lsp)를 따른다.
 
 ## Workflow & Risk
 

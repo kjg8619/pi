@@ -64,9 +64,9 @@ afterEach(async () => {
 });
 
 describe("S4 extension and S0 loader/trust regression", () => {
-	it("registers five commands and lifecycle/input guards without starting anything", async () => {
+	it("registers six commands including read-only LSP status and unchanged lifecycle/input guards", async () => {
 		const host = commands();
-		expect([...host.registered.keys()]).toEqual(["team", "state", "workflow", "risk", "graph"]);
+		expect([...host.registered.keys()]).toEqual(["lsp", "team", "state", "workflow", "risk", "graph"]);
 		expect(host.on.mock.calls.map(([name]) => name)).toEqual([
 			"session_start",
 			"input",
@@ -89,7 +89,7 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		expect(result.errors).toEqual([]);
 		expect(result.extensions).toHaveLength(1);
 		const extension = result.extensions[0];
-		expect([...extension.commands.keys()]).toEqual(["team", "state", "workflow", "risk", "graph"]);
+		expect([...extension.commands.keys()]).toEqual(["lsp", "team", "state", "workflow", "risk", "graph"]);
 		expect(extension.tools.size).toBe(0);
 		expect(extension.handlers.size).toBe(8);
 		expect(result.runtime.pendingProviderRegistrations).toEqual([]);
@@ -216,6 +216,37 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		expect(await readdir(join(cwd, ".ai"))).toEqual(["config.yaml"]);
 	});
 
+	it.each(["", "status"])("LSP status %j is read-only, disabled by default and never loads Provider", async (args) => {
+		const host = commands();
+		await host.call("lsp", args);
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("DISABLED"), "info");
+		expect(await readdir(cwd)).toEqual([]);
+		expect(host.models).not.toHaveBeenCalled();
+	});
+	it("LSP status resolves configured executable without process start/state mutation", async () => {
+		await mkdir(join(cwd, ".ai"));
+		const source = `${config}code_intelligence:\n  lsp:\n    enabled: true\n    servers:\n      - id: typescript\n        executable: ${JSON.stringify(process.execPath)}\n        args: []\n        extensions: [.ts]\n`;
+		await writeFile(join(cwd, ".ai/config.yaml"), source);
+		const host = commands();
+		await host.call("lsp", "status");
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("typescript  READY"), "info");
+		expect(notify.mock.lastCall?.[0]).toContain("process     stopped");
+		expect(await readdir(join(cwd, ".ai"))).toEqual(["config.yaml"]);
+		expect(await readFile(join(cwd, ".ai/config.yaml"), "utf8")).toBe(source);
+		expect(host.models).not.toHaveBeenCalled();
+	});
+	it("LSP status enforces trust, UI, and status-only syntax", async () => {
+		const host = commands();
+		await host.call("lsp", "", { ...context(), isProjectTrusted: () => false });
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("not trusted"), "warning");
+		await expect(host.call("lsp", "", { ...context(), hasUI: false })).rejects.toThrow("notification-capable");
+		for (const args of ["install typescript", "diagnostics src/app.ts", "rename", "status extra"]) {
+			await host.call("lsp", args);
+			expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("Usage:"), "warning");
+		}
+		expect(host.models).not.toHaveBeenCalled();
+		expect(await readdir(cwd)).toEqual([]);
+	});
 	it("rejects non-UI modes and a busy parent", async () => {
 		const host = commands();
 		await expect(host.call("state", "", { ...context(), hasUI: false })).rejects.toThrow("notification-capable UI");

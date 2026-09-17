@@ -5,6 +5,7 @@ import { type Static, Type } from "typebox";
 import { Check } from "typebox/value";
 import { parseDocument } from "yaml";
 import { CheckKindSchema, WorkflowSchema } from "./contracts.ts";
+import { LspConfigSchema, normalizeLspConfig } from "./lsp/config.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
 const strict = { additionalProperties: false } as const;
@@ -72,6 +73,7 @@ export const RuntimeConfigSchema = Type.Object(
 				strict,
 			),
 		),
+		code_intelligence: Type.Optional(Type.Object({ lsp: LspConfigSchema }, strict)),
 		verification: Type.Optional(
 			Type.Object(
 				{
@@ -171,6 +173,9 @@ export function parseRuntimeConfig(source: string) {
 		risk: { approval_required: ["R3"] as ["R3"] },
 		files: { allowed_paths: allowedPaths },
 		verification: { checks },
+		...(value.code_intelligence
+			? { code_intelligence: { lsp: normalizeLspConfig(value.code_intelligence.lsp) } }
+			: {}),
 	};
 }
 

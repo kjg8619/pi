@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { workerDigest } from "./agent-tools.ts";
 import type { RuntimeConfig } from "./config.ts";
 import type { CheckResult, VerificationResult } from "./contracts.ts";
+import { collectLspEvidence, markStaleLspEvidence } from "./lsp/evidence.ts";
+import type { LspEvidence, LspPort } from "./lsp/types.ts";
 import { type ActionAudit, evaluateRegisteredCheck, type PolicyContext, type RegisteredCheck } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { VerificationRequest, Verifier } from "./ports.ts";
@@ -14,13 +16,14 @@ export class RegisteredVerifier implements Verifier {
 	readonly workspace: GitWorkspace;
 	private processCleanupConfirmed = true;
 	get safeToRelease(): boolean {
-		return this.processCleanupConfirmed && this.workspace.safeToRelease;
+		return this.processCleanupConfirmed && this.workspace.safeToRelease && this.lsp?.cleanupFailed !== true;
 	}
 	private readonly config: RuntimeConfig;
 	private readonly policy: PolicyContext;
 	private readonly audit: ActionAudit;
 	private readonly paths: FilePolicyPathInspector;
 	private readonly registrations: Array<RegisteredCheck | undefined>;
+	private readonly lsp?: LspPort;
 	private constructor(
 		config: RuntimeConfig,
 		policy: PolicyContext,
@@ -28,7 +31,9 @@ export class RegisteredVerifier implements Verifier {
 		workspace: GitWorkspace,
 		paths: FilePolicyPathInspector,
 		registrations: Array<RegisteredCheck | undefined>,
+		lsp?: LspPort,
 	) {
+		this.lsp = lsp;
 		this.config = config;
 		this.policy = policy;
 		this.audit = audit;
@@ -41,6 +46,7 @@ export class RegisteredVerifier implements Verifier {
 		policy: PolicyContext,
 		audit: ActionAudit,
 		workspace: GitWorkspace,
+		lsp?: LspPort,
 	): Promise<RegisteredVerifier> {
 		config = structuredClone(config);
 		const env = verificationEnvironment();
@@ -69,6 +75,7 @@ export class RegisteredVerifier implements Verifier {
 			workspace,
 			await FilePolicyPathInspector.open(workspace.cwd),
 			registrations,
+			lsp,
 		);
 	}
 	private async cwdSafe(path: string): Promise<boolean> {
@@ -236,6 +243,44 @@ export class RegisteredVerifier implements Verifier {
 			if (!this.workspace.safeToRelease) throw new ProcessCleanupError();
 			final = { ...before, safe: false };
 		}
+		const lspConfig = this.config.code_intelligence?.lsp;
+		let lspEvidence: LspEvidence[] | undefined;
+		if (this.lsp && lspConfig?.enabled && final.safe && !request.signal?.aborted) {
+			try {
+				lspEvidence = await collectLspEvidence(this.lsp, lspConfig, request, final.changedFiles, final.diffDigest);
+			} catch (error) {
+				if (error instanceof ProcessCleanupError || this.lsp.cleanupFailed) {
+					this.processCleanupConfirmed = false;
+					throw new ProcessCleanupError();
+				}
+				if (!request.signal?.aborted) throw error;
+				// Preserve already-executed process outcomes on LSP cancellation, as on process cancellation.
+				const now = Date.now();
+				lspEvidence = [
+					{
+						serverId: "runtime",
+						status: "ERROR",
+						diagnostics: [],
+						reason: "LSP diagnostics cancelled",
+						diffDigest: final.diffDigest,
+						evidenceRef: `lsp:${request.runId}:${request.step.stepId}:${request.step.attempt}:cancelled`,
+						startedAt: now,
+						finishedAt: now,
+						withheld: 0,
+						truncated: 0,
+					},
+				];
+			}
+		}
+		if (lspEvidence) {
+			try {
+				final = await this.workspace.inspect();
+			} catch {
+				if (!this.workspace.safeToRelease) throw new ProcessCleanupError();
+				final = { ...final, safe: false };
+			}
+			markStaleLspEvidence(lspEvidence, final.diffDigest, final.safe);
+		}
 		for (const check of checks)
 			if (
 				check.status === "PASS" &&
@@ -251,7 +296,8 @@ export class RegisteredVerifier implements Verifier {
 			revision: request.revision,
 			step: request.step,
 			diffDigest: final.diffDigest,
-			evidenceRefs: final.evidenceRefs,
+			evidenceRefs: [...final.evidenceRefs, ...(lspEvidence?.map((item) => item.evidenceRef) ?? [])],
+			...(lspEvidence ? { lspEvidence } : {}),
 			changedFiles: final.changedFiles,
 			checks,
 			reviewContext: {
@@ -262,6 +308,7 @@ export class RegisteredVerifier implements Verifier {
 						content: `Actual changed files: ${JSON.stringify(final.changedFiles)}\nDigest: ${final.diffDigest}`,
 					},
 					...checks.map((check) => ({ ref: check.evidenceRefs[0], content: JSON.stringify(check) })),
+					...(lspEvidence?.map((item) => ({ ref: item.evidenceRef, content: JSON.stringify(item) })) ?? []),
 				],
 			},
 		};

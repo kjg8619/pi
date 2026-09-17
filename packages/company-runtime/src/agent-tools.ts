@@ -24,6 +24,7 @@ import {
 	type VerificationResult,
 	validateContract,
 } from "./contracts.ts";
+import { createLspTools } from "./lsp/tools.ts";
 import {
 	type ActionAudit,
 	evaluatePolicy,
@@ -154,7 +155,12 @@ export function createWorkerTools(options: {
 		signal.throwIfAborted();
 		if (submitted) throw new Error("Worker already submitted its result");
 	};
-	const fileAction = async (tool: string, paths: string[], input: unknown, execute: () => string) => {
+	const fileAction = async (
+		tool: string,
+		paths: string[],
+		input: unknown,
+		execute: () => string | Promise<string>,
+	) => {
 		assertActive();
 		const frozenPaths = [...paths];
 		const action = {
@@ -234,6 +240,7 @@ export function createWorkerTools(options: {
 				}),
 		}),
 	];
+	if (request.lsp) tools.push(...createLspTools(request.lsp, fileAction, signal));
 	if (request.role !== "Reviewer") {
 		tools.push(
 			defineTool({

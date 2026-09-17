@@ -11,6 +11,7 @@ import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
 import { GraphViewSession } from "./graph-view-component.ts";
+import { registerLspCommand } from "./lsp/command.ts";
 import {
 	displayText,
 	formatConfiguration,
@@ -133,6 +134,7 @@ export function registerCompanyRuntime(
 			report: local?.run?.runId === run?.runId || !run ? local : undefined,
 		};
 	};
+	registerLspCommand(pi, (cwd) => (project === cwd && pending ? workflow?.lspStatus : undefined));
 	const usage = {
 		workflow: "/workflow [help|run <goal>|status [runId]|history [page]|config|cancel]",
 		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state export",
@@ -274,7 +276,7 @@ export function registerCompanyRuntime(
 							const { config } = loaded;
 							const approved = await ctx.ui.confirm(
 								"Weavra: run trusted QUICK/STANDARD workflow?",
-								`Allowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
+								`Allowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nLSP servers (trusted local code, not sandboxed): ${JSON.stringify(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers.map(({ id, executable, args }) => ({ id, executable, argv: args })) : [])}\nLSP results are advisory and do not replace required checks.\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);
 							if (!approved) throw new Error("Workflow preflight declined");
