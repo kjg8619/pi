@@ -18,6 +18,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.2A: `/graph`로 기존 Run·attempt·Review·Check·Approval을 읽는 순수 DAG Projection과 ASCII 조회.
 - V0.2B: 같은 GraphProjection을 `/graph view`의 read-only TUI overlay에서 스크롤하며 조회.
 - V0.2C: `~/.weavra/agent` user-level 격리, 명시적 `weavra setup`과 읽기 전용 `weavra doctor`.
+- V0.3A: `runtime_read`의 anchored snapshot과 `runtime_edit`의 선택적 full-file stale guard. QUICK/R1 단일 파일 편집에서 우선 사용.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
 
 ## Installation
@@ -335,6 +336,33 @@ Pi의 기존 `tui.select.up/down/pageUp/pageDown/cancel`, `tui.altScreen.top/bot
 **V0.2B 첫 버전은 열 때 읽은 정적 snapshot이다.** `Static snapshot`을 표시하며, 활성 run이라도 자동 갱신하지 않는다. 현재 상태를 보려면 닫고 다시 연다. RuntimeEvent 저장/replay·polling·timer·새 graph state는 없다. Viewer 종료·reload·session switch/fork/tree/shutdown에서는 자체 component를 dispose하며, 읽기/overlay 생성 중 lifecycle이 바뀌어도 늦은 viewer가 남지 않도록 닫는다. 기존 Runtime cleanup은 그대로 수행한다.
 
 긴 label/runId/diagnostic은 폭에 맞게 truncate하고 내부 세로 스크롤을 제공한다. 너무 작은 화면에서는 resize 또는 `/graph` 사용을 안내한다. Viewer는 TUI-only이며 RPC에는 기존 ASCII `/graph`를 사용한다. 조회 중 writer lock/repair/Provider/Agent/Git mutation은 없고, 실행/승인 authority를 갖지 않는다. 다른 extension의 동시 overlay 중첩과 별도 fullscreen 조합은 이번 검증 범위에 포함하지 않았다.
+
+## V0.3A — Hash-Anchored Edit
+
+Worker는 기존 도구 이름을 그대로 사용한다. 기존 파일 수정에는 QUICK/R1에서 다음 순서를 권장한다.
+
+```text
+runtime_read({path: "src/foo.ts", anchors: true})
+  → fileDigest: sha256:<full-file hash>
+    a1:L1:<opaque hash> "foo()\n"
+    a1:L2:<opaque hash> "foo()\n"
+
+runtime_edit({path: "src/foo.ts", oldText: "foo()", newText: "bar()",
+              anchor: <복사한 두 번째 행 token>, fileDigest: <복사한 digest>})
+```
+
+출력의 행 내용은 JSON-escaped 문자열이다. 모델은 hash를 계산하지 않고 Runtime이 반환한 token/digest를 그대로 복사한다. `oldText`는 JSON 문자열을 해석한 실제 원문이며, anchor 행에서 시작해야 한다(여러 행에 걸쳐도 된다). 다른 행의 중복은 허용하지만 같은 행 안에 여러 occurrence가 있으면 `AMBIGUOUS_ANCHOR`로 거부한다.
+
+Policy ALLOW 이후 mutation 직전에 현재 파일을 다시 읽어 **전체 UTF-8 bytes의 digest → 경로·행 anchor → exact oldText** 순으로 확인한다. 파일의 무관한 부분만 바뀌어도 `STALE_ANCHOR`이며 해당 edit는 0 bytes를 변경한다. 비슷한 줄을 찾거나 fuzzy 보정하지 않는다. 모델이 다시 읽고 새 요청을 해야 하며 자동 재시도 loop는 없다. stale 오류만 기존 세션의 시간·턴 한도 안에서 재읽기 가능하고, Policy·저장 실패 및 취소는 기존 실패 경계를 따른다.
+
+- `anchor`와 `fileDigest`는 둘 다 있거나 둘 다 없어야 한다. 생략 시 기존 unique exact edit이고, `anchors` 생략/false의 read 출력도 그대로다.
+- anchor는 canonical workspace/path·1-based 행 번호·줄바꿈을 포함한 정확한 행 내용에 묶인다. LF/CRLF, 마지막 newline, Unicode를 정규화하지 않는다.
+- 파일/결과는 256 KiB 이하의 strict UTF-8, non-NUL 텍스트만 허용한다. symlink/hardlink·보호/비허용 경로를 거부한다. 출력도 256 KiB 이하이며 긴 행은 4,096 UTF-16 code units preview, 생략된 나머지 행은 명시적으로 표시한다.
+- STANDARD/R2에 anchored-only 사용을 강제하지 않는다. 기존 risk/run binding·독립 Reviewer·checks·완료 조건을 유지하고 Reviewer에는 mutation 도구가 없다.
+
+**Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** 기존 exact edit와 `runtime_write`, trusted checks, 일반 Pi 도구는 이 보호 대상이 아니다. 모든 existing-file mutation을 anchored-only로 바꾸지는 않았다.
+
+검증과 쓰기는 같은 descriptor에서 중간 JS yield 없이 수행한다. 이는 OS의 atomic compare-and-swap이 아니므로 비협조적인 외부 프로세스의 최종 검사와 쓰기 syscall 사이 경합·쓰기 중 I/O 실패까지 transaction으로 보호하지 않는다. 이미 달라진 generation의 stale 요청은 거부하며, 최종 syscall 경합은 기존 비-sandbox 한계로 남는다. 실제 Provider의 anchored 선택은 아직 미검증이며 자동 SDK/faux 검증과 구분한다.
 
 ## Workflow & Risk
 

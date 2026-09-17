@@ -12,7 +12,7 @@ import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.t
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { formatWorkflowReport, StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { AgentSession, type ExtensionCommandContext, type RegisteredCommand } from "../../src/index.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 let harness: Harness;
 let cwd: string;
@@ -168,6 +168,85 @@ afterEach(() => {
 });
 
 describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
+	it.each([false, true])("V0.3A anchored second occurrence through QUICK/R1 (external stale=%s)", async (stale) => {
+		writeFileSync(join(cwd, "src/app.ts"), "foo()\nfoo()\n");
+		git("add", "src/app.ts");
+		git(
+			"-c",
+			"user.name=Fixture",
+			"-c",
+			"user.email=fixture@invalid",
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"-m",
+			"Duplicate baseline",
+		);
+		const read = () =>
+			fauxAssistantMessage(fauxToolCall("runtime_read", { path: "src/app.ts", anchors: true }), {
+				stopReason: "toolUse",
+			});
+		const anchoredEdit = (context: Context) => {
+			expect(context.systemPrompt).toContain(
+				"Existing-file edits should prefer an anchored read followed by anchored edit.",
+			);
+			expect(context.systemPrompt).toContain("Never guess or reconstruct an anchor.");
+			const output = getMessageText(context.messages.at(-1));
+			const rows = output.split("\n");
+			return fauxAssistantMessage(
+				fauxToolCall("runtime_edit", {
+					path: "src/app.ts",
+					oldText: "foo()",
+					newText: "bar()",
+					fileDigest: rows[0].slice(12),
+					anchor: rows[2].split(" ")[0],
+				}),
+				{ stopReason: "toolUse" },
+			);
+		};
+		harness.setResponses([
+			read(),
+			(context) => {
+				if (stale) writeFileSync(join(cwd, "src/app.ts"), "foo()\nfoo()\nexternal\n");
+				return anchoredEdit(context);
+			},
+			...(stale
+				? [
+						(context: Context) => {
+							expect(getMessageText(context.messages.at(-1))).toContain("STALE_ANCHOR");
+							expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe("foo()\nfoo()\nexternal\n");
+							return read(); // Explicit model choice, not a Runtime retry loop.
+						},
+						anchoredEdit,
+					]
+				: []),
+			submit,
+		]);
+		const report = await create().execute();
+		expect(report.error).toBeUndefined();
+		expect(report.run?.status).toBe("COMPLETED");
+		expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Executor"]);
+		expect(report.run?.verification.map((check) => check.status)).toEqual(["PASS", "PASS"]);
+		expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe(`foo()\nbar()\n${stale ? "external\n" : ""}`);
+		expect(
+			state()
+				.actions.filter((action) => action.decision.role === "Executor")
+				.map((action) => [action.status, action.decision.risk]),
+		).toEqual(
+			stale
+				? [
+						["SUCCEEDED", "R0"],
+						["FAILED", "R1"],
+						["SUCCEEDED", "R0"],
+						["SUCCEEDED", "R1"],
+					]
+				: [
+						["SUCCEEDED", "R0"],
+						["SUCCEEDED", "R1"],
+					],
+		);
+		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+	});
 	it.each(["R0", "R1"])(
 		"completes %s with one coding session, both checks and no Reviewer authentication",
 		async (risk) => {

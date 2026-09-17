@@ -38,11 +38,12 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Weavra Worktree Open/List | 완료 / 커밋·푸시 | `add45781d`에 반영. Git 등록 기반 open-only/list·dirty 허용·Pi argv 전달. LOG-030 당시 34개 파일·1,098개 PASS |
 | V0.2A Read-only DAG Projection | 완료 / 커밋·푸시 | `b40c016d3`에 반영. 순수 DTO/ASCII·attempt·R3 detail·UNKNOWN. LOG-032 당시 36개 파일·1,168개 PASS |
 | V0.2B Read-only TUI DAG Viewer | 완료 / 커밋·푸시 | `0834683bd`에 반영. 정적 overlay·navigation/close. LOG-034 당시 38개 파일·1,231개 및 실제 TUI smoke PASS |
-| V0.2C Product Isolation / Setup / Doctor | 완료 / 사용자 실행 확인·게시 승인(LOG-038) | `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
+| V0.2C Product Isolation / Setup / Doctor | 완료 / 커밋 확인 | `e7f37f777`에 반영. `~/.weavra/agent`·child env 격리·명시적 import·read-only doctor. LOG-037 자동 42개 파일·1,402개 및 임시 HOME의 실제 launcher/TUI smoke PASS |
+| V0.3A Hash-Anchored Edit | 구현·자동 회귀 완료 / 게시 승인(LOG-040)·Provider smoke 미실행 | optional anchored read/edit·full-file stale guard·동일 FD apply. LOG-039 자동 44개 파일·1,470개 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.2C — Product Isolation / Setup / Doctor**다. launcher가 기존 Pi와 Weavra의 기본 user-level config/auth/session 경로를 분리한다. setup은 파일별 명시적 동의와 no-overwrite import, doctor는 로컬 read-only 진단이다. `.ai` Runtime authority와 Kernel/Workflow/Policy/Approval/Verification/Graph/Viewer/Status 및 worktree create/open/list 의미는 유지한다. 이번 자동 targeted는 **42개 파일·1,402개 PASS**, root check/bash 구문/diff 검사는 PASS다(LOG-037). 임시 HOME에서 fake Pi 설정 → 실제 launcher setup/doctor → 기존 built fork-local Weavra TUI 시작 및 `/graph`/`/state`/`/quit`를 확인했다. 실제 사용자 HOME은 수정하지 않았고 build·유료 GPT RC는 재실행하지 않았다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.3A — Hash-Anchored Edit**다. 기존 read/edit에 optional anchor/full-file digest precondition을 추가했으며 QUICK/R1 단일 파일 편집에서 우선 권장한다. 오래된 generation은 Policy ALLOW 뒤 재읽기에서 STALE_ANCHOR/0-byte mutation으로 거부한다. exact edit/runtime_write와 Kernel/Workflow/Policy/Approval/Verification/Reviewer/Graph/Viewer/Status/Worktree/Product Isolation 의미는 유지한다. 이번 자동 targeted는 **44개 파일·1,470개 PASS**이며 root check/bash 구문/diff 검사는 PASS다(LOG-039). 실제 Provider small-edit smoke·TUI/build·전체 GPT RC는 이번에 재실행하지 않았다. V0.2C의 42개 파일·1,402개 및 임시 HOME launcher/TUI smoke는 LOG-037 당시 결과로 구분한다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -1941,6 +1942,84 @@ git diff --check
 - **문제·해결:** 추가 문제 없음. 명시적 10개 경로만 stage하며 일반 commit/push를 사용한다. Runtime 의미/Pi Core·dependency/lockfile은 그대로다.
 - **남은 제한·다음 작업:** 기존 default 경로 격리·명시적 설정 override·session bulk migration 미지원 및 플랫폼/Provider 미검증 한계를 유지한다. 게시 후 원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): isolate Weavra home and add setup and doctor`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-039 — V0.3A: Hash-Anchored Edit
+
+- **기록일:** 2026-09-17 15:27 (KST)
+- **상태:** 구현·자동 targeted 회귀 완료 / 미커밋. 실제 Provider smoke 미실행.
+- **목적:** 모델의 이전 read 이후 파일이 바뀌면 오래된 anchor로 다른 위치를 수정하지 않고 fail-closed 처리한다. 기존 Runtime 권한·완료 의미를 유지한다.
+- **시작 상태:** `devlop` clean, HEAD `e7f37f777cd32eae1d268ddfe9456e5b5748b0e2`. V0.2C가 이 커밋에 반영된 상태에서 시작했다. 안정 태그 peeled commit은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`다.
+
+### 문제·구체적 동작·설계
+
+기존 unique exact edit는 같은 `foo()`가 두 행에 있으면 실패하고, 과거에 읽은 파일 generation을 요청에 결합하지 않는다. V0.3A는 두 번째 행의 anchor와 당시 fileDigest를 복사하여 두 번째 occurrence만 수정할 수 있게 한다. 그 사이 마지막 행에 외부 내용이 추가되면 대상 행이 그대로여도 전체 digest mismatch로 거부하고 외부 bytes를 보존한다.
+
+- 새 mutation tool/Port를 추가할 필요가 없어 `runtime_read({path, anchors:true})`와 `runtime_edit({path, oldText, newText, anchor, fileDigest})`만 확장했다. anchor/digest는 모두 있거나 모두 없어야 한다. plain read 생략/false 및 legacy unique exact edit/duplicate 거부·runtime_write는 유지한다.
+- anchor 형식은 **`a1:L<1-based line>:<64 lowercase SHA-256 hex>`**다. hash 재료는 JSON tuple `["weavra-anchor-v1", canonical absolute target path, line number, exact line including terminator]`다. 경로·workspace·행 identity를 결합하고 LF/CRLF/final newline/Unicode/BOM을 정규화하지 않는다. 모델은 opaque token을 그대로 복사한다.
+- **fileDigest는 `sha256:<hex>`**, 정확한 UTF-8 전체 bytes의 digest다. local anchor만 검사하면 unrelated 외부 변경을 놓칠 수 있으므로 correctness 우선의 full-file generation을 선택했다. 같은 bytes로 복원된 ABA 이력을 구분하는 영구 generation 번호나 읽기 수행의 인증 서명은 아니다.
+- Policy evaluation → durable ALLOW intent → path 재검사 → 현재 파일 read → fileDigest → anchor → anchored exact oldText → 최종 bytes/identity/cancel 검사 → apply 순서다. Policy ALLOW가 freshness를 대신하지 않는다. mismatch는 STALE_ANCHOR와 FAILED audit이며 write/truncate 전에 거부한다.
+- oldText는 anchor 행에서 시작하고 여러 행에 걸칠 수 있다. 다른 행에서 시작하는 duplicate는 허용하지만 같은 행의 여러 시작점(겹침 포함)은 AMBIGUOUS_ANCHOR로 거부한다. fuzzy search·가까운 위치 추정·자동 보정은 없다.
+
+### 변경 파일·경계
+
+- 신규 `packages/company-runtime/src/anchored-edit.ts`: snapshot/token/digest/exact replacement/strict UTF-8 domain helper. Node crypto 외 SDK/Provider/fs 의존성이 없다.
+- 신규 `src/anchored-files.ts`: Policy 뒤의 bounded filesystem adapter. canonical root/path·no-follow/nonblocking·regular/single-link·256 KiB를 유지한다. O_RDWR/no-create/no-truncate-on-open의 같은 descriptor에서 검증·쓰기하며 마지막 bytes와 dev/ino/mode/size/mtime/ctime·AbortSignal을 확인한다. 적용 전 JS yield/reopen이 없다.
+- `src/agent-tools.ts`: optional schema·도구 설명, 입력 사본, 기존 gate 뒤 helper 연결. source/replacement strict UTF-8 round-trip과 NUL 거부를 anchored mode에만 적용한다. JSON-escaped/control/bidi-safe snapshot output도 256 KiB로 제한하고 4,096 UTF-16 code units long-line preview/나머지 행 생략을 명시한다.
+- `src/agent-runner.ts`: QUICK/R1에 anchored preference와 stale 재읽기/token 재구성 금지 안내. Runtime이 직접 만든 StaleAnchorError만 tool call ID로 한 번 소비하여 같은 세션의 명시적 재읽기를 허용한다. 자동 retry/read loop나 새로운 session/revision은 없고 시간·턴 예산·취소·일반 tool/Policy/저장 오류의 종료 경계는 그대로다. audit finish 실패가 stale 예외로 둔갑하지 않음을 검증했다.
+- 신규 `test/anchored-edit.test.ts`, `test/anchored-tools.test.ts`: domain 및 실제 파일/Policy/audit 경계 **66개**. `packages/coding-agent/test/suite/company-runtime-quick.test.ts`: 기존 harness/faux로 실제 SDK/Kernel/StateStore/check를 사용하는 duplicate-second와 stale→명시적 read→edit **2개** 추가.
+- 문서 `README.md`, `packages/company-runtime/README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WORK_LOG.md` 갱신. adoption plan의 과거 후보 그림을 Policy-before-read/apply와 실제 구현 범위로 정정했다.
+
+`WORKER_FILE_TOOLS` operation 목록, Policy 구현/version/config digest 재료는 불변이다. 새 schema/설명은 optional 기능을 노출하지만 mutation 등록은 계속 edit이고 QUICK/R1은 R1, bound STANDARD/R2는 R2다. 기존 actionDigest의 전체 input에 path·anchor·fileDigest·oldText/newText가 포함되고 step/revision도 결합된다. audit에 credential/파일 내용/token 원문 필드를 추가하지 않았다. 기존 snapshot 기대값을 일괄 덮어쓰지 않았으며 registry·risk·action digest contract를 별도로 검증했다.
+
+Kernel/Workflow/Policy/Approval/Verification/StateStore/Reviewer 권한/Graph/Viewer/Status/Worktree/Product Isolation·Pi Core·dependency/lockfile은 변경하지 않았다. STANDARD/R2에 anchored-only를 강제하지 않고 Reviewer는 read/search/submit_review뿐이다. R3에는 write/edit를 계속 제공하지 않는다.
+
+### 이번 검증 명령·실제 결과
+
+```sh
+# packages/company-runtime
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/anchored-edit.test.ts test/anchored-tools.test.ts test/launcher-home.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/graph.test.ts test/graph-command.test.ts test/worktree.test.ts test/launcher.test.ts test/status.test.ts test/hardening.test.ts test/kernel-hardening.test.ts test/observations.test.ts test/observation-files.test.ts test/approval.test.ts test/r2-review.test.ts test/quick.test.ts test/agent-metadata.test.ts test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/verification-boundary.test.ts
+
+# packages/coding-agent
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-status.test.ts test/suite/company-runtime-timeout.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-agent.test.ts test/suite/agent-session-prompt.test.ts test/suite/agent-session-runtime.test.ts test/suite/agent-session-model-extension.test.ts test/suite/agent-session-retry-events.test.ts test/suite/agent-session-queue.test.ts test/args.test.ts test/sdk-session-manager.test.ts test/session-manager/file-operations.test.ts
+
+# root
+npm run check
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- 이번 최종 targeted(15:23 KST 시작): **Runtime 27개 파일·899개 + coding-agent 17개 파일·571개 = 44개 파일·1,470개 PASS**, 실패/skip 0. 신규 68개이며 V0.2C의 1,402개도 이번에 다시 실행했다. 과거 LOG-037 결과를 중복 합산하지 않는다.
+- 초기 신규 domain/adapter **61개 PASS**, QUICK SDK **42개 PASS** 후 Reviewer·protected/disallowed·late hardlink·filesystem byte boundary 5개를 보완했다. 테스트 실패는 없었다.
+- deterministic token/digest·content/path/workspace/line identity, LF/CRLF/final newline/BOM/CJK/긴 행·output/file/replacement bounds, legacy read/edit/write, duplicate elsewhere/within/overlap·multiline, stale/fabricated/mismatch와 bytes 불변을 확인했다.
+- symlink/hardlink/ancestor link·binary/invalid UTF-8/oversize·보호/허용/QUICK scope 경로, Policy DENY 선행, durable ALLOW persistence 중 외부 변경, 마지막 asynchronous path 검사 뒤 hardlink 변경, 취소 세 시점·audit 실패, deterministic action digest·R1/R2 및 Reviewer tool set을 확인했다.
+- 외부 race fixture는 anchored read 후 **별도 `/bin/cp` 프로세스**로 실제 파일 bytes를 변경하고 기존 token apply를 거부하여 외부 bytes 보존을 확인했다. 최종 syscall 순간의 모든 경합을 검증한 것으로 과장하지 않는다.
+- SDK/faux는 anchor를 tool 출력에서 복사하여 두 번째 occurrence만 변경했다. stale 사례는 실패 후 외부 bytes를 먼저 확인하고 모델 응답으로 명시적 재읽기→새 edit를 선택했다. 각각 Executor session 1개·Reviewer 없음·SELF_CHECK/TEST PASS·COMPLETED와 failed edit의 R1 audit 보존을 확인했다.
+- V0.2A `/graph`, V0.2B viewer, V0.2C setup/doctor, worktree create/open/list, QUICK/STANDARD/R2/R3/stale-review/cancellation 및 기존 Pi session/argv 회귀를 재실행했다.
+- root `npm run check` PASS(TypeScript/deps/entry graph/shrinkwrap/install-lock/browser smoke 포함). 첫 check의 test 문자열 결합 info 1건을 template literal로 수정했고 이후 check는 warning/info/error 없이 통과했다. Biome은 이번 변경 파일만 포맷했고 그 뒤 전체 targeted를 실행했다. `git diff --check`, `bash -n` PASS.
+
+### 남은 한계·Provider smoke·다음 작업
+
+- **실제 Provider smoke: 미실행.** 이번 요청에 구체적인 사용자 fixture 경로/사용 모델이 지정되지 않아 실제 프로젝트/인증을 임의로 선택하지 않았다. faux의 도구 선택은 실제 모델이 anchored mode를 자발적으로 선택하는지에 대한 증거가 아니다. 전체 GPT RC-01~08·유료 API·TUI/build·전체 upstream suite/e2e·다른 OS는 재실행하지 않았다.
+- **runtime_write bypass는 그대로 남는다.** Anchored stale protection applies to anchored runtime_edit operations; it does not magically make every possible file mutation anchored. legacy exact edit·trusted verifier·일반 Pi 도구도 이 보호 대상이 아니다. every-mutation anchored-only 강제는 별도 단계다.
+- 동일 FD·동기 최종 재검사는 OS atomic compare-and-swap이 아니다. 비협조 외부 writer의 최종 검사와 write syscall 사이 경합, 중간 I/O 실패·전원 장애의 부분 변경은 기존 비-sandbox 한계로 남는다. 자동 rollback/merge/commit은 없다.
+- bounded snapshot에서 생략된 행은 anchor를 제공하지 않으며 pagination을 추가하지 않았다. full-file digest 때문에 연속 edit나 unrelated change 후에는 다시 읽어야 한다. AST/LSP/rename/formatter/autofix/editor integration/multi-file transaction은 범위 밖이다.
+- **다음 작업:** 사용자가 선택한 fixture/model로 QUICK/R1 duplicate-second 1건과 가능하면 anchored read 뒤 외부 변경 stale 1건을 실제 Provider에서 확인한다. 검증 전 STANDARD/R2 강제 적용이나 runtime_write 축소는 하지 않는다.
+- **커밋·푸시·태그 변경:** 모두 하지 않음. `weavra-v0.1-rc1`은 그대로 유지한다.
+
+---
+
+## LOG-040 — V0.3A Hash-Anchored Edit 커밋·푸시 준비
+
+- **기록일:** 2026-09-17 15:41 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-039의 V0.3A 변경을 커밋하고 `origin/devlop`에 게시하기 위한 검증을 완료했다.
+- **변경 파일:** `README.md`, `docs/WEAVRA_OMP_OMO_ADOPTION_PLAN.md`, `docs/WORK_LOG.md`, `packages/company-runtime/README.md`, 같은 패키지의 `src/agent-runner.ts`, `src/agent-tools.ts`, `src/anchored-edit.ts`, `src/anchored-files.ts`, `test/anchored-edit.test.ts`, `test/anchored-tools.test.ts`, `packages/coding-agent/test/suite/company-runtime-quick.test.ts` 총 11개. 이번 준비에서는 현재 요약과 이 항목만 갱신했다.
+- **이번 검증:** root `npm run check` 재실행 PASS, Biome 자동 수정 및 warning/info/error 없음. `git diff --check`, `bash -n packages/company-runtime/bin/weavra` PASS. `git status --short --branch`, diff 목록과 기존 staged 변경 없음, HEAD 및 RC tag peeled commit 불변을 확인했다.
+- **과거 검증과 구분:** 44개 파일·1,470개 PASS는 LOG-039 구현 검증 당시 결과다. 이번 게시 준비에서는 테스트/build/실제 Provider/TUI를 다시 실행하지 않았다.
+- **문제·해결:** 추가 문제 없음. 명시적 11개 경로만 stage하고 일반 commit/push를 사용한다. dependency/lockfile 변경 및 검사 우회는 없다.
+- **남은 제한·다음 작업:** 실제 Provider anchored 선택은 미검증이며 runtime_write/legacy exact edit 보호 범위와 외부 최종 syscall race 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean working tree와 RC 태그 불변을 확인한다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add stale-safe Weavra hash-anchored edits`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
 
 ---
 

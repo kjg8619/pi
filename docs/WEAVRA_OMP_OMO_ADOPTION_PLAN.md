@@ -3,8 +3,8 @@
 - 작성일: 2026-09-17 (KST)
 - 대상: Weavra `devlop`
 - 목적: OMP와 OMO Native(Senpi)에서 검증된 아이디어를 조사하고, Weavra의 현재 안전성·상태·검증 철학을 유지하면서 가져올 가치가 있는 기능을 우선순위화한다.
-- 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
-- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection 및 V0.2B 정적 TUI Viewer. V0.2C Product Isolation/setup/doctor 구현 범위는 §15 및 WORK_LOG LOG-037에 기록한다.
+- 성격: **기능 도입 설계 후보 문서**. 별도로 구현 상태를 기록한 V0.2C/V0.3A를 제외하면 후보 항목이며 구현 완료를 의미하지 않는다.
+- 현재 Weavra 기준선: V0.1 Runtime/RC, fork-local launcher, worktree create/open/list, Status Projection, V0.2A read-only DAG Projection, V0.2B 정적 TUI Viewer, V0.2C Product Isolation/setup/doctor. V0.3A optional Hash-Anchored Edit 구현은 §15 및 WORK_LOG LOG-039를 따른다. 실제 Provider anchored smoke는 아직 미검증이다.
 
 > 핵심 원칙: OMP/OMO의 기능을 그대로 복제하지 않는다. Weavra가 이미 가진 `Kernel → Policy → Verification → Review/Approval → State` 경계를 유지하면서, 필요한 개념만 작은 Port/Adapter 또는 read-only projection으로 흡수한다.
 
@@ -72,7 +72,7 @@ Durable State + Read-only Observation
 | 후보 | 적합도 | 권장 시점 | 도입 방식 |
 |---|---:|---|---|
 | Weavra 전용 setup / agent-dir 분리 | ★★★★★ | V0.2C 구현 | launcher/helper; §15 참조 |
-| Hash-Anchored Edit | ★★★★★ | V0.3A | 제한 mutation primitive |
+| Hash-Anchored Edit | ★★★★★ | V0.3A 구현 / Provider smoke 대기 | 기존 read/edit optional mode; §15 참조 |
 | LSP Diagnostics / Navigation | ★★★★★ | V0.3B | read-only Verification/Code Intelligence |
 | QA Evidence / Doctor | ★★★★★ | V0.3C | 검증/제품 운영 레이어 |
 | AST Edit Preview → Apply | ★★★★☆ | V0.4 전후 | R2 proposal + apply |
@@ -180,37 +180,30 @@ Digest mismatch → BLOCK
 
 여기에 mutation 직전 stale guard를 추가할 수 있다.
 
-## 제안 구조
+## V0.3A 구현 구조
 
 ```text
-read
+runtime_read({path, anchors:true})
   ↓
-line/content anchor + hash
+opaque line anchors + full-file digest
   ↓
-AnchoredEdit request
+runtime_edit({path, oldText, newText, anchor, fileDigest})
   ↓
-current file re-read
+Policy evaluation → durable ALLOW → current file re-read
   ↓
-anchor/hash verify
-  ├─ match → Policy → mutation
-  └─ stale → DENY / re-read required
+fileDigest → anchor → anchored exact oldText verify
+  ├─ match → final bytes/identity/cancel check → mutation
+  └─ stale → STALE_ANCHOR / no mutation / re-read required
 ```
 
-Port 후보:
-
-```ts
-interface AnchoredEditPort {
-  propose(...): AnchoredEditProposal;
-  apply(proposal, currentEvidence): MutationResult;
-}
-```
+최초 Port 후보 대신 `src/anchored-edit.ts` 순수 helper와 `src/anchored-files.ts` filesystem adapter를 선택했다. tool surface/Policy risk 등록을 늘릴 필요가 없으며, 기존 `runtime_edit` operation과 audit 경계를 재사용한다. **Policy ALLOW가 stale precondition 검사를 대신하지 않는다.**
 
 ## 적용 순서
 
-1. QUICK/R1 단일 파일 small edit에만 적용
-2. exact edit와 병행 비교
-3. stale anchor / duplicate anchor / moved text / line ending 변화 테스트
-4. 안정화 후 STANDARD Developer에 확대
+1. QUICK/R1 단일 파일 small edit에서 anchored read/edit를 우선 권장
+2. 기존 exact edit와 runtime_write는 유지; STANDARD/R2에 anchored-only 강제하지 않음
+3. stale anchor / duplicate occurrence / moved text / line ending 변화 자동 검증
+4. 실제 Provider small-edit smoke 후 확대/강제 여부 별도 결정
 
 ## 안전 조건
 
@@ -734,14 +727,18 @@ COMPLEX / Planner / Execution DAG / Parallel Agents
 
 ## V0.3A — Anchored Edit
 
-DoD 후보:
+2026-09-17 구현 범위(검증 상세: [WORK_LOG LOG-039](WORK_LOG.md#log-039--v03a-hash-anchored-edit)):
 
-- QUICK/R1 single-file only
-- stale anchor fail-closed
-- duplicate/ambiguous anchor 거부
-- Policy 유지
-- old exact edit regression 유지
-- real provider small-edit smoke
+- `runtime_read`의 optional `anchors:true`, `runtime_edit`의 optional `anchor`+`fileDigest`를 추가한다. 둘 중 하나만 있으면 입력 오류. 기존 plain read/unique exact edit/write 의미와 `WORKER_FILE_TOOLS` operation 등록·Policy config digest 재료는 유지한다.
+- token은 `a1:L<line>:<SHA-256>`이며 canonical workspace/target path·행 번호·terminator 포함 exact line을 결합한다. full-file `sha256:<hex>` digest는 BOM/LF/CRLF/final newline을 구분하는 exact UTF-8 bytes다. 일부 unrelated edit도 보수적으로 stale 처리한다. 동일 bytes로 복원된 ABA나 암호학적 read 인증은 목표가 아니다.
+- Policy ALLOW와 durable intent 뒤 파일을 다시 읽는다. digest → anchor → 해당 행에서 시작하는 unique exact oldText 순으로 검사한다. multiline oldText는 가능하며 다른 행의 중복은 허용, 같은 행에서 시작하는 중복/겹침은 AMBIGUOUS로 거부한다. mismatch는 STALE_ANCHOR, mutation 0 bytes, fuzzy/자동 위치 보정 없음이다.
+- strict UTF-8 round-trip, non-NUL, 256 KiB source/replacement, no-follow/nonblocking·regular/single-link·allowed/protected path를 유지한다. snapshot은 JSON-escaped 행 내용과 안전한 control/bidi 출력이며 256 KiB bound·명시적 long-line preview/remaining-lines truncation을 적용한다.
+- `anchored-edit.ts` domain helper는 crypto 외 SDK/Provider/fs 의존성이 없다. `anchored-files.ts`는 동일 FD를 재읽고 마지막 bytes/identity/cancel을 확인한 뒤 동기 쓰기한다. 외부 프로세스에 대한 OS atomic CAS나 multi-file transaction은 아니며 최종 syscall race/부분 I/O 실패 한계는 남는다.
+- 기존 actionDigest가 path·anchor·fileDigest·oldText/newText·step·revision을 포함한다. 새 credential/content 로그 저장은 없다. stale는 ALLOW 후 FAILED audit이고, Runtime이 확인한 stale 오류만 같은 세션의 명시적 재읽기를 허용한다. 자동 retry loop나 턴/시간 예산 확대는 없다.
+- QUICK/R1 fixed target에서 anchored preference를 prompt/tool description으로 안내하되 안내를 safety authority로 사용하지 않는다. STANDARD/R2 run binding·Reviewer read-only·R3 approval·Kernel/Verification/Graph/Viewer/Worktree/Product Isolation은 그대로다.
+- **Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** `runtime_write`와 legacy exact edit 우회 가능성은 남는다. 모든 existing-file mutation의 anchored-only 강제는 별도 후속이다.
+- 자동 domain/filesystem/SDK-faux와 기존 targeted regression을 검증한다. 실제 Provider QUICK/R1 small edit 1~2건은 사용자 fixture/모델 선택 후 별도로 확인하며 이번에는 미실행이다. 전체 GPT RC-01~08 재실행은 하지 않는다.
+- fuzzy/AST/LSP/rename/formatter/autofix/editor integration/multi-file transaction/auto merge·commit은 추가하지 않는다.
 
 ## V0.3B — LSP
 

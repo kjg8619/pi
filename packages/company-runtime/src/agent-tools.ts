@@ -13,6 +13,8 @@ import {
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { ANCHORED_EDIT_GUIDANCE, StaleAnchorError } from "./anchored-edit.ts";
+import { editAnchoredFile, readAnchoredFile } from "./anchored-files.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "./config.ts";
 import {
 	ExecutorHandoffSchema,
@@ -137,12 +139,14 @@ export function createWorkerTools(options: {
 	result: () => AgentExecutionResult | undefined;
 	policyDenial: () => string | undefined;
 	consumeSubmissionValidationError: (toolName: string, toolCallId: string) => boolean;
+	consumeStaleAnchorError: (toolName: string, toolCallId: string) => boolean;
 } {
 	const { request, signal } = options;
 	const evidenceRefs = request.role === "Reviewer" ? trustedReviewEvidenceRefs(request.verification) : [];
 	const trustedEvidence = new Set(evidenceRefs);
 	// Adapter-owned classification, never a model-supplied error label. Consumed once by the SDK event handler.
 	const submissionValidationErrors = new Map<string, "submit_handoff" | "submit_review">();
+	const staleAnchorErrors = new Set<string>();
 	let submitted: AgentExecutionResult | undefined;
 	let policyDenial: string | undefined;
 	const assertActive = () => {
@@ -196,11 +200,16 @@ export function createWorkerTools(options: {
 		defineTool({
 			name: "runtime_read",
 			label: "Runtime read",
-			description: "Read one allowed workspace text file (maximum 256 KiB).",
+			description:
+				"Read one allowed workspace text file (maximum 256 KiB). anchors:true returns a fileDigest and opaque line anchors with JSON-escaped text; copy tokens unchanged into runtime_edit. Long previews/output may be explicitly truncated.",
 			executionMode: "sequential",
-			parameters: Type.Object({ path: pathSchema }, strict),
-			execute: async (_id, params) =>
-				fileAction("runtime_read", [params.path], params, () => readText(join(options.cwd, params.path))),
+			parameters: Type.Object({ path: pathSchema, anchors: Type.Optional(Type.Boolean()) }, strict),
+			execute: async (_id, input) => {
+				const params = structuredClone(input);
+				return fileAction("runtime_read", [params.path], params, () =>
+					params.anchors ? readAnchoredFile(options.cwd, params.path) : readText(join(options.cwd, params.path)),
+				);
+			},
 		}),
 		defineTool({
 			name: "runtime_search",
@@ -242,26 +251,53 @@ export function createWorkerTools(options: {
 			defineTool({
 				name: "runtime_edit",
 				label: "Runtime edit",
-				description: "Replace one unique exact text occurrence in an allowed workspace file.",
+				description:
+					"Replace one unique exact text occurrence in an allowed workspace file. Optionally supply BOTH anchor and fileDigest from runtime_read anchors:true. " +
+					"The exact oldText must start in the anchored line (may span later lines); duplicates elsewhere are allowed, multiple starts in that line are rejected. Stale preconditions never write. " +
+					(request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : ""),
 				executionMode: "sequential",
 				parameters: Type.Object(
-					{ path: pathSchema, oldText: text, newText: Type.String({ maxLength: MAX_BYTES }) },
+					{
+						path: pathSchema,
+						oldText: text,
+						newText: Type.String({ maxLength: MAX_BYTES }),
+						anchor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+						fileDigest: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+					},
 					strict,
 				),
-				execute: async (_id, params) =>
-					fileAction("runtime_edit", [params.path], params, () => {
-						const path = join(options.cwd, params.path);
-						const content = readText(path);
-						const index = content.indexOf(params.oldText);
-						if (index < 0 || content.indexOf(params.oldText, index + 1) !== -1)
-							throw new Error("Edit requires a unique exact match");
-						writeText(
-							path,
-							content.slice(0, index) + params.newText + content.slice(index + params.oldText.length),
-							signal,
-						);
-						return "File edited";
-					}),
+				execute: async (id, input) => {
+					const params = structuredClone(input);
+					if ((params.anchor === undefined) !== (params.fileDigest === undefined))
+						throw new Error("anchor and fileDigest must be supplied together");
+					try {
+						return await fileAction("runtime_edit", [params.path], params, () => {
+							if (params.anchor !== undefined && params.fileDigest !== undefined) {
+								editAnchoredFile(
+									options.cwd,
+									params.path,
+									{ ...params, anchor: params.anchor, fileDigest: params.fileDigest },
+									signal,
+								);
+								return "File edited";
+							}
+							const path = join(options.cwd, params.path);
+							const content = readText(path);
+							const index = content.indexOf(params.oldText);
+							if (index < 0 || content.indexOf(params.oldText, index + 1) !== -1)
+								throw new Error("Edit requires a unique exact match");
+							writeText(
+								path,
+								content.slice(0, index) + params.newText + content.slice(index + params.oldText.length),
+								signal,
+							);
+							return "File edited";
+						});
+					} catch (error) {
+						if (error instanceof StaleAnchorError) staleAnchorErrors.add(id);
+						throw error;
+					}
+				},
 			}),
 			defineTool({
 				name: "runtime_request_check",
@@ -494,6 +530,8 @@ export function createWorkerTools(options: {
 				: tools,
 		result: () => structuredClone(submitted),
 		policyDenial: () => policyDenial,
+		consumeStaleAnchorError: (toolName, toolCallId) =>
+			toolName === "runtime_edit" && staleAnchorErrors.delete(toolCallId),
 		consumeSubmissionValidationError: (toolName, toolCallId) =>
 			submissionValidationErrors.get(toolCallId) === toolName && submissionValidationErrors.delete(toolCallId),
 	};

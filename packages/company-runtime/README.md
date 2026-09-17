@@ -156,6 +156,43 @@ Runtime snapshot → GraphProjection (graph.ts, 불변)
 
 새로운 Graph editor/node 실행/drag-drop/zoom/pan/mouse dependency/DAG scheduler/parallel/Planner/Lead/COMPLEX/T3Code/Web UI는 없다. live update는 cleanup과 source authority를 유지하는 별도 후속으로 남긴다.
 
+## V0.3A Hash-Anchored Edit
+
+새 mutation 도구 없이 기존 `runtime_read({path, anchors?: boolean})`와 `runtime_edit({path, oldText, newText, anchor?, fileDigest?})`를 확장한다. `anchors` 생략/false는 기존 plain read 출력이고, precondition 두 개를 모두 생략한 edit는 기존 unique exact replacement다. 한 개만 제공하면 입력 오류로 거부한다. `runtime_search`와 `runtime_write`의 의미는 변경하지 않는다.
+
+### Snapshot / anchor 계약
+
+- `src/anchored-edit.ts`는 filesystem/Pi SDK/Provider 없는 deterministic domain helper다. `snapshotText`, `makeAnchor`, `verifyAnchor`, `applyAnchoredReplacement`와 strict UTF-8 검사를 소유한다. Node crypto만 사용한다.
+- `fileDigest = sha256:<64 lowercase hex>`는 BOM·LF/CRLF·final newline을 포함한 정확한 UTF-8 bytes의 SHA-256이다. unrelated edit에도 stale로 닫는 full-file generation을 택했다. inode/timestamp 기반 영구 generation ID는 아니므로 bytes가 완전히 복원된 ABA 변경은 구분하지 않는다.
+- opaque anchor 형식은 `a1:L<1-based line>:<64 lowercase hex>`다. hash 재료는 JSON tuple `["weavra-anchor-v1", canonical absolute target path, line number, exact line including terminator]`다. workspace/다른 path로 token을 재사용할 수 없고 같은 내용의 서로 다른 행도 구분한다. cryptographic 서명이나 읽기 수행의 인증 증명은 아니다. 모델은 token을 계산·재구성하지 않고 그대로 복사한다.
+- snapshot은 첫 행에 `fileDigest: ...`, 이후 `anchor JSON-string`을 출력한다. 행 문자열의 newline/tab/control·terminal escape·bidi를 escape하고 Unicode normalization을 하지 않는다. `oldText`는 escape 표시 자체가 아니라 원문이다.
+- source/replacement는 최대 256 KiB, NUL 없는 strict UTF-8 round-trip을 요구한다. output도 256 KiB 이하로 제한한다. 긴 행은 4,096 UTF-16 code units preview와 `[line preview truncated]`, 나머지 행 생략은 `[remaining lines omitted: output limit]`로 표시한다. token은 preview가 아닌 전체 행을 hash한다. 이번 버전에 pagination은 없으며 생략된 행의 token을 추정하면 안 된다. 빈 파일은 digest만 있고 exact oldText 대상 행은 없다.
+
+### Apply / 실패 / audit
+
+```text
+request → existing Policy evaluation / durable ALLOW intent / path reinspection
+        → current file re-read
+        → full fileDigest equality
+        → exact anchor equality
+        → unique exact oldText starting in anchored line
+        → final bytes / identity / cancellation check → replacement
+```
+
+`oldText`는 anchor가 지정한 행에서 시작하며 여러 행에 걸칠 수 있다. 다른 행에서 시작하는 동일 문자열은 무시한다. 같은 행에서 시작하는 두 occurrence(겹치는 occurrence 포함)는 `AMBIGUOUS_ANCHOR`로 거부한다. digest/anchor/oldText mismatch는 `STALE_ANCHOR`이며 해당 action의 mutation은 0 bytes다. 파일 전체를 검색하여 위치를 옮기거나 fuzzy 보정하지 않는다.
+
+`src/anchored-files.ts`는 Policy 뒤의 filesystem adapter다. no-follow/nonblocking·regular/single-link·크기/경로 검사를 유지하고 bounded descriptor read를 사용한다. anchored edit는 O_RDWR, no create/no truncate-on-open으로 열고 동일 FD의 현재 bytes를 확인한 뒤 결과를 만든다. 마지막 bytes·dev/ino/mode/size/mtime/ctime·경로 검사와 AbortSignal 확인 뒤 JS yield 없이 같은 FD에 쓰고 길이를 조정한다. 검증 실패 때 truncate/write하지 않는다. 최종 검사와 effect는 외부 프로세스에 대한 atomic CAS가 아니며, 비협조 writer의 syscall 사이 race·부분 I/O 실패·전원 장애는 기존 한계다.
+
+`agent-tools.ts`는 입력을 복사하고 기존 Policy/audit gate와 helper만 연결한다. `WORKER_FILE_TOOLS`와 Policy version/config digest 재료는 변경하지 않았다. 등록 operation은 계속 read/edit이므로 QUICK/R1 edit는 R1, bound STANDARD/R2 edit는 R2다. 기존 actionDigest 재료에 전체 params가 포함되어 path·anchor·fileDigest·oldText/newText·step·revision을 결합한다. audit에는 기존 decision/digest/outcome만 남기고 파일 내용/token/credential 로그 필드를 새로 추가하지 않는다. stale는 ALLOW 뒤 FAILED action이지 Policy DENY가 아니다.
+
+Runtime이 직접 만든 `StaleAnchorError`만 tool call ID에 묶어 runner가 한 번 소비한다. 해당 오류 뒤 모델은 기존 세션에서 read → 새 요청을 선택할 수 있다. 오류 문자열을 흉내 내는 것으로 이 예외를 얻을 수 없고 Policy/저장 오류·취소는 회복 가능한 stale로 취급하지 않는다. 자동 retry/read/merge loop, 새 session/revision, 시간·턴 예산 확대는 없다. ambiguous/input/기타 file tool 오류는 기존처럼 세션을 실패시킨다.
+
+### Rollout과 보호 범위
+
+QUICK/R1 prompt와 edit 설명에 `Existing-file edits should prefer an anchored read followed by anchored edit. If an anchor is stale, re-read the file. Never guess or reconstruct an anchor.`를 넣는다. 이 안내는 권한이 아니며 실제 enforcement는 도구 구현이다. anchored mode는 기존 edit 권한 안에서 optional이고 STANDARD/R2에 강제하지 않는다. QUICK scope와 STANDARD/R2 binding의 분리, Reviewer read-only, R3 삭제·승인, Kernel/Verification/Graph/Viewer/Worktree/Product Isolation 의미는 그대로다.
+
+**Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 실제 사용 검증 뒤 별도 결정한다. 자동 unit/filesystem/SDK-faux 검증과 달리 실제 Provider small-edit smoke는 아직 미실행이다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
@@ -317,7 +354,7 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 파일 도구는 모두 S2의 검사→intent 저장→재검사→실행→결과 저장을 통과한다. Worker가 role/risk/등록 도구/digest를 지정하지 않는다. Runtime 자신의 소스 디렉터리가 workspace 안에 있으면 자동 보호하고, 추가 제어 파일은 Host의 `protectedPaths`로 제한한다. read/search는 R0, 일반 write/edit는 R1에서 시작하며 dependency 파일은 R2로 승격한다. bound STANDARD/R2가 아니면 실행을 차단하고 새 R2 run을 안내한다. 임의 코드를 분석해 모든 의미적 위험을 자동 판정하는 기능은 아니다.
 
 - 일반 bash·Pi 기본 도구·외부 custom tool을 설치하지 않는다. 파일 도구는 sequential이며 SDK Agent도 sequential로 설정한다.
-- 텍스트 파일은 256 KiB 이하, edit는 유일한 exact match, write는 기존 부모 디렉터리만 지원한다. 검색은 최대 32개 명시 파일의 literal 문자열 검색이며 100개 결과에서 잘림을 표시한다. OS sandbox·원자 코드 변경/rollback은 아니다.
+- 텍스트 파일은 256 KiB 이하, legacy edit는 유일한 exact match이며 V0.3A optional anchored edit는 위 계약을 따른다. write는 기존 부모 디렉터리만 지원한다. 검색은 최대 32개 명시 파일의 literal 문자열 검색이며 100개 결과에서 잘림을 표시한다. OS sandbox·원자 코드 변경/rollback은 아니다.
 - `runtime_request_check`는 등록 ID만 받아 Pi tool history에 요청을 남기고 **UNAVAILABLE/미실행**을 반환한다. verifier를 호출하거나 PASS 증거를 만들지 않는다.
 - Handoff/Review 제출은 자기 역할의 전용 schema만 받는다. run/task/role/code revision 및 Review diffDigest를 검사한다. 자연어 완료, schema/identity 오류, 다른 도구와 섞인 제출 batch는 실패다. 정상 수락한 제출만 `terminate`로 종료하며 이후 도구 실행을 막는다. Reviewer evidence 참조 오류와 아래 Developer unresolved 표현 오류는 Tool error로 반환하여 기존 시간·턴 한도 안에서 같은 세션의 수정·재제출을 허용한다.
 - Kernel의 기존 독립 Review·요구사항·증거·완료 guard는 유지한다. Adapter의 schema 통과는 COMPLETE 승인이 아니다.
@@ -524,6 +561,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/anchored-edit.test.ts test/anchored-tools.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/launcher-home.test.ts test/launcher.test.ts test/worktree.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-command.test.ts test/graph-view.test.ts test/graph-view-command.test.ts test/host-boundary.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts

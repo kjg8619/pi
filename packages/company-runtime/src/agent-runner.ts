@@ -11,6 +11,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { createWorkerTools, trustedReviewEvidenceRefs, WORKER_FILE_TOOLS, workerDigest } from "./agent-tools.ts";
+import { ANCHORED_EDIT_GUIDANCE } from "./anchored-edit.ts";
 import { type RuntimeConfig, RuntimeConfigSchema } from "./config.ts";
 import {
 	HandoffSchema,
@@ -352,6 +353,7 @@ export class PiAgentExecutor implements AgentExecutor {
 							"For top-level evidenceRefs and every requirements[].evidenceRefs, copy only exact strings from trustedEvidenceRefs in the input. " +
 							"Do not invent references from filenames, diffDigest or descriptions. All verdicts require at least one top-level reference; PASS also requires at least one reference per requirement. " +
 							"If submit_review returns an evidence validation error, correct the references and resubmit alone in this same session.",
+					request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : "",
 					request.role === "Developer"
 						? "Handoff unresolved contains only implementation or task-requirement problems you could not solve, including real blockers. " +
 							"Do not list pending Reviewer execution/PASS, SELF_CHECK, TEST or Human Approval as unresolved: these are Runtime-owned obligations enforced by Kernel/Workflow, not your completion decisions. " +
@@ -425,7 +427,8 @@ export class PiAgentExecutor implements AgentExecutor {
 				if (
 					event.type === "tool_execution_end" &&
 					event.isError &&
-					!worker.consumeSubmissionValidationError(event.toolName, event.toolCallId)
+					!worker.consumeSubmissionValidationError(event.toolName, event.toolCallId) &&
+					!worker.consumeStaleAnchorError(event.toolName, event.toolCallId)
 				)
 					failure ??= worker.policyDenial() ?? "Worker tool failed or was denied";
 				if (event.type === "message_end" && event.message.role === "assistant") {
