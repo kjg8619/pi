@@ -42,11 +42,11 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3A Hash-Anchored Edit | 완료 / 코드·evidence 게시 | 구현 `473256de6`, evidence `e09100fe3`. LOG-039 자동 44개 파일·1,470개 PASS. LOG-041 실제 `codex-lb/gpt-6-astra` duplicate-second·stale 거부 2건 PASS |
 | V0.3B Read-only LSP | 완료 / 게시 | `a3eae0c86`에 반영. LOG-043 자동 47개 파일·1,565개 및 실제 TS/Provider smoke PASS |
 | V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
-| V0.3D Project Context | 구현·자동 회귀 완료 / 게시 승인(LOG-049); Provider 완료 smoke 실패 | instructions/list/JVM risk. LOG-048 Node26 52개 파일·1,738개, Node22/macOS 7개 파일·308개 PASS. 실제 1회는 dot-root DENY/무변경 |
+| V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. 실제 Provider 1회는 Developer의 정확한 snapshot/list tool 선택을 확인했지만 `path:"."`가 DENY되어 FAILED/무변경으로 끝났다. 설명 보완 후 Provider 재호출은 하지 않았고 실제 Reviewer/anchored edit/checks/COMPLETE 성공은 NOT VERIFIED다. 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. Attempt 1은 `path:"."` DENY/FAILED·무변경으로 끝났다. 별도 승인된 LOG-050의 Attempt 2는 커밋 `6da0c5ce5`에서 snapshot/list filtering·anchored edit·독립 Reviewer·두 required checks·fresh evidence·cleanup과 실제 COMPLETED를 확인했다. 다만 두 역할 모두 `runtime_list_files({path:"src",maxDepth:1})`를 사용하여 요청한 path omission은 NOT VERIFIED이며, Attempt 2 acceptance는 FAILED로 유지한다. 전체 V0.3D Provider smoke PASS로 변경하지 않고 추가 Provider 호출/제품 수정도 하지 않았다. 이후 별도 사용자 요청에 따라 같은 판정의 evidence 문서만 커밋·푸시한다(LOG-051). 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 ---
 
@@ -2415,6 +2415,37 @@ bash -n packages/company-runtime/bin/weavra
 - **문제·해결:** 추가 문제 없음. 명시적 30개 경로만 stage하고 일반 commit/push를 사용한다. 실제 Provider 1회의 dot-root DENY/FAILED·무변경 사실과 설명 보완 후 성공 미검증을 그대로 포함하며 PASS로 바꾸지 않는다.
 - **남은 제한·다음 작업:** omitted-path 안내의 실제 Provider 재검증, JVM build matrix/다른 환경 미검증 및 기존 비-sandbox 한계를 유지한다. 게시 후 로컬·원격 HEAD 일치, clean 및 RC 태그 불변을 확인한다. 강제 푸시는 하지 않는다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `feat(coding-agent): add Weavra project context and bounded file discovery`이며 최종 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`은 이동·수정하지 않는다.
+
+---
+
+## LOG-050 — V0.3D Provider Smoke Attempt 2: Runtime 완료 / path omission 미충족
+
+- **기록일:** 2026-09-18 08:18 (KST), 실제 Provider 실행 08:12:52–08:13:28 KST.
+- **상태·목적:** 현재 커밋의 보완된 tool guidance를 실제 Provider workflow 1회로 재검증했다. **Runtime COMPLETED, 요청한 acceptance FAILED(path omission)**다. 기능 추가·제품 코드 수정은 없다.
+- **착수 확인:** `git status --short --branch` clean → `git fetch origin devlop` → clean 상태에서 `git rebase origin/devlop`(already up to date). HEAD/origin이 지정된 `6da0c5ce54c853e7147730c81acd3a080938dedc`임을 확인했다. LOG-049의 구현은 이미 이 SHA로 게시된 상태다. stash/reset/clean/checkout은 사용하지 않았다.
+- **변경 파일:** `docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md`에 Attempt 2와 현재 판정을 추가하고, `docs/WORK_LOG.md`의 현재 요약과 본 항목을 갱신했다. Attempt 1 실패 및 LOG-001~049 본문은 보존한다. Runtime/Pi source·test·prompt/schema/Policy·dependency/lockfile 변경은 없다.
+- **방법·fixture:** 삭제된 이전 임시 harness를 같은 의미로 재구성하여 private temporary Git fixture만 사용했다. AGENTS.md 391 bytes와 digest `sha256:f37326d5f0b61cc330a213fa58441007c48c6c8a3716b938f78ca7aa5822bd86`가 Attempt 1과 동일했다. goal은 `Fix the greeting typo in the allowed source file, following the selected project rules.` 그대로다. path 생략/`{}` 힌트나 모델 응답·인자 대체는 없다. STANDARD/EDIT/R1, allowed_paths=[src], required regression, 실제 codex-lb/gpt-6-astra·medium, macOS/Node26.7.0의 현재 Runtime TypeScript와 기존 built SDK를 사용했다.
+- **실제 결과:** Run `7016de31-6da5-4468-b088-c49a3812b576`. Developer와 Reviewer가 각각 **`runtime_list_files({path:"src",maxDepth:1})`**를 호출하여 `src/greeting.js`만 받았다. Developer는 anchored read의 anchor/fileDigest를 그대로 사용해 `Helo`→`Hello` 한 곳만 수정했다. SELF_CHECK PASS/exit0 → 별도 read-only Reviewer PASS → TEST PASS/exit0 → fresh evidence로 COMPLETED였다. AGENTS/test/private marker·나머지 fixture 파일은 불변이다.
+- **Instruction / independence:** 두 역할 prompt의 context block과 metadata가 동일 frozen snapshot과 정확히 일치했다. instruction은 실제 protectedPaths에 포함됐고 같은 Policy의 순수 read/list/edit probe는 모두 DENY였다(모델의 금지 호출은 아님). durable state에는 path/digest/bytes만 있고 7개 ALLOW/SUCCEEDED audit 모두 instruction digest에 결합됐다. Developer session `01a0b1a4-f323-7463-87cc-668af0851cb6`, Reviewer `01a0b1a5-3a3c-7463-87cc-668c581f363f`로 ID/파일이 다르다. Reviewer에는 mutation tools 없이 actual diff/check material·trusted refs가 전달됐으며 기존 independent review 계약을 통과했다.
+- **정리·외부 불변 검증:** Worker abort/dispose 및 executor safeToRelease, verifier/workspace safeToRelease, writer.lock 부재를 확인했다. LSP는 미설정·미기동으로 서버 shutdown smoke가 아니다. smoke 전후 실제 제품 repo와 원본 RC fixture의 tracked bytes/modes·HEAD/branch/index/status, 개인 auth/models/settings bytes가 같았다. 이 비교는 실패 assertion 이전 finally에서 실행됐으므로 Attempt 1과 달리 이번에는 실제 확인된 결과다.
+- **실행 명령·실제 판정:** `node /tmp/weavra-v03d-attempt2.DcdPtD/provider.mjs`는 Provider workflow 종료 뒤 omitted-path assertion에서 **exit 1**이었다. `node /tmp/weavra-v03d-attempt2.DcdPtD/verify.mjs`는 저장 요약만 읽어 path omission만 실패이고 나머지 15개 관찰 조건이 충족됨을 확인했다(**exit 0, Provider 추가 호출 0**). Runtime status를 FAILED로 덮어쓰거나 acceptance 조건을 완화하지 않았다.
+- **사용량:** input 7,292 / output 679 / cache read 6,528 / cache write 0 / total 14,499 tokens. harness duration 35,702ms(model-runtime 준비·workflow/cleanup 포함). 실제 billing cost UNKNOWN.
+- **문제·판단:** dot-root DENY는 재발하지 않았다. `path:"src"`는 허용된 narrowing이며 Policy 결함은 아니지만 요청한 `{}` 또는 maxDepth-only 경로를 검증하지 못했다. 전체 Provider smoke PASS로 기록하지 않고 추가 호출·제품 변경 없이 중단한다. path 없는 기본 discovery/별도 narrowed tool, root selector enum, default-roots 계약은 필요 시 별도 설계 후보이며 이번에 구현하지 않았다.
+- **문서 검증:** 문서 갱신 후 `npm run check:ci` PASS(Biome 1,388개 파일, 자동 수정·warning/info/error 없음; TypeScript/deps/entry graphs/shrinkwrap/install-lock/browser smoke 포함), `git diff --check` PASS. `python3 /tmp/weavra-v03d-attempt2.DcdPtD/check-docs.py`로 변경이 unstaged 문서 2개뿐이고 untracked가 없으며, Attempt 1 본문·LOG-001~049 보존, 링크/fence·결과 수치, HEAD/RC 태그 불변임을 확인했다(PASS). 원격 CI 결과가 아니라 로컬 검사다.
+- **남은 제한·다음 작업:** omitted-path의 실제 Provider 경로는 NOT VERIFIED다. 새 실행은 별도 승인 대상이며 self-hosting을 주장하지 않는다. GitHub Actions/Node22 Linux/fresh install/JVM build matrix·다른 Provider/OS·TUI/build/전체 suite는 이번에 실행하지 않았다. LOG-048의 Node26 52개 파일·1,738개와 Node22 7개 파일·308개 PASS는 과거 자동 회귀다. 임시 fixture/session/harness는 필요한 요약 보존 후 정리하고 임시 루트 부재를 확인했다. 전체 conversation/reasoning/tool logs와 credential 원문은 복제하지 않았다.
+- **커밋·푸시:** 하지 않음. 사용자의 성공 조건부 docs commit 조건을 충족하지 않았다. 안정 태그 `weavra-v0.1-rc1`은 계속 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`다.
+
+---
+
+## LOG-051 — V0.3D Attempt 2 evidence 커밋·푸시 준비
+
+- **기록일:** 2026-09-18 08:48 (KST)
+- **상태·목적:** LOG-050 결과를 보고한 뒤 사용자가 별도로 요청한 커밋·푸시를 진행한다. Runtime COMPLETED와 smoke acceptance FAILED(path omission) 판정은 변경하지 않는다.
+- **변경 파일:** `docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md`, `docs/WORK_LOG.md` 두 개뿐이다. 이번 준비에서는 게시 승인에 맞춰 현재 요약과 본 항목을 갱신했다. Attempt 1/2 실행 결과 및 과거 LOG 본문은 보존하며 source/test/dependency/lockfile 변경은 없다.
+- **착수·검증:** `git status --short --branch`에서 위 문서 두 개만 수정되고 staged/untracked 변경이 없음을 확인했다. `git fetch origin devlop` 후 HEAD/origin은 모두 `6da0c5ce54c853e7147730c81acd3a080938dedc`였다. 미커밋 문서가 있어 rebase/stash/reset/clean은 하지 않았다. `npm run check:ci` 재실행 PASS(자동 수정·warning/info/error 없음), `git diff --check` PASS.
+- **과거 검증과 구분:** 실제 Provider 1회·사용량·cleanup·fixture/config 불변은 LOG-050 당시 결과다. 이번에는 Provider/targeted tests/TUI/build를 재실행하지 않았다. 로컬 check를 GitHub Actions PASS로 주장하지 않는다.
+- **문제·제한·다음 작업:** 추가 문제 없음. omission 경로의 실제 Provider 검증은 NOT VERIFIED로 유지한다. 명시적 문서 두 경로만 stage하고 일반 commit/push 후 clean 및 로컬·원격 HEAD 일치를 확인한다. 강제 푸시는 하지 않는다.
+- **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `docs(coding-agent): record Weavra V0.3D provider smoke attempt 2`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`의 peeled commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다.
 
 ---
 
