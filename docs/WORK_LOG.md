@@ -44,7 +44,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
-| Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 미커밋 | LOG-055. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
+| Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2640,6 +2640,18 @@ bash -n packages/company-runtime/bin/weavra
 - 자동 회귀는 Node26/macOS만 실행했다.
 - **커밋·푸시:** 하지 않음. 사용자 보고 후 결정한다. `weavra-v0.1-rc1`은 이동하지 않았다.
 - V0.3E Task Contract는 이번 작업에서 시작하지 않았다.
+
+---
+
+## LOG-056 — Provider Compatibility Hardening 게시
+
+- **기록일:** 2026-09-18 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-055의 hardening source/test/doc 7개 파일을 커밋하고 `origin/devlop`에 게시한다. hardening 판정·결과는 변경하지 않는다.
+- **변경 파일:** `packages/company-runtime/src/agent-runner.ts`, `packages/company-runtime/src/agent-tools.ts`, `packages/coding-agent/test/suite/company-runtime-agent.test.ts`, `packages/coding-agent/test/suite/company-runtime-context.test.ts`, `README.md`, `docs/WORK_LOG.md`, `docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md`. 이번 후속 항목에서는 현재 요약과 본 항목만 추가한다.
+- **이번 검증:** 게시 전 `git status`로 대상 7개 경로만 수정되고 staged/untracked 변경이 없음을 확인했고, HEAD와 origin이 기준 SHA `03994a6803919befe17944fcf704d1c0573bfa08`임을 확인했다. LOG-055의 `npm run check`/`check:ci` PASS와 자동 회귀(Runtime 33개 파일·1,110개 + coding-agent 18개 파일·607개)를 근거로 하며, 이번 커밋 준비에서는 테스트·Provider·TUI를 재실행하지 않았다. 로컬 check를 원격 CI PASS로 주장하지 않는다.
+- **과거 검증과 구분:** 실제 Provider smoke 결과·usage·cleanup은 LOG-055 당시 결과다.
+- **커밋·푸시:** `72561d4f3`(`03994a680` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-055의 "커밋·푸시: 하지 않음"은 작성 시점 기준이며 실제 게시 커밋은 `72561d4f3`다. 강제 푸시는 사용하지 않았고 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **남은 제한·다음 작업:** LOG-055의 남은 제한(작은 DeepSeek 표본, CommandCode 전송 flake, Node26/macOS 한정, R2/R3·LSP·원격 CI 미실행)을 그대로 유지한다. V0.3E Task Contract 착수는 별도 승인 대상이다.
 
 ---
 
