@@ -45,7 +45,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
-| V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 미커밋 | LOG-057. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
+| V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2732,6 +2732,18 @@ bash -n packages/company-runtime/bin/weavra
 - 실제 Provider에서 "AC 하나 미충족 → COMPLETED 금지"는 deterministic automated fixture로만 검증했다(명시된 범위). R2/R3 live AC 흐름, QUICK Executor AC 제출의 live smoke, 다른 Provider/OS/Node, 원격 CI, JVM build matrix는 NOT VERIFIED다.
 - Planner Agent·LLM AC 분해·병렬/COMPLEX·telemetry/eval/Evidence Pack/Budget/strict edit/verifier sandbox/browser/MCP/memory는 이번에 추가하지 않았다(다음 단계 범위).
 - **커밋·푸시:** 하지 않음. 보고 후 사용자 승인을 따른다.
+
+---
+
+## LOG-058 — V0.3E Task Contract 게시
+
+- **기록일:** 2026-09-18 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-057의 V0.3E 구현·테스트·문서 50개 경로를 커밋하고 `origin/devlop`에 게시한다. 판정·결과는 변경하지 않는다.
+- **변경 파일:** 위 LOG-057의 Runtime src 4개 신규(`task-contract.ts`, `criterion-evidence.ts`, `plan-preview.ts`, `test/task-contract.test.ts`)와 src/test/doc 수정 44개, test helper 2개 신규(`test/fixture-contract.ts`, `test/suite/company-contract.ts`), 신규 smoke 문서 1개. 이번 후속 항목에서는 현재 요약과 본 항목만 추가한다.
+- **이번 검증:** 게시 전 `git status --porcelain`으로 대상 50개 경로만 staged됨을 확인했고, HEAD와 origin이 기준 SHA `9e2cf9e8bfc6e011402a2598b6a1a93294a8214a`임을 확인했다. LOG-057의 자동 회귀(Runtime 34개 파일·1,128개 + coding-agent 11개 파일·447개 = 45개 파일·1,575개 PASS), `npm run check`/`check:ci`, `check:ci` 전후 tracked 1,823 files bytes 불변, `git diff --check`, `bash -n` 결과를 근거로 하며 이번 커밋 준비에서는 테스트·Provider·TUI를 재실행하지 않았다.
+- **과거 검증과 구분:** 실제 Provider smoke(DeepSeek STANDARD/EDIT, GPT 교차) 결과는 LOG-057 당시 결과다.
+- **커밋·푸시:** `5bc7f8a43`(`9e2cf9e8b` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-057의 "커밋·푸시: 하지 않음"은 작성 시점 기준이며 실제 게시 커밋은 `5bc7f8a43`다. 강제 푸시는 사용하지 않았고 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **남은 제한·다음 작업:** LOG-057의 남은 제한(미충족 AC의 live 부정 경로, R2/R3 live AC 흐름, 다른 OS/Node·원격 CI·JVM build matrix, Planner/병렬/telemetry 등 후속 범위)을 그대로 유지한다.
 
 ---
 
