@@ -3,7 +3,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { loadKimiCodingFallback, shouldUseKimiCodingFallback } from "../src/model-fallbacks.ts";
+import {
+	loadKimiCodingFallback,
+	missingHydratedProviders,
+	shouldUseKimiCodingFallback,
+} from "../src/model-fallbacks.ts";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
 import {
 	getOpenRouterThinkingLevelMap,
@@ -2996,7 +3000,7 @@ async function generateModels() {
 	const generatedDataProviderIds = generatorOptions.dataOnly
 		? readModelDataProviderIds(packageRoot)
 		: sortedProviderIds;
-	const missingProviderIds = generatedDataProviderIds.filter((providerId) => !jsonProviders[providerId]);
+	const missingProviderIds = missingHydratedProviders(generatedDataProviderIds, Object.keys(jsonProviders));
 	if (missingProviderIds.length > 0) {
 		throw new Error(`Cannot hydrate missing providers: ${missingProviderIds.join(", ")}`);
 	}

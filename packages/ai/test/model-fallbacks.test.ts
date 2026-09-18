@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	KIMI_CODING_FALLBACK_PATH,
 	loadKimiCodingFallback,
+	missingHydratedProviders,
 	parseKimiCodingFallback,
 	shouldUseKimiCodingFallback,
 	validateKimiCodingFallback,
@@ -64,10 +66,60 @@ describe("Kimi coding reviewed fallback", () => {
 		expect(parseKimiCodingFallback("not json")).toMatchObject({ ok: false, reason: "fallback is not valid JSON" });
 	});
 
-	it("does not weaken strictness for other providers", () => {
-		// The generator's strict missing-provider failure stays unconditional for every other provider;
-		// this exception is scoped to kimi-coding only.
-		expect(KIMI_CODING_FALLBACK_PATH.endsWith("kimi-coding.json")).toBe(true);
-		expect(shouldUseKimiCodingFallback(0)).toBe(true);
+	it("fails closed on every malformed fallback shape", () => {
+		const mutations: Array<[string, (value: typeof valid) => void]> = [
+			["wrong api group", (value) => Object.assign(value, { "openai-completions": value["anthropic-messages"] })],
+			[
+				"api group mismatch",
+				(value) => {
+					value["anthropic-messages"].k3.api = "openai-completions";
+				},
+			],
+			[
+				"invalid baseUrl",
+				(value) => {
+					value["anthropic-messages"].k3.baseUrl = "https://evil.example.com";
+				},
+			],
+			[
+				"unknown input modality",
+				(value) => {
+					value["anthropic-messages"].k3.input = ["text", "audio"];
+				},
+			],
+			[
+				"negative cost",
+				(value) => {
+					value["anthropic-messages"].k3.cost.input = -1;
+				},
+			],
+			[
+				"empty name",
+				(value) => {
+					value["anthropic-messages"].k3.name = "   ";
+				},
+			],
+		];
+		for (const [, mutate] of mutations) {
+			const candidate = structuredClone(valid);
+			mutate(candidate as typeof valid);
+			expect(validateKimiCodingFallback(candidate)).toMatchObject({ ok: false });
+		}
+	});
+
+	it("keeps strict missing-provider failure for providers without a reviewed fallback", () => {
+		expect(missingHydratedProviders(["kimi-coding", "other-provider"], ["kimi-coding"])).toEqual(["other-provider"]);
+		expect(missingHydratedProviders(["kimi-coding"], ["kimi-coding"])).toEqual([]);
+		const missing = missingHydratedProviders(["kimi-coding", "other-provider"], ["kimi-coding"]);
+		expect(`Cannot hydrate missing providers: ${missing.join(", ")}`).toBe(
+			"Cannot hydrate missing providers: other-provider",
+		);
+	});
+
+	it("pins the reviewed snapshot hash", () => {
+		const digest = createHash("sha256").update(readFileSync(KIMI_CODING_FALLBACK_PATH)).digest("hex");
+		expect(readFileSync(`${KIMI_CODING_FALLBACK_PATH.replace("kimi-coding.json", "README.md")}`, "utf8")).toContain(
+			digest,
+		);
 	});
 });

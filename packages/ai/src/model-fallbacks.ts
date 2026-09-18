@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
  * repository (see scripts/model-fallbacks/README.md) and is used *only* when the live source is absent.
  */
 export const KIMI_CODING_FALLBACK_PROVIDER = "kimi-coding";
+export const KIMI_CODING_FALLBACK_API = "anthropic-messages";
+export const KIMI_CODING_FALLBACK_BASE_URL = "https://api.kimi.com/coding";
 export const KIMI_CODING_FALLBACK_PATH = join(
 	dirname(fileURLToPath(import.meta.url)),
 	"..",
@@ -45,7 +47,8 @@ export function validateKimiCodingFallback(value: unknown): KimiCodingFallbackRe
 		return { ok: false, reason: "fallback must be an api-keyed object" };
 	const models: KimiCodingFallbackModel[] = [];
 	for (const [api, entries] of Object.entries(value as Record<string, unknown>)) {
-		if (!api || typeof api !== "string") return { ok: false, reason: "fallback api key is invalid" };
+		if (api !== KIMI_CODING_FALLBACK_API)
+			return { ok: false, reason: `fallback api group ${api} is not ${KIMI_CODING_FALLBACK_API}` };
 		if (!entries || typeof entries !== "object" || Array.isArray(entries))
 			return { ok: false, reason: `fallback api ${api} must map model ids to models` };
 		for (const [modelId, raw] of Object.entries(entries as Record<string, unknown>)) {
@@ -56,21 +59,31 @@ export function validateKimiCodingFallback(value: unknown): KimiCodingFallbackRe
 			if (model.id !== modelId) return { ok: false, reason: `fallback model ${modelId} id mismatch` };
 			if (model.provider !== KIMI_CODING_FALLBACK_PROVIDER)
 				return { ok: false, reason: `fallback model ${modelId} provider mismatch` };
-			if (typeof model.api !== "string" || !model.api)
-				return { ok: false, reason: `fallback model ${modelId} api is invalid` };
-			if (typeof model.baseUrl !== "string" || !model.baseUrl.startsWith("http"))
-				return { ok: false, reason: `fallback model ${modelId} baseUrl is invalid` };
+			if (model.api !== api)
+				return { ok: false, reason: `fallback model ${modelId} api does not match its api group` };
+			if (model.baseUrl !== KIMI_CODING_FALLBACK_BASE_URL)
+				return { ok: false, reason: `fallback model ${modelId} baseUrl is not the Kimi coding endpoint` };
+			if (typeof model.name !== "string" || !model.name.trim())
+				return { ok: false, reason: `fallback model ${modelId} name is empty` };
 			if (typeof model.reasoning !== "boolean")
 				return { ok: false, reason: `fallback model ${modelId} reasoning is invalid` };
-			if (!Array.isArray(model.input) || model.input.some((entry) => typeof entry !== "string"))
-				return { ok: false, reason: `fallback model ${modelId} input is invalid` };
+			if (
+				!Array.isArray(model.input) ||
+				model.input.length === 0 ||
+				model.input.some((entry) => entry !== "text" && entry !== "image")
+			)
+				return { ok: false, reason: `fallback model ${modelId} input modalities are invalid` };
 			const cost = model.cost as Record<string, unknown> | undefined;
 			if (
 				!cost ||
 				!isFiniteNumber(cost.input) ||
 				!isFiniteNumber(cost.output) ||
 				!isFiniteNumber(cost.cacheRead) ||
-				!isFiniteNumber(cost.cacheWrite)
+				!isFiniteNumber(cost.cacheWrite) ||
+				cost.input < 0 ||
+				cost.output < 0 ||
+				cost.cacheRead < 0 ||
+				cost.cacheWrite < 0
 			)
 				return { ok: false, reason: `fallback model ${modelId} cost is invalid` };
 			if (!isFiniteNumber(model.contextWindow) || model.contextWindow <= 0)
@@ -105,6 +118,18 @@ export function loadKimiCodingFallback(path: string = KIMI_CODING_FALLBACK_PATH)
 			reason: error instanceof Error ? error.message : "fallback could not be read",
 		};
 	}
+}
+
+/**
+ * Missing-provider decision used by the generator: a required provider is missing only when it produced
+ * no models at all. Reviewed fallbacks satisfy their own provider; every other provider stays strict.
+ */
+export function missingHydratedProviders(
+	requiredProviderIds: readonly string[],
+	availableProviderIds: readonly string[],
+): string[] {
+	const available = new Set(availableProviderIds);
+	return requiredProviderIds.filter((providerId) => !available.has(providerId)).sort();
 }
 
 /**

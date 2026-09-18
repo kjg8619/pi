@@ -15,3 +15,4 @@ model-data changes shape.
 - usage: only when the live `kimi-for-coding` source produces no `kimi-coding` model; a live source always
   wins. Every other provider keeps the strict `Cannot hydrate missing providers` behaviour.
 - no credentials or API keys are stored here; the file is a verbatim copy of the published artifact.
+- sha256: `5e28e32e5b16df506a3a1c620ed7870fa7e5e57d8ede4a2aa44dbb24ecf1ba2f` (pin this in reviews; a change here means the reviewed artifact changed)
