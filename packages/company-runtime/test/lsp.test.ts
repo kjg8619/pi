@@ -281,8 +281,12 @@ describe("run-scoped real stdio LSP", () => {
 		const before = readFileSync(join(cwd, request.path));
 		const lsp = await manager("apply-edit");
 		await lsp.symbols(request);
-		await vi.waitFor(() => expect(events().some((event) => event.applied === false)).toBe(true));
-		expect(events().some((event) => event.errorCode === -32601)).toBe(true);
+		// Both rejection responses arrive asynchronously; wait for each of them instead of racing the second.
+		await vi.waitFor(() => {
+			const trace = events();
+			expect(trace.some((event) => event.applied === false)).toBe(true);
+			expect(trace.some((event) => event.errorCode === -32601)).toBe(true);
+		});
 		expect(readFileSync(join(cwd, request.path))).toEqual(before);
 	});
 	it("file change during query returns STALE without results or retry", async () => {
