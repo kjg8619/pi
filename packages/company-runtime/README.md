@@ -267,6 +267,16 @@ registered process checks (기존 required/PASS/FAIL)
 
 ## V0.3D Project Context
 
+### C01 — task context pack / repo map (V0.5A)
+
+`agents.context_pack.mode: disabled | bounded`(기본 `disabled`)는 Worker에게 **Host가 선별한 advisory 시작 문맥**을 제공한다.
+
+- bounded는 invocation마다 현재 filesystem에서 pack을 새로 만든다(캐시·semantic index·Explorer LLM 없음). 구성: acceptance scope/changed/preview seed, same-stem test·literal relation, LSP symbols/references(read-only, 문서 ≤4·reference ≤8), bounded snippet(path·line·fileDigest·snippetDigest), unknowns/truncated, project instruction은 metadata만.
+- **48 KiB 절대 상한**(canonical pack 전체)을 넘으면 deterministic priority 순서로 trimming하고 그래도 넘으면 minimal pack으로 degrade, 불가능하면 fail closed.
+- pack은 permission·approval·verification evidence·mutation receipt·completion authority가 **아니다**. strict mutation은 계속 `runtime_read({anchors:true})` → fresh readReceipt가 필요하며 pack의 `fileDigest`/`snippetDigest`/`digest`로 대체할 수 없다.
+- protected/oracle/secret 경로는 content 접근 전에 policy 필터로 제외되고, pack·measurement·Evidence Pack·Plan Preview 어디에도 원문이 남지 않는다(bounded summary만).
+- Reviewer는 Developer pack을 재사용하지 않고 매번 fresh rebuild하며, LSP는 선택적이다(불가하면 degraded context + unknown).
+
 ### FEAT-07 — verifier sandbox (V0.4C)
 
 `verification.sandbox: { mode: disabled | required }`(기본 `disabled`)는 **registered verification check process에만** 적용되는 OS 경계다. worker/LSP/Git/launcher는 기존 경로를 그대로 쓴다. 이는 permission·approval·review·completion authority가 아니며 Kernel이 완료를 결정한다.

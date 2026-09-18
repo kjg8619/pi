@@ -114,6 +114,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | **완료**(LOG-064·LOG-065). compatible 기본 + opt-in strict receipt/identity, create/replace 분리, deletion/재생성 typed stale, NUL 거부. DeepSeek strict actual **COMPLETED** |
 | **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | **완료**(LOG-066·LOG-067) |
 | **V0.4C — Verifier Sandbox** | registered check process에 OS 경계 추가 | FEAT-07 | **CLOSED**(LOG-069·LOG-070). macOS actual PASS / Linux actual **NOT VERIFIED**(runner 외부 blocker, PASS로 표기하지 않음) / deterministic cross-platform contract PASS / remote CI PASS / DeepSeek strict+trust+sandbox actual **COMPLETED** |
+| **V0.5A — Task Context Pack / Repo Map** | Host-selected bounded advisory context | C01 | **CLOSED**(LOG-071). opt-in `agents.context_pack.mode`, 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/preview projection, leakage·freshness·A/B 회귀, DeepSeek actual COMPLETED |
 | **V0.5A — Task Context Pack** | 작업별 관련 코드·테스트·규칙을 선별한 bounded context 구성 | C01 | V0.4C 이후 |
 | **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | V0.5A 이후 |
 | **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | V0.4C + V0.5B 이후 |

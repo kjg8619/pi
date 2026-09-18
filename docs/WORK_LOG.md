@@ -63,7 +63,8 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.4A Strict Mutation(LOG-064)은 opt-in strict freshness/precondition contract로 게시했고, LOG-065에서 deletion/재생성 stale·read-time identity binding·NUL 거부를 닫았다. strict actual smoke는 `standard-2ac`/DeepSeek에서 **COMPLETED**(stale→re-read→retry→checks PASS→독립 Reviewer PASS→oracle PASS)까지 확인했다. V0.4A는 LOG-065로 종료한다.
 - V0.4B Verifier Trust(LOG-066 구현 + LOG-067 closure)는 opt-in strict registration/source freeze, env-bound registration digest, real executable identity digest, pre/post process 재검증, Worker protected source, Kernel의 Host-frozen digest guard, Reviewer oracle 비열람 guidance, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek strict-trust run이 **COMPLETED**했고 self-check/test가 같은 registration digest로 `VERIFIED`를 기록했다. V0.4B는 LOG-067로 종료한다.
 - V0.4C Verifier Sandbox(LOG-069 구현 + LOG-070 closure)는 option 3 기준으로 CLOSED다: macOS actual PASS, Linux actual **NOT VERIFIED**(runner 외부 blocker 2건 — 명시), deterministic cross-platform contract PASS, remote CI PASS(전체 run success), DeepSeek strict+trust+sandbox actual **COMPLETED**.
-- 다음 개발 단계는 **V0.5A — C01 Task Context Pack / Repo Map**이다.
+- V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
+- 다음 개발 단계는 **V0.5B — C03 Task Recipes / Reviewed Skill Packs**다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
 - 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 최신 HEAD remote GitHub Actions 실제 PASS는 확인됐다(final docs HEAD run `35326933645` = success, 이후 `9b3ea715c` run `35328322465` = success).
 
@@ -3143,6 +3144,53 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - **자동 회귀:** company-runtime 1,227 + coding-agent Weavra 450 + evals 33 = **54개 파일·1,710 PASS**, `npm run check`/`check:ci`/`check:shrinkwrap`/`check:install-lock:coding-agent`/`git diff --check` 모두 exit 0.
 - **남은 제한(genuine):** SRT Beta Research Preview, VM/container 수준 격리 아님, transitive dependency graph는 sandbox boundary 아님, 비협조 외부 process TOCTOU 완전 제거 아님, Windows 미지원. Linux actual은 위 외부 blocker로 NOT VERIFIED다.
 - **커밋·푸시:** 구현 `acfbac0fd`(그 앞의 `4ad59528c`·`25e100d43`·`ba2aa1709`·`301c8ad5d`·`fb0242a94`·`a3196b33d`·`8995e2228`·`cc1d0da7c` 포함), 문서 `aa43b9f9f`. 최종 HEAD(`aa43b9f9f`) remote CI run `35326933645` = **success**, 구현 HEAD(`cc1d0da7c`) run `35326015858` = **success**. 강제 push·tag 이동 없음.
+
+---
+
+## LOG-071 — V0.5A Task Context Pack / Repo Map Closure (C01)
+
+- **기록일:** 2026-09-18 (KST)
+- **기준:** V0.5A 시작 base `bbfe541d1`, 구현 chain `4ad59528c`→`fd4b82598`→`7cd64c7f4`→`d1cbea6e9`→`3cb0e5c7c`→`b2e17b09b`→`d2cb86a62`/`cf83a5fa5`→`9fecbb996`→`05a4c5d94`→`9bd1a5a63`→`dcf512183`→`8f1313acd`. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **상태:** V0.5A **CLOSED**. 모든 단계가 로컬 deterministic + remote CI + actual Provider 근거로 닫혔다.
+
+### CI hydrate blocker와 Kimi fallback
+
+- upstream models.dev에서 `kimi-for-coding` provider가 사라져 `Cannot hydrate missing providers: kimi-coding`으로 CI가 막혔다. parent main도 같은 live source에 의존하므로 단순 복사로는 해결되지 않았다.
+- 해결: published `@earendil-works/pi-ai@0.85.1`의 `dist/providers/data/kimi-coding.json`을 **verbatim** tracked snapshot(`packages/ai/scripts/model-fallbacks/kimi-coding.json`)으로 두고, live source가 `kimi-coding` 모델을 하나도 만들지 못할 때만 그대로 emit한다(live 우선). provenance와 sha256을 README에 고정하고 테스트로 검증했다.
+- validator: api group `anthropic-messages`, model.api 일치, provider `kimi-coding`, baseUrl 고정, name non-empty, input `text|image`만, cost 4종 finite·≥0, contextWindow/maxTokens > 0 — 위반 시 fail closed. strict missing-provider 의미는 `missingHydratedProviders()` pure helper로 추출해 **다른 provider는 여전히 실패**함을 로직으로 검증했다(테스트 7건).
+- 재구성 emission이 `thinkingLevelMap`/`compat`을 잃어 catalog가 커밋본과 달라지던 문제를 발견해 snapshot **verbatim emit**으로 수정했다(`fd4b82598`).
+
+### Context Pack 계약
+
+- **48 KiB absolute cap**(canonical pack 전체, JSON overhead 포함): deterministic trimming priority(`acceptance-scope > changed-file > previous-review > lsp-reference > literal-reference > same-stem-test`, 동일 rank는 역 lexical), strict-decreasing unknown 축소로 무한 loop 제거, 초과 시 minimal pack으로 degrade, 그조차 불가하면 명시적 bounded error로 fail closed. stress fixture로 pre-trim > 49152 → ≤49152·truncated·유효 digest를 검증했다.
+- **real LspPort**: drift interface 제거 후 `Pick<LspPort, "symbols" | "references">` 사용, symbol position(1-based UTF-16 line/column/endLine/endColumn, numeric kind) 보존, canonical 정렬로 server 순서 무관 digest, symbol 문서 ≤4·reference query ≤8, reference path는 policy/symlink/hardlink 재필터 후 `lsp-reference`, `AVAILABLE`/`PARTIAL(+truncated+unknown)`/`STALE(omit)`/`UNAVAILABLE`/`ERROR`/`withheld>0` 의미 구현, `ProcessCleanupError`·`cleanupFailed`는 fail closed(rethrow).
+- **policy-first discovery**: `.env`/`.ai`/oracle/project instruction/symlink/hardlink/outside-root는 content 접근 전에 제외. listable allowed root가 없으면 honest empty pack.
+- **TaskContextAgentExecutor**: 요청마다 현재 filesystem에서 pack 생성 → `request.taskContextPack` attach → inner 실행. Provider 호출·mutation·verification 없음, `safeToRelease` 위임. StandardWorkflow가 executor를 감싸 real/faux/eval이 같은 경로를 지난다(disabled면 wrapper 자체를 만들지 않아 기존 경로·타이밍 보존).
+- **Developer seed**: AC scope paths(+revision 시 previousReview issues), scope 디렉터리는 listing root로 확장. **Reviewer**: AC scope + verification.changedFiles + handoff.changed_files로 **fresh rebuild**(Developer pack 재사용 없음; decorator 테스트에서 mutation 후 digest·snippet이 바뀜을 확인).
+- **prompt**: bounded에서만 `taskContextPack` key 포함, advisory·non-authority guidance(“not permission/approval/evidence/mutation receipt/completion authority”, pack digest는 receipt 대체 불가), callback·signal·LSP·credential 미유출, 524288 cap 유지.
+- **strict mutation non-authority**: pack `fileDigest`/`snippetDigest`/`digest`를 receipt로 위조하면 `runtime_edit`·`runtime_write replace` 모두 STALE, 정상 anchored read→receipt 경로는 성공(테스트).
+- **measurement/evidence/plan**: `contextPack` optional summary(mode/digest/bytes/4 count/truncated)를 **실제 전달된 pack**에서 bind(SUCCEEDED/FAILED/CANCELLED 동일 보존, legacy 무필드 허용), Evidence Pack은 worker별 `context:` 한 줄만, Plan Preview에 `contextPackMode` 표기.
+- **leakage**: SUPER_SECRET_VALUE/ORACLE_SECRET_MARKER/PROJECT_PRIVATE_MARKER가 pack·measurement·Evidence·Plan Preview·worker prompt의 pack section에 0건(project instruction 원문은 기존 Project Context section에만).
+- **deterministic A/B**: faux worker로 disabled vs bounded를 production composition path로 실행 — authority·oracle 결과 동일, disabled는 pack 없음, bounded는 요약 존재(실측: 파일 1·bytes 323 수준의 작은 fixture), Provider token은 NOT APPLICABLE(가짜 절감률 없음).
+
+### 검증
+
+```sh
+npm run hydrate:model-data / npm run build:offline            # PASS
+packages/ai                                                  # 1,106 passed | 804 skipped, 0 failed
+packages/company-runtime                                     # 1,262 passed
+packages/coding-agent Weavra suites                          # 452 passed
+packages/evals deterministic                                 # 34 passed
+npm run check / check:ci / check:shrinkwrap / check:install-lock:coding-agent
+git diff --check / bash -n packages/company-runtime/bin/weavra   # 모두 exit 0
+```
+- implementation HEAD `8f1313acd` remote CI run `35402182026` = **success**(Hydrate/Build/Check/Test/Launcher/Tracked source unchanged).
+- **DeepSeek actual 1회**: `commandcode/deepseek/deepseek-v4.1-flash`, STANDARD/EDIT, `context_pack bounded` + `mutation strict` + `trust strict` + `sandbox required` → **COMPLETED**, oraclePass true, falseCompletion false, SELF_CHECK·TEST 모두 PASS + trust `VERIFIED` + sandbox `ENFORCED`(동일 policy digest), Reviewer PASS(독립, oracle 직접 접근 0), Developer/Reviewer measurement에 context summary 기록(`bounded sha256:5c94045b… | files 1 | symbols 0 | snippets 0 | bytes 323`), 28,025 tokens, 9 tool calls. retry 없음(1회).
+- stable tag `weavra-v0.1-rc1` 불변.
+
+### 남은 제한
+
+heuristic relation discovery(complete dependency graph 아님) · persistent semantic index/AST graph 없음 · LSP unavailable 시 degraded context · Provider smoke는 fixture 1건이라 token/성능 개선을 일반화할 수 없음 · **Linux verifier sandbox actual은 계속 NOT VERIFIED**(runner 외부 blocker 2건, PASS로 표기하지 않음) · context pack은 QUICK에서 별도 actual smoke 미검증.
 
 ---
 
