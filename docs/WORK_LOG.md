@@ -66,7 +66,7 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
 - 다음 개발 단계는 **V0.5B — C03 Task Recipes / Reviewed Skill Packs**다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
-- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 최신 HEAD remote GitHub Actions 실제 PASS는 확인됐다(final docs HEAD run `35326933645` = success, 이후 `9b3ea715c` run `35328322465` = success).
+- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 최신 HEAD remote GitHub Actions 실제 PASS는 final docs HEAD `b957cfada`의 run `35402788620` = success로 확인됐다.
 
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
@@ -3150,7 +3150,7 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 ## LOG-071 — V0.5A Task Context Pack / Repo Map Closure (C01)
 
 - **기록일:** 2026-09-18 (KST)
-- **기준:** V0.5A 시작 base `bbfe541d1`, 구현 chain `4ad59528c`→`fd4b82598`→`7cd64c7f4`→`d1cbea6e9`→`3cb0e5c7c`→`b2e17b09b`→`d2cb86a62`/`cf83a5fa5`→`9fecbb996`→`05a4c5d94`→`9bd1a5a63`→`dcf512183`→`8f1313acd`. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **기준:** V0.5A 시작 base `bbfe541d1`, 구현 chain `02184ff8a`→`fd4b82598`→`7cd64c7f4`→`d1cbea6e9`→`3cb0e5c7c`→`b2e17b09b`→`d2cb86a62`/`cf83a5fa5`→`9fecbb996`→`05a4c5d94`→`9bd1a5a63`→`dcf512183`→`8f1313acd`. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
 - **상태:** V0.5A **CLOSED**. 모든 단계가 로컬 deterministic + remote CI + actual Provider 근거로 닫혔다.
 
 ### CI hydrate blocker와 Kimi fallback
