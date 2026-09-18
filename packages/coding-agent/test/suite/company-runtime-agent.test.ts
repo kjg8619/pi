@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Context, fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
+import type { SpanOptions, TelemetryContext, TelemetrySpan } from "@earendil-works/pi-telemetry";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { PiAgentExecutor, type PiAgentExecutorOptions } from "../../../company-runtime/src/agent-runner.ts";
 import { parseRuntimeConfig } from "../../../company-runtime/src/config.ts";
@@ -905,6 +906,63 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(store.snapshot.actions).toEqual([]);
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
+	it("starts the worker span with the requested profile provider/model and the actual identity at the end", async () => {
+		const starts: Array<{ name: string; attributes: Record<string, unknown> }> = [];
+		const ends: Array<Record<string, unknown>> = [];
+		const span = {
+			startSpan: async <T>(_options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) =>
+				await callback(span as unknown as TelemetrySpan),
+			addEvent: () => {},
+			setAttributes: (attributes: Record<string, unknown>) => {
+				ends.push(attributes);
+			},
+			setStatus: () => {},
+		};
+		const telemetry: TelemetryContext = {
+			startSpan: async <T>(options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) => {
+				starts.push({ name: options.name, attributes: options.attributes ?? {} });
+				return await callback(span as unknown as TelemetrySpan);
+			},
+		};
+		const runner = await PiAgentExecutor.create({ ...options, telemetry });
+		harness.setResponses([submitHandoff()]);
+		await runner.execute(developer());
+		expect(starts).toHaveLength(1);
+		expect(starts[0].name).toBe("weavra.worker");
+		expect(starts[0].attributes).toEqual({
+			role: "Developer",
+			profile: "coding",
+			revision: 0,
+			provider: "faux",
+			model: "coding-model",
+		});
+		expect(ends[0]).toMatchObject({ outcome: "SUCCEEDED", actualProvider: "faux", actualModel: "coding-model" });
+	});
+
+	it("keeps the worker result when the telemetry context and span methods fail", async () => {
+		const telemetry: TelemetryContext = {
+			startSpan: async <T>(_options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) => {
+				await callback({
+					startSpan: async () => undefined,
+					addEvent: () => {
+						throw new Error("telemetry down");
+					},
+					setAttributes: () => {
+						throw new Error("telemetry down");
+					},
+					setStatus: () => {
+						throw new Error("telemetry down");
+					},
+				} as unknown as TelemetrySpan);
+				throw new Error("flush failed");
+			},
+		};
+		const runner = await PiAgentExecutor.create({ ...options, telemetry });
+		harness.setResponses([submitHandoff()]);
+		await expect(runner.execute(developer())).resolves.toMatchObject({ role: "Developer" });
+		expect(harness.faux.state.callCount).toBe(1);
+	});
+
 	it("rejects pre-aborted input without a session or tool execution", async () => {
 		await expect(executor.execute({ ...developer(), signal: AbortSignal.abort() })).rejects.toThrow();
 		await expect(executor.execute(reviewer())).rejects.toThrow();

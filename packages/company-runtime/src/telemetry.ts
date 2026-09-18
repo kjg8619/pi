@@ -89,7 +89,11 @@ export const WEAVRA_TELEMETRY_SCHEMA = defineTelemetrySchema({
 	},
 });
 
-/** Telemetry is observation only: exporter failures must never change an execution result. */
+/**
+ * Telemetry is observation only: an exporter/context/span failure never changes the execution result and
+ * never runs the work twice. The work callback is started at most once; telemetry failing *before* it starts
+ * still runs the work once, and telemetry failing *after* it settles preserves the original outcome/error.
+ */
 export async function withSpan<T>(
 	telemetry: TelemetryContext,
 	name: string,
@@ -97,25 +101,56 @@ export async function withSpan<T>(
 	callback: () => Promise<T> | T,
 	onEnd?: (value: T) => { status: SpanStatus; attributes?: SpanAttributes },
 ): Promise<T> {
-	const value = await telemetry.startSpan({ name, attributes }, async (span) => {
-		try {
-			const result = await callback();
-			if (onEnd) {
-				const end = onEnd(result);
-				span.setAttributes(end.attributes ?? {});
-				span.setStatus(end.status);
+	let work: Promise<T> | undefined;
+	let settled = false;
+	let outcome: T | undefined;
+	let outcomeError: unknown;
+	const runOnce = (): Promise<T> => {
+		work ??= (async () => callback())();
+		return work;
+	};
+	try {
+		const reported = await telemetry.startSpan({ name, attributes }, async (span) => {
+			try {
+				const value = await runOnce();
+				outcome = value;
+				settled = true;
+				if (onEnd) {
+					try {
+						const end = onEnd(value);
+						span.setAttributes(end.attributes ?? {});
+						span.setStatus(end.status);
+					} catch {
+						// Span methods are observation only.
+					}
+				}
+				return value;
+			} catch (error) {
+				outcomeError = error;
+				settled = true;
+				try {
+					span.setStatus({
+						status: "error",
+						error: {
+							name: error instanceof Error ? error.name : "Error",
+							message: error instanceof Error ? error.message : "unknown",
+						},
+					});
+				} catch {
+					// Span methods are observation only.
+				}
+				throw error;
 			}
-			return result;
-		} catch (error) {
-			span.setStatus({
-				status: "error",
-				error: {
-					name: error instanceof Error ? error.name : "Error",
-					message: error instanceof Error ? error.message : "unknown",
-				},
-			});
-			throw error;
+		});
+		// An adapter that never invoked the callback must not swallow the work.
+		return settled ? reported : await runOnce();
+	} catch {
+		if (settled) {
+			// The work already finished: keep its own error or its own success.
+			if (outcomeError !== undefined) throw outcomeError;
+			return outcome as T;
 		}
-	});
-	return value;
+		// Telemetry failed before invoking the callback: run the work exactly once ourselves.
+		return await runOnce();
+	}
 }

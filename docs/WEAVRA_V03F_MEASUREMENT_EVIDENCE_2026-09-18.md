@@ -21,3 +21,20 @@
 
 - Plain Pi vs Weavra 실제 비교 실행(adapter는 deterministic test로만 검증), 20개 corpus 확장, repetition 반복, telemetry 외부 exporter, 실제 가격/비용.
 - R2/R3 run의 measurement·evidence pack은 이번에 실행하지 않았다(자동 fixture로만 검증).
+
+## Measurement Hardening (LOG-061, 2026-09-18)
+
+V0.3F 게시 후 확인된 plumbing gap을 자동 회귀로 닫았다(Provider 재실행 없음).
+
+| 항목 | before | after |
+|---|---|---|
+| 실패한 worker invocation | reserve만 되고 durable Run에는 아무 기록이 없었다 | 실패 run에 invocation count·실패 measurement(outcome FAILED·provider tokens)·원래 실패 사유가 함께 남는다 |
+| measurement 없는 실패 | 0 token으로 위조될 여지 | `reportedTokens: null`(UNKNOWN) + configured token budget이면 다음 invocation fail closed |
+| 성공 후 검증 실패 | measurement가 이미 소비됐지만 persist되지 않았다 | 실패 terminal state와 함께 보존된다 |
+| Reviewer REVISE/BLOCK | 성공 persist에만 measurement가 실렸다 | REVISE persist·BLOCK `finish()` 모두 정확히 한 번 포함한다 |
+| telemetry 실패 | exporter/span 오류가 결과를 바꾸거나 callback을 재실행할 수 있었다 | work callback은 최대 1회, 성공 결과·원래 오류가 유지된다 |
+| `weavra.worker` start span | provider/model이 없었다 | requested provider/model(start) + actual provider/model(end) |
+
+- **정정:** LOG-059가 실패 run에서 관찰한 16,409 tokens는 worker/session-level observation이다. hardening 이전에는 실패 invocation measurement의 durable Run persistence에 gap이 있었다. 성공 run의 판정·Evidence Pack 결과는 유지된다.
+- 결정론적 검증: Runtime 36개 파일·1,154개 + coding-agent Weavra suite 11개 파일·449개 + evals unit 6개 파일·33개 = 53개 파일·1,636개 PASS. faux E2E(standard-2ac)는 Provider network 0회로 실제 adapter 경로를 통과한다.
+- 이번 hardening은 Provider quota를 사용하지 않았다(DeepSeek·GPT smoke 재실행 NOT RUN).

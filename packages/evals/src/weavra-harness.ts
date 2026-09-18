@@ -26,12 +26,27 @@ export interface WeavraEvalFixture {
 	oracle(context: { workspace: string; status: string | null }): string[];
 }
 
+type WorkflowCreateAgents = ConstructorParameters<typeof StandardWorkflow>[0]["createAgents"];
+
+/** Fixture context handed to a replacement worker-executor factory. */
+export interface WeavraEvalAgentsContext {
+	cwd: string;
+	config: RuntimeConfig;
+	/** Arguments of the real factory: audit store, quick scope, R2 run id, R3 scope, execution contract. */
+	args: Parameters<WorkflowCreateAgents>;
+}
+
 export interface WeavraEvalOptions {
 	/** Weavra agent directory (auth.json/models.json) for the worker profiles. */
 	agentDir: string;
 	provider?: string;
 	model?: string;
 	timeoutMs?: number;
+	/**
+	 * Test-only composition seam: replaces the worker executor factory (default: the real PiAgentExecutor).
+	 * Injected executors still run inside the real StandardWorkflow/Kernel/Verifier/Evidence Pack path.
+	 */
+	createAgents?: (context: WeavraEvalAgentsContext) => ReturnType<WorkflowCreateAgents>;
 }
 
 export interface WeavraEvalResult {
@@ -128,12 +143,6 @@ export async function runWeavraFixture(
 	const root = mkdtempSync(join(tmpdir(), `weavra-eval-${fixture.id}-`));
 	try {
 		const { cwd, config } = materializeFixture(fixture, root, { provider, model });
-		const models = await ModelRuntime.create({
-			authPath: join(options.agentDir, "auth.json"),
-			modelsPath: join(options.agentDir, "models.json"),
-			allowModelNetwork: false,
-			signal: AbortSignal.timeout(60_000),
-		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
 		const { classification } = classifyRequest(fixture.goal);
@@ -152,7 +161,15 @@ export async function runWeavraFixture(
 			executionMode: proposal.mode,
 			config,
 			signal: AbortSignal.timeout(options.timeoutMs ?? 900_000),
-			createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
+			createAgents: async (...args) => {
+				if (options.createAgents) return await options.createAgents({ cwd, config, args });
+				const [store, quickScope, r2RunId, r3Scope, executionContract] = args;
+				const models = await ModelRuntime.create({
+					authPath: join(options.agentDir, "auth.json"),
+					modelsPath: join(options.agentDir, "models.json"),
+					allowModelNetwork: false,
+					signal: AbortSignal.timeout(60_000),
+				});
 				const executor = await PiAgentExecutor.create({
 					executionContract,
 					cwd,

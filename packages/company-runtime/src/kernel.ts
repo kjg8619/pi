@@ -43,6 +43,7 @@ import {
 } from "./criterion-evidence.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
 import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
+import { WorkerExecutionError } from "./measurement.ts";
 import { type WorkerMeasurement, WorkerMeasurementSchema } from "./measurement-types.ts";
 import type { KernelPorts } from "./ports.ts";
 import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
@@ -538,6 +539,8 @@ export class CompanyKernel {
 		reason: string,
 		events: RuntimeEventDetail[],
 		reviewHistory?: ReviewRecord[],
+		/** Trusted measurement/budget patch only; authority fields below always override it. */
+		extra?: Partial<Run>,
 	): Promise<void> {
 		const eventType = {
 			BLOCKED: "RunBlocked",
@@ -547,6 +550,7 @@ export class CompanyKernel {
 		} as const;
 		await this.persist(
 			{
+				...(extra ?? {}),
 				status,
 				...(reviewHistory ? { reviewHistory } : {}),
 				...(this.state.approvals
@@ -635,6 +639,22 @@ export class CompanyKernel {
 		let approvalCallbacksOpen = true;
 		let approvalInFlight = false;
 		let approvalFailure: string | undefined;
+		// Exactly-once settlement: only an invocation whose reserve succeeded is settled, and only once.
+		let budgetReserved = false;
+		let budgetSettled = false;
+		const measurementPatch: Partial<Run> = {};
+		const settleBudget = (measurement?: WorkerMeasurement): void => {
+			if (!budgetReserved || budgetSettled) return;
+			budgetSettled = true;
+			Object.assign(
+				measurementPatch,
+				this.recordBudget(role ?? "Worker", measurement ? { measurement: structuredClone(measurement) } : {}),
+			);
+		};
+		const terminalMeasurementPatch = (): Partial<Run> => ({
+			...measurementPatch,
+			budget: this.budget.status,
+		});
 		const task = structuredClone(this.taskContract());
 		const revision = this.state.revisionCycle;
 		const executionMode = this.state.executionMode;
@@ -793,6 +813,7 @@ export class CompanyKernel {
 			switch (expectedStep) {
 				case "implement": {
 					this.reserveBudget(role ?? "Worker");
+					budgetReserved = true;
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -807,7 +828,7 @@ export class CompanyKernel {
 								}),
 					});
 					signal?.throwIfAborted();
-					Object.assign(patch, this.recordBudget(role ?? "Worker", result));
+					settleBudget(result.measurement);
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					approvalCallbacksOpen = false;
 					if (result.role === "Reviewer" || result.role !== role)
@@ -881,6 +902,7 @@ export class CompanyKernel {
 					if (!this.handoff || this.handoff.role !== "Developer" || !this.selfCheck)
 						throw new Error("Review requires Developer handoff and self-check evidence");
 					this.reserveBudget(role ?? "Worker");
+					budgetReserved = true;
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -891,7 +913,7 @@ export class CompanyKernel {
 						verification: structuredClone(this.selfCheck),
 					});
 					signal?.throwIfAborted();
-					Object.assign(patch, this.recordBudget(role ?? "Worker", result));
+					settleBudget(result.measurement);
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					if (result.role !== "Reviewer") throw new Error("Expected Reviewer result");
 					if (this.state.risk === "R2" || this.state.risk === "R3")
@@ -922,6 +944,7 @@ export class CompanyKernel {
 							review.result === "BLOCK" ? "Reviewer blocked the task" : "Revision limit reached",
 							endEvents,
 							reviewHistory,
+							measurementPatch,
 						);
 						return this.snapshot;
 					}
@@ -930,6 +953,7 @@ export class CompanyKernel {
 							{
 								review,
 								reviewHistory,
+								...measurementPatch,
 								revisionCycle: revision + 1,
 								phase: "IMPLEMENT",
 								currentStep: { stepId: "implement", attempt: revision + 2 },
@@ -988,6 +1012,7 @@ export class CompanyKernel {
 							: acceptanceResultsFromReview(validateContract(ReviewSchema, this.review));
 					await this.persist(
 						{
+							...measurementPatch,
 							status: "COMPLETED",
 							activeAgents: [],
 							completed: [task.id],
@@ -1014,6 +1039,7 @@ export class CompanyKernel {
 			await this.persist(
 				{
 					...patch,
+					...measurementPatch,
 					...(workspace ? { workspace } : {}),
 					phase: STANDARD_STEP_PHASES[nextStep],
 					currentStep: { stepId: nextStep, attempt: revision + 1 },
@@ -1037,6 +1063,7 @@ export class CompanyKernel {
 				}
 			}
 			const cancelled = signal?.aborted === true;
+			settleBudget(error instanceof WorkerExecutionError ? error.measurement : undefined);
 			const reason = cancelled
 				? "Run cancelled"
 				: (approvalFailure ?? (error instanceof Error ? error.message : "Step execution failed"));
@@ -1051,6 +1078,8 @@ export class CompanyKernel {
 				cancelled ? "CANCELLED" : error instanceof BlockedError || approvalFailure ? "BLOCKED" : "FAILED",
 				reason,
 				failures,
+				undefined,
+				terminalMeasurementPatch(),
 			);
 			return this.snapshot;
 		} finally {

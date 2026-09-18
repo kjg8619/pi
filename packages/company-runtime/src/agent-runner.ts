@@ -330,10 +330,18 @@ export class PiAgentExecutor implements AgentExecutor {
 	/** Observation-only span; a failing exporter never changes the worker result. */
 	async execute(input: AgentExecutionRequest): Promise<AgentExecutionResult> {
 		const telemetry = this.options.telemetry ?? NOOP_TELEMETRY_CONTEXT;
+		// Requested identity comes from the trusted frozen config profile, never from the parent Pi UI model.
+		const mapping = this.options.config.models.profiles[input.profile];
 		return withSpan(
 			telemetry,
 			"weavra.worker",
-			{ role: input.role, profile: input.profile, revision: input.revision },
+			{
+				role: input.role,
+				profile: input.profile,
+				revision: input.revision,
+				provider: mapping.provider,
+				model: mapping.model,
+			},
 			() => this.performExecution(input),
 			(result) => ({
 				status: result.measurement?.outcome === "SUCCEEDED" ? { status: "ok" } : { status: "error" },
