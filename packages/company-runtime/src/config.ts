@@ -43,6 +43,13 @@ export const RuntimeConfigSchema = Type.Object(
 					max_parallel: Type.Optional(Type.Literal(1)),
 					max_revision_cycles: Type.Optional(Type.Integer({ minimum: 0, maximum: 3 })),
 					worker_timeout_ms: Type.Optional(Type.Integer({ minimum: 10_000, maximum: 600_000 })),
+					// Task Context Pack (V0.5A): Host-selected advisory context. Opt-in and bounded only.
+					context_pack: Type.Optional(
+						Type.Object(
+							{ mode: Type.Optional(Type.Union([Type.Literal("disabled"), Type.Literal("bounded")])) },
+							strict,
+						),
+					),
 				},
 				strict,
 			),
@@ -218,6 +225,7 @@ export function parseRuntimeConfig(source: string) {
 			max_parallel: 1 as const,
 			max_revision_cycles: value.agents?.max_revision_cycles ?? 1,
 			worker_timeout_ms: value.agents?.worker_timeout_ms ?? 180_000,
+			context_pack: { mode: value.agents?.context_pack?.mode ?? ("disabled" as const) },
 		},
 		review: { enabled: true as const },
 		...(value.budget ? { budget: structuredClone(value.budget) } : {}),

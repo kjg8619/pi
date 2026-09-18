@@ -35,7 +35,12 @@ describe("runtime config", () => {
 		const config = parseRuntimeConfig(JSON.stringify(minimal));
 		expect(config.models).toEqual(minimal.models);
 		expect(config.runtime.workflow).toBe("adaptive");
-		expect(config.agents).toEqual({ max_parallel: 1, max_revision_cycles: 1, worker_timeout_ms: 180_000 });
+		expect(config.agents).toEqual({
+			max_parallel: 1,
+			max_revision_cycles: 1,
+			worker_timeout_ms: 180_000,
+			context_pack: { mode: "disabled" },
+		});
 		expect(config.review.enabled).toBe(true);
 		expect(config.risk.approval_required).toEqual(["R3"]);
 		expect(config.files.allowed_paths).toEqual([]);
