@@ -184,7 +184,7 @@ describe("V0.4C sandbox config and policy", () => {
 		expect(snapshot.policyDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
 		expect(snapshot.networkMode).toBe("deny-all");
 		expect(snapshot.settings.network).toEqual({ allowedDomains: [], deniedDomains: [] });
-		expect(snapshot.settings.filesystem.allowRead).toEqual([canonicalHostPath(cwd)]);
+		expect(snapshot.settings.filesystem.allowRead).toContain(canonicalHostPath(cwd));
 		// Canonical paths only: the realpath form must match, a textual symlinked root must not be stored raw.
 		expect(snapshot.settings.filesystem.allowRead[0]).toBe(realpathSync(cwd));
 		expect(snapshot.settings.filesystem.denyWrite).toContain(join(canonicalHostPath(cwd), ORACLE));
@@ -203,7 +203,7 @@ describe("V0.4C sandbox config and policy", () => {
 	});
 });
 
-describe.runIf(process.platform === "darwin")("V0.4C macOS sandbox boundary", () => {
+describe.runIf(process.platform === "darwin" || process.platform === "linux")("V0.4C actual sandbox boundary", () => {
 	it("enforces network deny, oracle write deny and protected read deny for a real check", async () => {
 		const config = configOf("required", [ORACLE]);
 		const verifier = await verifierOf(config);
@@ -230,7 +230,7 @@ describe.runIf(process.platform === "darwin")("V0.4C macOS sandbox boundary", ()
 	}, 60000);
 });
 
-describe.runIf(process.platform === "darwin")("V0.4C macOS symlink escape", () => {
+describe.runIf(process.platform === "darwin" || process.platform === "linux")("V0.4C symlink escape", () => {
 	it("does not leak an outside secret through a workspace symlink", async () => {
 		const workspace = realpathSync(mkdtempSync(join(tmpdir(), "weavra-escape-ws-")));
 		const link = join(workspace, "escape-link.txt");

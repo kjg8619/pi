@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
@@ -221,7 +221,19 @@ export function buildSandboxPolicy(input: {
 			denyRead: [...protect, canonicalHostPath(tmpdir()), canonicalHostPath(process.env.HOME ?? "")]
 				.filter(Boolean)
 				.sort(),
-			allowRead: [workspace],
+			// Host-owned system read roots: required to execute the resolved verifier program itself.
+			// These are constants, never project config; HOME and Host secrets stay denied below.
+			allowRead: [
+				workspace,
+				...[
+					dirname(dirname(process.execPath)),
+					"/usr",
+					"/lib",
+					"/lib64",
+					"/etc/ld.so.cache",
+					"/opt/hostedtoolcache",
+				].filter((path) => existsSync(path)),
+			],
 			allowWrite: [workspace],
 			// denyWrite wins over allowWrite: oracle sources and protected paths are never writable.
 			denyWrite: [...protect, ...input.trustedSources.map(resolvePolicyPath)].sort(),
