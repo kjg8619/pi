@@ -38,6 +38,52 @@ function assertPath(cwd: string, path: string): string {
 	return current;
 }
 
+/** Read-time filesystem identity. Host-side only; never shown to the model and never a permission. */
+export interface AnchoredFileIdentity {
+	dev: string;
+	ino: string;
+	mode: string;
+	size: string;
+	mtimeNs: string;
+	ctimeNs: string;
+}
+
+function identityOf(stat: {
+	dev: bigint;
+	ino: bigint;
+	mode: bigint;
+	size: bigint;
+	mtimeNs: bigint;
+	ctimeNs: bigint;
+}): AnchoredFileIdentity {
+	return {
+		dev: stat.dev.toString(),
+		ino: stat.ino.toString(),
+		mode: stat.mode.toString(),
+		size: stat.size.toString(),
+		mtimeNs: stat.mtimeNs.toString(),
+		ctimeNs: stat.ctimeNs.toString(),
+	};
+}
+
+export function sameAnchoredIdentity(a: AnchoredFileIdentity, b: AnchoredFileIdentity): boolean {
+	return (
+		a.dev === b.dev &&
+		a.ino === b.ino &&
+		a.mode === b.mode &&
+		a.size === b.size &&
+		a.mtimeNs === b.mtimeNs &&
+		a.ctimeNs === b.ctimeNs
+	);
+}
+
+/** Only a disappeared target/parent is a freshness failure; every other filesystem error stays fatal. */
+function staleIfMissing(error: unknown, action: string): never {
+	if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT")
+		throw new StaleMutationError(`${action} target changed or is missing; re-read before mutating`);
+	throw error;
+}
+
 function readBounded(fd: number): Buffer {
 	const stat = fstatSync(fd);
 	if (!stat.isFile() || stat.nlink !== 1 || stat.size > ANCHORED_MAX_BYTES)
@@ -53,29 +99,83 @@ function readBounded(fd: number): Buffer {
 	return buffer.subarray(0, length);
 }
 
-export function readAnchoredFile(cwd: string, path: string): string {
+/**
+ * Strict read: content and filesystem identity are captured from one bounded snapshot. An unstable read
+ * (changed dev/ino/mode/size/mtime/ctime between the two stats, or a path that no longer points at the
+ * opened object) never produces a snapshot, so no receipt is issued for it.
+ */
+export function readAnchoredSnapshot(
+	cwd: string,
+	path: string,
+): { snapshot: string; fileDigest: string; identity: AnchoredFileIdentity } {
 	const identity = assertPath(cwd, path);
 	const fd = openSync(identity, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 	try {
-		return snapshotText(identity, decodeAnchoredText(readBounded(fd)));
+		const before = fstatSync(fd, { bigint: true });
+		const text = decodeAnchoredText(readBounded(fd));
+		const after = fstatSync(fd, { bigint: true });
+		const pathStat = lstatSync(identity, { bigint: true });
+		if (
+			pathStat.dev !== before.dev ||
+			pathStat.ino !== before.ino ||
+			pathStat.isSymbolicLink() ||
+			after.nlink !== 1n ||
+			after.dev !== before.dev ||
+			after.ino !== before.ino ||
+			after.mode !== before.mode ||
+			after.size !== before.size ||
+			after.mtimeNs !== before.mtimeNs ||
+			after.ctimeNs !== before.ctimeNs
+		)
+			throw new StaleAnchorError("file changed while it was read");
+		return { snapshot: snapshotText(identity, text), fileDigest: fileDigest(text), identity: identityOf(after) };
 	} finally {
 		closeSync(fd);
 	}
 }
 
+export function readAnchoredFile(cwd: string, path: string): string {
+	return readAnchoredSnapshot(cwd, path).snapshot;
+}
+
 /** Called only after Policy ALLOW. No create, truncate-on-open, async gap, or reopen for writing. */
-export function editAnchoredFile(cwd: string, path: string, input: AnchoredReplacement, signal: AbortSignal): void {
+export function editAnchoredFile(
+	cwd: string,
+	path: string,
+	input: AnchoredReplacement,
+	signal: AbortSignal,
+	expectedIdentity?: AnchoredFileIdentity,
+): void {
 	signal.throwIfAborted();
-	const identity = assertPath(cwd, path);
-	const fd = openSync(identity, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	let identity: string;
+	try {
+		identity = assertPath(cwd, path);
+	} catch (error) {
+		staleIfMissing(error, "edit");
+	}
+	let fd: number;
+	try {
+		fd = openSync(identity, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	} catch (error) {
+		staleIfMissing(error, "edit");
+	}
 	try {
 		const before = fstatSync(fd, { bigint: true });
+		// Read-time identity binding: identical bytes in a recreated file are still a different generation.
+		if (expectedIdentity && !sameAnchoredIdentity(expectedIdentity, identityOf(before)))
+			throw new StaleMutationError("edit target is not the file that was read; re-read before mutating");
 		const bytes = readBounded(fd);
 		const replacement = Buffer.from(applyAnchoredReplacement(identity, decodeAnchoredText(bytes), input));
 		// Detect changes during computation, including an external rename replacing the path.
 		if (!readBounded(fd).equals(bytes)) throw new StaleAnchorError("file changed before apply");
-		assertPath(cwd, path);
-		const pathStat = lstatSync(identity, { bigint: true });
+		const pathStat = (() => {
+			try {
+				assertPath(cwd, path);
+				return lstatSync(identity, { bigint: true });
+			} catch (error) {
+				staleIfMissing(error, "edit");
+			}
+		})();
 		const after = fstatSync(fd, { bigint: true });
 		if (
 			pathStat.dev !== before.dev ||
@@ -102,10 +202,14 @@ export function editAnchoredFile(cwd: string, path: string, input: AnchoredRepla
 	}
 }
 
+/** Same bounded strict-UTF-8 text contract as anchored existing-file reads: NUL and non-round-tripping text are rejected. */
 function assertTextContent(content: string): Buffer {
 	const bytes = Buffer.from(content, "utf8");
 	if (bytes.length > ANCHORED_MAX_BYTES) throw new Error("Anchored content exceeds size limit");
-	if (bytes.toString("utf8") !== content) throw new Error("Anchored content must be strict UTF-8");
+	if (bytes.includes(0)) throw new Error("Anchored content must be bounded non-binary strict UTF-8 text");
+	// decodeAnchoredText re-validates size/NUL/round-trip on the byte level; the string comparison also
+	// rejects inputs whose UTF-8 encoding is lossy (for example unpaired surrogates).
+	if (decodeAnchoredText(bytes) !== content) throw new Error("Anchored content must be strict UTF-8");
 	return bytes;
 }
 
@@ -171,10 +275,16 @@ export function replaceAnchoredFile(
 	content: string,
 	expectedDigest: string,
 	signal: AbortSignal,
+	expectedIdentity?: AnchoredFileIdentity,
 ): void {
 	signal.throwIfAborted();
 	const bytes = assertTextContent(content);
-	const identity = assertPath(cwd, path);
+	let identity: string;
+	try {
+		identity = assertPath(cwd, path);
+	} catch (error) {
+		staleIfMissing(error, "replace");
+	}
 	let fd: number;
 	try {
 		fd = openSync(identity, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -185,12 +295,21 @@ export function replaceAnchoredFile(
 	}
 	try {
 		const before = fstatSync(fd, { bigint: true });
+		// Read-time identity binding: recreate-with-identical-bytes is a different generation.
+		if (expectedIdentity && !sameAnchoredIdentity(expectedIdentity, identityOf(before)))
+			throw new StaleMutationError("replace target is not the file that was read; re-read before replacing");
 		// Existing source must still be a bounded, strict UTF-8, single-link regular file at the exact read generation.
 		const source = decodeAnchoredText(readBounded(fd));
 		if (fileDigest(source) !== expectedDigest)
 			throw new StaleMutationError("file changed since the read receipt; re-read before replacing");
-		assertPath(cwd, path);
-		const current = lstatSync(identity, { bigint: true });
+		const current = (() => {
+			try {
+				assertPath(cwd, path);
+				return lstatSync(identity, { bigint: true });
+			} catch (error) {
+				staleIfMissing(error, "replace");
+			}
+		})();
 		const after = fstatSync(fd, { bigint: true });
 		if (
 			current.dev !== before.dev ||

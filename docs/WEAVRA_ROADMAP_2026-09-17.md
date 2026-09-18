@@ -111,8 +111,8 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.3D — Project Context** | 프로젝트 규칙·파일 탐색·JVM risk 보강 | FIX-03, FIX-06, FEAT-02 일부 | 구현·자동 검증; Provider 완료 smoke 실패/후속 미검증 |
 | **V0.3E — Task Contract** | 복합 요청을 검증 가능한 AC로 고정 | FIX-05, FEAT-01 | 높음 |
 | **V0.3F — Measurement & Evidence** | 실제 품질·비용·실패를 측정/설명 | FEAT-03, FEAT-04, FEAT-05, FIX-09 | 높음 |
-| **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | 구현·자동 회귀 PASS(LOG-064); DeepSeek stale recovery 실동작 확인, COMPLETED fixture는 미확인 |
-| **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | 후속 |
+| **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | **완료**(LOG-064·LOG-065). compatible 기본 + opt-in strict receipt/identity, create/replace 분리, deletion/재생성 typed stale, NUL 거부. DeepSeek strict actual **COMPLETED** |
+| **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | 다음 단계 |
 | **V0.4C — Verifier Sandbox** | 검증 프로세스 OS 경계 도입 | FEAT-07 | 후속 |
 | **Later** | Facts / Browser QA / Capability Broker / COMPLEX | FEAT-06, 08, 09, Team Mode | 수요 기반 |
 
@@ -491,6 +491,18 @@ worker provider/model/thinking
 
 # 8. V0.4A — Mutation Hardening
 
+## 구현 상태 (LOG-064 · LOG-065)
+
+아래 후보 설계는 **구현 완료**다. 후보와 구현 사실을 구분해 기록한다.
+
+- `mutation: { mode: compatible | strict }`(기본 compatible): trusted frozen config, `configDigest` 포함, Plan Preview에 `Mutation mode:` 표시.
+- strict 기존 파일 mutation은 **최신 strict anchored read의 receipt+digest(+edit은 anchor)** 를 요구하고, receipt registry가 read-time filesystem identity(`dev/ino/mode/size/mtimeNs/ctimeNs`, 같은 read snapshot에서 capture)를 함께 보관한다. deletion·동일 bytes 재생성 모두 typed stale이며 ENOENT만 stale로 변환한다(EACCES/ELOOP/symlink·hardlink 위반·Policy DENY는 fatal 유지).
+- `runtime_write`는 `operation=create`(must-not-exist, OS `O_CREAT|O_EXCL|O_NOFOLLOW`)와 `operation=replace`(fresh receipt+digest)로 분리했고 서로 fallback하지 않는다. strict content는 256 KiB·NUL·lossy UTF-8을 거부한다.
+- stale은 같은 worker session에서 re-read→재시도로 bounded correction이 가능하고 자동 retry는 없다.
+- 결정론적 회귀: Runtime 36개 파일·1,194개 + coding-agent Weavra 11개 파일·449개 + evals 6개 파일·33개 = **53개 파일·1,676개 PASS**.
+- 실제 Provider: `commandcode/deepseek/deepseek-v4.1-flash` STRICT `standard-2ac`에서 외부 변경 1회 주입 후 `STALE_ANCHOR → 재-read → fresh receipt → edit 성공 → checks PASS×2 → 독립 Reviewer PASS → COMPLETED`(37,829 tokens)를 확인했다.
+- **NOT VERIFIED:** 다른 모델/Provider, R2/R3·QUICK strict actual smoke, remote GitHub Actions 실제 PASS, external TOCTOU 완전 해소(주장하지 않음).
+
 ## 목표
 
 V0.3A의 optional anchored edit를 기존 파일 mutation의 opt-in strict contract로 확장한다.
@@ -686,7 +698,15 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**V0.3D — Project Context의 아래 범위를 구현·자동 검증했다.** Provider smoke의 `path:"."` 거부 뒤 안내 보완은 실제 재검증하지 않았다. 사용자 검토 및 후속 smoke 승인 여부를 먼저 결정하고 자동으로 V0.3E나 dogfooding을 시작하지 않는다.
+**현재 다음 작업은 V0.4B — Verifier Trust(FIX-08)다.** V0.3A~V0.3F, V0.4A(Strict Mutation)까지는 각 LOG의 판정 그대로 완료·게시했고, V0.4A는 LOG-065에서 닫았다. 아래 V0.3D 범위는 역사적 기록이며 소급 수정하지 않는다(당시 Provider smoke의 `path:"."` 거부 뒤 안내 보완은 실제 재검증하지 않았다).
+
+역사적 기록(V0.3D 단계):
+
+```text
+FIX-03  Host-selected instruction snapshot
+FIX-06  JVM dependency/build risk paths
+FEAT-02 일부  bounded runtime_list_files
+```
 
 범위:
 

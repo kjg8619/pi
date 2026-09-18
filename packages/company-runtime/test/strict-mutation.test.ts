@@ -549,6 +549,156 @@ describe("V0.4A strict text fidelity and paths", () => {
 		).rejects.toThrow("Policy R1/DENY");
 	});
 
+	it("turns a deleted edit target into consumable stale instead of a filesystem error", async () => {
+		await create("strict");
+		const read = await strictRead();
+		rmSync(join(cwd, "src/app.ts"));
+		await expect(
+			call(
+				"runtime_edit",
+				{
+					path: "src/app.ts",
+					oldText: "foo()",
+					newText: "bar()",
+					anchor: read.line(1),
+					fileDigest: read.fileDigest,
+					readReceipt: read.readReceipt,
+				},
+				"del-edit",
+			),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(() => bytes()).toThrow();
+		expect(worker.consumeStaleAnchorError("runtime_edit", "del-edit")).toBe(true);
+	});
+
+	it("turns a deleted replace target into stale and keeps it missing", async () => {
+		await create("strict");
+		const read = await strictRead();
+		rmSync(join(cwd, "src/app.ts"));
+		await expect(
+			call(
+				"runtime_write",
+				{
+					path: "src/app.ts",
+					content: "weavra\n",
+					operation: "replace",
+					readReceipt: read.readReceipt,
+					fileDigest: read.fileDigest,
+				},
+				"del-replace",
+			),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(() => bytes()).toThrow();
+		expect(worker.consumeStaleAnchorError("runtime_write", "del-replace")).toBe(true);
+	});
+
+	it("invalidates an old receipt after delete plus identical-byte recreation (edit)", async () => {
+		await create("strict");
+		const read = await strictRead();
+		const original = bytes().toString();
+		rmSync(join(cwd, "src/app.ts"));
+		writeFileSync(join(cwd, "src/app.ts"), original);
+		await expect(
+			call("runtime_edit", {
+				path: "src/app.ts",
+				oldText: "foo()",
+				newText: "bar()",
+				anchor: read.line(1),
+				fileDigest: read.fileDigest,
+				readReceipt: read.readReceipt,
+			}),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(bytes().toString()).toBe(original);
+	});
+
+	it("invalidates an old receipt after delete plus identical-byte recreation (replace)", async () => {
+		await create("strict");
+		const read = await strictRead();
+		const original = bytes().toString();
+		rmSync(join(cwd, "src/app.ts"));
+		writeFileSync(join(cwd, "src/app.ts"), original);
+		await expect(
+			call("runtime_write", {
+				path: "src/app.ts",
+				content: "weavra\n",
+				operation: "replace",
+				readReceipt: read.readReceipt,
+				fileDigest: read.fileDigest,
+			}),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(bytes().toString()).toBe(original);
+	});
+
+	it("accepts a fresh receipt for the recreated file", async () => {
+		await create("strict");
+		const stale = await strictRead();
+		rmSync(join(cwd, "src/app.ts"));
+		writeFileSync(join(cwd, "src/app.ts"), "foo()\nfoo()\n");
+		const fresh = await strictRead();
+		expect(fresh.readReceipt).not.toBe(stale.readReceipt);
+		await call("runtime_edit", {
+			path: "src/app.ts",
+			oldText: "foo()",
+			newText: "bar()",
+			anchor: fresh.line(2),
+			fileDigest: fresh.fileDigest,
+			readReceipt: fresh.readReceipt,
+		});
+		expect(bytes().toString()).toBe("foo()\nbar()\n");
+	});
+
+	it("rejects NUL content in strict create without creating the target", async () => {
+		await create("strict");
+		await expect(
+			call("runtime_write", {
+				path: "src/nul.ts",
+				content: "hello\u0000world",
+				operation: "create",
+				mustNotExist: true,
+			}),
+		).rejects.toThrow("strict UTF-8");
+		expect(() => bytes("src/nul.ts")).toThrow();
+	});
+
+	it("rejects NUL content in strict replace and keeps the original bytes", async () => {
+		await create("strict");
+		const read = await strictRead();
+		await expect(
+			call("runtime_write", {
+				path: "src/app.ts",
+				content: "hello\u0000world",
+				operation: "replace",
+				readReceipt: read.readReceipt,
+				fileDigest: read.fileDigest,
+			}),
+		).rejects.toThrow("strict UTF-8");
+		expect(bytes().toString()).toBe("foo()\nfoo()\n");
+	});
+
+	it("rejects lossy surrogate content in strict create and replace", async () => {
+		await create("strict");
+		await expect(
+			call("runtime_write", {
+				path: "src/lossy.ts",
+				content: "x\ud800y",
+				operation: "create",
+				mustNotExist: true,
+			}),
+		).rejects.toThrow("strict UTF-8");
+		expect(() => bytes("src/lossy.ts")).toThrow();
+		const read = await strictRead();
+		await expect(
+			call("runtime_write", {
+				path: "src/app.ts",
+				content: "x\ud800y",
+				operation: "replace",
+				readReceipt: read.readReceipt,
+				fileDigest: read.fileDigest,
+			}),
+		).rejects.toThrow("strict UTF-8");
+		expect(bytes().toString()).toBe("foo()\nfoo()\n");
+	});
+
 	it("supports strict anchored edit on space and non-ASCII paths", async () => {
 		await create("strict");
 		writeFileSync(join(cwd, "docs 한글/문서.md"), "foo()\n");

@@ -14,7 +14,14 @@ import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ANCHORED_EDIT_GUIDANCE, mintReadReceipt, StaleAnchorError, StaleMutationError } from "./anchored-edit.ts";
-import { createAnchoredFile, editAnchoredFile, readAnchoredFile, replaceAnchoredFile } from "./anchored-files.ts";
+import {
+	type AnchoredFileIdentity,
+	createAnchoredFile,
+	editAnchoredFile,
+	readAnchoredFile,
+	readAnchoredSnapshot,
+	replaceAnchoredFile,
+} from "./anchored-files.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "./config.ts";
 import {
 	ExecutorHandoffSchema,
@@ -186,13 +193,18 @@ export function createWorkerTools(options: {
 	const staleAnchorErrors = new Set<string>();
 	// Strict mutation (FIX-07): invocation-scoped latest-read receipts. Freshness only, never permission.
 	const strictMutation = options.config.mutation.mode === "strict";
-	const readReceipts = new Map<string, { receipt: string; fileDigest: string }>();
-	const requireLatestReceipt = (path: string, token: string | undefined, digest: string | undefined): void => {
+	const readReceipts = new Map<string, { receipt: string; fileDigest: string; identity: AnchoredFileIdentity }>();
+	const requireLatestReceipt = (
+		path: string,
+		token: string | undefined,
+		digest: string | undefined,
+	): AnchoredFileIdentity => {
 		const registered = readReceipts.get(path);
 		if (!registered || !token || registered.receipt !== token)
 			throw new StaleMutationError(`${path} has no current read receipt; re-read the file with anchors:true`);
 		if (!digest || registered.fileDigest !== digest)
 			throw new StaleMutationError(`${path} read receipt does not match the supplied fileDigest`);
+		return registered.identity;
 	};
 	let submitted: AgentExecutionResult | undefined;
 	let policyDenial: string | undefined;
@@ -264,13 +276,17 @@ export function createWorkerTools(options: {
 				const params = structuredClone(input);
 				return fileAction("runtime_read", [params.path], params, () => {
 					if (!params.anchors) return readText(join(options.cwd, params.path));
-					const snapshot = readAnchoredFile(options.cwd, params.path);
-					if (!strictMutation) return snapshot;
+					if (!strictMutation) return readAnchoredFile(options.cwd, params.path);
+					// One bounded snapshot: content digest and filesystem identity are captured together.
+					const read = readAnchoredSnapshot(options.cwd, params.path);
 					// The latest successful strict anchored read wins; any earlier receipt for this path is invalidated.
-					const digest = snapshot.split("\n", 1)[0].slice("fileDigest: ".length);
 					const receipt = mintReadReceipt();
-					readReceipts.set(params.path, { receipt, fileDigest: digest });
-					return `${snapshot}\nreadReceipt: ${receipt}`;
+					readReceipts.set(params.path, {
+						receipt,
+						fileDigest: read.fileDigest,
+						identity: read.identity,
+					});
+					return `${read.snapshot}\nreadReceipt: ${receipt}`;
 				});
 			},
 		}),
@@ -353,13 +369,18 @@ export function createWorkerTools(options: {
 										if (params.operation === "replace") {
 											if (params.mustNotExist !== undefined)
 												throw new Error("strict replace must not carry mustNotExist");
-											requireLatestReceipt(params.path, params.readReceipt, params.fileDigest);
+											const expected = requireLatestReceipt(
+												params.path,
+												params.readReceipt,
+												params.fileDigest,
+											);
 											replaceAnchoredFile(
 												options.cwd,
 												params.path,
 												params.content,
 												params.fileDigest as string,
 												signal,
+												expected,
 											);
 											readReceipts.delete(params.path);
 											return "File replaced";
@@ -413,7 +434,11 @@ export function createWorkerTools(options: {
 								try {
 									return await fileAction("runtime_edit", [params.path], params, () => {
 										if (strictMutation) {
-											requireLatestReceipt(params.path, params.readReceipt, params.fileDigest);
+											const expected = requireLatestReceipt(
+												params.path,
+												params.readReceipt,
+												params.fileDigest,
+											);
 											editAnchoredFile(
 												options.cwd,
 												params.path,
@@ -423,6 +448,7 @@ export function createWorkerTools(options: {
 													fileDigest: params.fileDigest as string,
 												},
 												signal,
+												expected,
 											);
 											readReceipts.delete(params.path);
 											return "File edited";

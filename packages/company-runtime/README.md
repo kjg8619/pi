@@ -277,6 +277,7 @@ strict 핵심:
 - `runtime_edit`은 anchor+fileDigest+readReceipt를 모두 요구하고 legacy unanchored fallback을 쓰지 않는다. 하나라도 없으면 mutation 전에 거부한다.
 - `runtime_write`는 `operation`을 명시한다. `create`는 `mustNotExist:true`와 함께여야 하고 OS 수준 create-if-absent(`O_CREAT|O_EXCL|O_NOFOLLOW`)로만 만들며 기존 파일을 절대 덮어쓰지 않는다(parent mkdir 없음). `replace`는 fresh `readReceipt`+`fileDigest`를 요구하고 대상이 없으면 새로 만들지 않는다(create로 fallback하지 않음).
 - 외부 변경·이전 generation receipt·다른 path receipt·위조 receipt는 `STALE_ANCHOR`계열 typed error이며 **0 bytes**를 쓴다. Policy DENY·audit/storage 실패는 stale로 분류하지 않는다.
+- receipt에는 content digest와 함께 read-time filesystem identity(`dev/ino/mode/size/mtimeNs/ctimeNs`, 같은 read snapshot에서 capture)가 묶인다. 따라서 valid receipt 뒤 target이 삭제되거나 **동일 bytes로 재생성**되어도 typed stale이며(ENOENT만 stale로 변환, EACCES/ELOOP/symlink·hardlink 위반/Policy DENY는 fatal 유지) old receipt를 재사용할 수 없다. strict content는 256 KiB·NUL·lossy UTF-8을 거부한다.
 - stale은 같은 worker session에서 re-read → fresh receipt/anchor → 재시도로 bounded correction이 가능하다(자동 re-read/자동 retry/host-side 재생성은 없음).
 - 기존 anchored-files 경계(NOFOLLOW·regular·nlink=1·bounded strict UTF-8·dev/ino/mode/size/mtime/ctime 재확인, validation→effect 무 yield)를 그대로 유지한다. 마지막 검증 syscall과 write syscall 사이의 비협조 외부 process race를 완전히 해결했다고 주장하지 않는다.
 - Reviewer는 계속 read-only이고, R3 Developer는 `runtime_delete`만 쓴다. strict mode는 권한을 늘리지 않는다.
