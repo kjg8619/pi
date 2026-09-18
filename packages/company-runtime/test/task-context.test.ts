@@ -13,6 +13,7 @@ import {
 	extractLiteralTerms,
 	summarizeTaskContextPack,
 	TASK_CONTEXT_DOMAIN,
+	taskContextPreservationScore,
 } from "../src/task-context.ts";
 
 let cwd: string;
@@ -281,6 +282,27 @@ describe("V0.5A task context pack", () => {
 		}))!;
 		expect(again.digest).toBe(pack.digest);
 		expect(JSON.stringify(again)).not.toContain("very-long-directory-name-".repeat(20));
+	});
+
+	it("ranks acceptance-scope above heuristic relations when trimming", () => {
+		expect(taskContextPreservationScore(["acceptance-scope"])).toBeGreaterThan(
+			taskContextPreservationScore(["same-stem-test"]),
+		);
+		expect(taskContextPreservationScore(["acceptance-scope", "same-stem-test"])).toBe(
+			taskContextPreservationScore(["acceptance-scope"]),
+		);
+		expect(taskContextPreservationScore(["changed-file"])).toBeGreaterThan(
+			taskContextPreservationScore(["literal-reference"]),
+		);
+		expect(taskContextPreservationScore([])).toBe(-1);
+	});
+
+	it("terminates deterministically when the minimal pack itself cannot fit", async () => {
+		const hugePath = `${"p".repeat(60000)}/AGENTS.md`;
+		// A metadata shape that cannot fit even as a minimal pack must fail closed, never loop forever.
+		await expect(
+			build({ projectInstruction: { path: hugePath, digest: `sha256:${"a".repeat(64)}`, bytes: 1 } }),
+		).rejects.toThrow("Task context pack exceeds its byte cap even without optional context");
 	});
 
 	it("binds project-rule metadata into the pack digest without copying the instruction body", async () => {

@@ -28,6 +28,19 @@ const FILE_MAX_BYTES = 262144;
 
 export type TaskContextMode = "disabled" | "bounded";
 
+/** Preservation score used by budget trimming: higher survives longer; a relation uses its strongest reason. */
+export function taskContextPreservationScore(reasons: readonly string[]): number {
+	const scores: Record<string, number> = {
+		"acceptance-scope": 5,
+		"changed-file": 4,
+		"previous-review": 3,
+		"lsp-reference": 2,
+		"literal-reference": 1,
+		"same-stem-test": 0,
+	};
+	return reasons.length ? Math.max(...reasons.map((reason) => scores[reason] ?? -1)) : -1;
+}
+
 export interface TaskContextSymbol {
 	name: string;
 	path: string;
@@ -378,19 +391,9 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 
 	const projectRules = projectRulesOf(input);
 	const heuristicReasons = new Set(["same-stem-test", "literal-reference", "lsp-reference"]);
-	// Deterministic advisory priority: lower rank is dropped first when the pack exceeds its budget.
-	const reasonRank = (reasons: readonly string[]): number => {
-		const ranks = [5, 4, 3, 2, 1, 0];
-		const order = [
-			"acceptance-scope",
-			"changed-file",
-			"previous-review",
-			"lsp-reference",
-			"literal-reference",
-			"same-stem-test",
-		];
-		return Math.max(...reasons.map((reason) => (order.includes(reason) ? order.indexOf(reason) : ranks.length)));
-	};
+	// Trimming keeps the strongest reason of each relation, so a seed that is also a same-stem test
+	// survives like a seed (see taskContextPreservationScore).
+	const preservationScore = taskContextPreservationScore;
 	const finalize = (parts: {
 		symbols: TaskContextSymbol[];
 		related: TaskContextRelated[];
@@ -452,14 +455,16 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 			// Advisory metadata yields to the output cap: drop the lowest-priority relation, deterministic
 			// tie-break is reverse lexical order, so the same input always trims to the same pack.
 			const ranked = [...relatedFiles].sort(
-				(a, b) => reasonRank(a.reasons) - reasonRank(b.reasons) || b.path.localeCompare(a.path),
+				(a, b) => preservationScore(a.reasons) - preservationScore(b.reasons) || b.path.localeCompare(a.path),
 			);
 			if (ranked.length) {
 				relatedFiles = relatedFiles.filter((file) => file !== ranked[0]);
 				continue;
 			}
 			if (unknownList.length > 1) {
-				unknownList = [unknownList[0], "additional unknowns omitted: output limit"];
+				// Strictly decreasing so the loop always terminates; the next iteration reaches the
+				// minimal fallback or the explicit bounded error.
+				unknownList = [unknownList[0]];
 				continue;
 			}
 			// Everything selectable is gone: degrade to the minimal valid pack instead of returning an
