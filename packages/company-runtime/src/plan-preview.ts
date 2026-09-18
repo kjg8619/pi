@@ -16,6 +16,7 @@ export interface PlanPreview {
 	verifierTrustMode: "compatible" | "strict";
 	verifierTrustSources: readonly string[];
 	verifierSandboxMode: "disabled" | "required";
+	contextPackMode: "disabled" | "bounded";
 }
 
 /** Host-side display only. Confirming this plan is neither an approval nor a permission token. */

@@ -345,3 +345,54 @@ describe("V0.5A context pack measurement summary", () => {
 		).toThrow();
 	});
 });
+
+describe("V0.5A context projections", () => {
+	it("projects a bounded context summary per worker without raw context", () => {
+		const run = graphRun("STANDARD", "R1", 0);
+		const measurement = validateContract(WorkerMeasurementSchema, {
+			role: "Developer",
+			profile: "coding",
+			revision: 0,
+			step: { stepId: "implement", attempt: 1 },
+			requestedProvider: "commandcode",
+			requestedModel: "deepseek/deepseek-v4.1-flash",
+			actualProvider: "commandcode",
+			actualModel: "deepseek/deepseek-v4.1-flash",
+			startedAt: 1,
+			finishedAt: 2,
+			durationMs: 1,
+			modelTurns: 3,
+			toolCalls: 2,
+			toolCallsByName: { runtime_read: 2 },
+			usage: { source: "unavailable", input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+			outcome: "SUCCEEDED",
+			contextPack: {
+				mode: "bounded",
+				digest: `sha256:${"a".repeat(64)}`,
+				bytes: 8120,
+				relatedFileCount: 4,
+				symbolCount: 2,
+				snippetCount: 3,
+				unknownCount: 1,
+				truncated: false,
+			},
+		});
+		const pack = projectEvidencePack({
+			run: { ...run, workerMeasurements: [measurement] } as never,
+			report: { changedFiles: [], partialChanges: false, changesUnknown: false } as never,
+		});
+		const text = formatEvidencePack(pack);
+		expect(text).toContain("Developer context: bounded sha256:aaaaaaaaaaaaa…");
+		expect(text).toContain("files 4");
+		expect(text).toContain("truncated no");
+		expect(JSON.stringify(pack.workers)).not.toContain("src/");
+		// Legacy measurements without a context summary still project.
+		const legacy = structuredClone(measurement);
+		delete legacy.contextPack;
+		const legacyPack = projectEvidencePack({
+			run: { ...run, workerMeasurements: [legacy] } as never,
+			report: { changedFiles: [], partialChanges: false, changesUnknown: false } as never,
+		});
+		expect(formatEvidencePack(legacyPack)).toContain("Developer context: disabled");
+	});
+});

@@ -206,6 +206,7 @@ describe("V0.3E acceptance criteria", () => {
 			verifierTrustMode: "compatible",
 			verifierTrustSources: [],
 			verifierSandboxMode: "disabled",
+			contextPackMode: "disabled",
 		});
 		for (const term of [
 			"Goal:",

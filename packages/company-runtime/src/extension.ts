@@ -330,6 +330,7 @@ export function registerCompanyRuntime(
 									mutationMode: config.mutation.mode,
 									verifierTrustMode: config.verification.trust.mode,
 									verifierSandboxMode: config.verification.sandbox.mode,
+									contextPackMode: config.agents.context_pack.mode,
 									verifierTrustSources: [
 										...new Set(config.verification.checks.flatMap((check) => check.trust.files)),
 									].sort(),

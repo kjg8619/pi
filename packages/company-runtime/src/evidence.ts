@@ -45,6 +45,17 @@ export interface EvidenceWorkerSummary {
 	toolCalls: number;
 	toolCallsByName: Record<string, number>;
 	reportedTokens: number | null;
+	/** Bounded advisory-context summary only; never snippet text, source text or path lists. */
+	contextPack: {
+		mode: string;
+		digest: string;
+		bytes: number;
+		relatedFileCount: number;
+		symbolCount: number;
+		snippetCount: number;
+		unknownCount: number;
+		truncated: boolean;
+	} | null;
 }
 
 export interface EvidencePack {
@@ -245,6 +256,18 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 			report?.partialChanges ?? (run.status !== "COMPLETED" && (run.workspace?.changedFiles.length ?? 0) > 0),
 		cleanup,
 		workers: (run.workerMeasurements ?? []).map((measurement) => ({
+			contextPack: measurement.contextPack
+				? {
+						mode: measurement.contextPack.mode,
+						digest: measurement.contextPack.digest,
+						bytes: measurement.contextPack.bytes,
+						relatedFileCount: measurement.contextPack.relatedFileCount,
+						symbolCount: measurement.contextPack.symbolCount,
+						snippetCount: measurement.contextPack.snippetCount,
+						unknownCount: measurement.contextPack.unknownCount,
+						truncated: measurement.contextPack.truncated,
+					}
+				: null,
 			role: measurement.role,
 			revision: measurement.revision,
 			step: `${measurement.step.stepId}@${measurement.step.attempt}`,
@@ -348,6 +371,14 @@ export function formatEvidencePack(pack: EvidencePack): string {
 								.join(", ")})`
 						: ""
 				} | reported tokens ${unknown(worker.reportedTokens)}`,
+		);
+	for (const worker of pack.workers)
+		lines.push(
+			`  ${worker.role} context: ${
+				worker.contextPack
+					? `bounded ${worker.contextPack.digest.slice(0, 20)}… | files ${worker.contextPack.relatedFileCount} | symbols ${worker.contextPack.symbolCount} | snippets ${worker.contextPack.snippetCount} | bytes ${worker.contextPack.bytes} | unknowns ${worker.contextPack.unknownCount} | truncated ${worker.contextPack.truncated ? "yes" : "no"}`
+					: "disabled"
+			}`,
 		);
 	lines.push(
 		`Partial changes: ${pack.partialChanges ? "yes" : "no"}; cleanup: ${pack.cleanup}`,
