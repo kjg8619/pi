@@ -11,6 +11,7 @@ import type { ActionAudit, PolicyContext } from "../src/policy.ts";
 import {
 	buildSandboxPolicy,
 	canonicalHostPath,
+	probeSandboxBackend,
 	resolveSandboxBackend,
 	runSandboxedCheck,
 	SRT_VERSION,
@@ -95,6 +96,27 @@ function requestOf(verifier: RegisteredVerifier) {
 }
 
 const ORACLE = "test/acceptance.test.mjs";
+
+// Real backend availability: the OS boundary tests run wherever the frozen SRT backend actually works
+// (macOS Seatbelt today). Platforms where bubblewrap/SRT cannot initialize are reported as NOT VERIFIED
+// instead of PASS — the deterministic contract tests above still run everywhere.
+const probeWorkspace = realpathSync(mkdtempSync(join(tmpdir(), "weavra-sandbox-readiness-")));
+let sandboxBackendReady = false;
+let sandboxBackendReason = "unknown";
+try {
+	const readiness = await probeSandboxBackend(
+		buildSandboxPolicy({ workspace: probeWorkspace, trustedSources: [], protectedPaths: [] }),
+	);
+	sandboxBackendReady = readiness.ok;
+	sandboxBackendReason = readiness.reason ?? "ok";
+} catch (error) {
+	sandboxBackendReason = error instanceof Error ? error.message : "probe failed";
+}
+rmSync(probeWorkspace, { recursive: true, force: true });
+if (!sandboxBackendReady)
+	console.log(
+		`[sandbox] OS backend unavailable on ${process.platform}: actual boundary NOT VERIFIED (${sandboxBackendReason})`,
+	);
 let outsideSentinel: string;
 let outsideWrite: string;
 let requests = 0;
@@ -203,7 +225,7 @@ describe("V0.4C sandbox config and policy", () => {
 	});
 });
 
-describe.runIf(process.platform === "darwin" || process.platform === "linux")("V0.4C actual sandbox boundary", () => {
+describe.runIf(sandboxBackendReady)("V0.4C actual sandbox boundary", () => {
 	it("enforces network deny, oracle write deny and protected read deny for a real check", async () => {
 		const config = configOf("required", [ORACLE]);
 		const verifier = await verifierOf(config);
@@ -230,7 +252,7 @@ describe.runIf(process.platform === "darwin" || process.platform === "linux")("V
 	}, 60000);
 });
 
-describe.runIf(process.platform === "darwin" || process.platform === "linux")("V0.4C symlink escape", () => {
+describe.runIf(sandboxBackendReady)("V0.4C symlink escape", () => {
 	it("does not leak an outside secret through a workspace symlink", async () => {
 		const workspace = realpathSync(mkdtempSync(join(tmpdir(), "weavra-escape-ws-")));
 		const link = join(workspace, "escape-link.txt");
@@ -387,32 +409,35 @@ describe("V0.4C kernel sandbox guard", () => {
 });
 
 describe("V0.4C closure: oracle read boundary, digest contract and freshness", () => {
-	it("keeps the trusted oracle readable for the verifier while the worker is denied", async () => {
-		const config = configOf("required", [ORACLE]);
-		const { evaluatePolicy } = await import("../src/policy.ts");
-		const policy = policyOf(config);
-		expect(policy.protectedPaths).toContain(ORACLE);
-		const readDecision = evaluatePolicy(
-			{
-				runId: "run-1",
-				actionId: "a1",
-				role: "Developer",
-				tool: "runtime_read",
-				risk: "R0",
-				paths: [ORACLE],
-				actionDigest: "digest",
-			},
-			policy,
-			[{ path: ORACLE, safe: true, kind: "file" }],
-			Date.now(),
-		);
-		expect(readDecision.decision).toBe("DENY");
-		const verifier = await verifierOf(config);
-		const result = await verifier.verify(requestOf(verifier) as never);
-		expect(result.checks[0].status).toBe("PASS");
-		expect(result.checks[0].sandbox?.status).toBe("ENFORCED");
-		expect(result.checks[0].stdout).toContain("oracleWrite: BLOCKED");
-	});
+	it.runIf(sandboxBackendReady)(
+		"keeps the trusted oracle readable for the verifier while the worker is denied",
+		async () => {
+			const config = configOf("required", [ORACLE]);
+			const { evaluatePolicy } = await import("../src/policy.ts");
+			const policy = policyOf(config);
+			expect(policy.protectedPaths).toContain(ORACLE);
+			const readDecision = evaluatePolicy(
+				{
+					runId: "run-1",
+					actionId: "a1",
+					role: "Developer",
+					tool: "runtime_read",
+					risk: "R0",
+					paths: [ORACLE],
+					actionDigest: "digest",
+				},
+				policy,
+				[{ path: ORACLE, safe: true, kind: "file" }],
+				Date.now(),
+			);
+			expect(readDecision.decision).toBe("DENY");
+			const verifier = await verifierOf(config);
+			const result = await verifier.verify(requestOf(verifier) as never);
+			expect(result.checks[0].status).toBe("PASS");
+			expect(result.checks[0].sandbox?.status).toBe("ENFORCED");
+			expect(result.checks[0].stdout).toContain("oracleWrite: BLOCKED");
+		},
+	);
 
 	it("fails closed when a trusted source sits under a protected read boundary", async () => {
 		const config = configOf("required", [ORACLE]);
