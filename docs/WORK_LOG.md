@@ -43,10 +43,13 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3B Read-only LSP | 완료 / 게시 | `a3eae0c86`에 반영. LOG-043 자동 47개 파일·1,565개 및 실제 TS/Provider smoke PASS |
 | V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
+| CommandCode/DeepSeek Worker Validation | 완료 / user-level 설정만, 제품 source 무변경 | `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
 현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. Attempt 1은 `path:"."` DENY/FAILED·무변경으로 끝났다. 별도 승인된 LOG-050의 Attempt 2는 커밋 `6da0c5ce5`에서 snapshot/list filtering·anchored edit·독립 Reviewer·두 required checks·fresh evidence·cleanup과 실제 COMPLETED를 확인했다. 다만 두 역할 모두 `runtime_list_files({path:"src",maxDepth:1})`를 사용하여 요청한 path omission은 NOT VERIFIED이며, Attempt 2 acceptance는 FAILED로 유지한다. 전체 V0.3D Provider smoke PASS로 변경하지 않고 추가 Provider 호출/제품 수정도 하지 않았다. 이후 별도 사용자 요청에 따라 같은 판정의 evidence 문서만 커밋·푸시한다(LOG-051). 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+
+2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
 ---
 
@@ -2446,6 +2449,108 @@ bash -n packages/company-runtime/bin/weavra
 - **과거 검증과 구분:** 실제 Provider 1회·사용량·cleanup·fixture/config 불변은 LOG-050 당시 결과다. 이번에는 Provider/targeted tests/TUI/build를 재실행하지 않았다. 로컬 check를 GitHub Actions PASS로 주장하지 않는다.
 - **문제·제한·다음 작업:** 추가 문제 없음. omission 경로의 실제 Provider 검증은 NOT VERIFIED로 유지한다. 명시적 문서 두 경로만 stage하고 일반 commit/push 후 clean 및 로컬·원격 HEAD 일치를 확인한다. 강제 푸시는 하지 않는다.
 - **커밋 상태:** 이 항목 작성 시 실행 직전. 메시지는 `docs(coding-agent): record Weavra V0.3D provider smoke attempt 2`이며 실제 SHA·push 결과는 Git 이력과 최종 응답으로 보고한다. `weavra-v0.1-rc1`의 peeled commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다.
+
+---
+
+## LOG-052 — 개발 하네스 전환: 현황 확인과 다음 단계 후보
+
+- **기록일:** 2026-09-18 09:17 (KST)
+- **상태:** 완료 (조사·기록만; 코드·테스트·Provider·build·TUI 실행 없음)
+- **목적:** 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환하기 전에 devlop 상태, fork-local 실행 환경, 남은 검증·미구성 항목을 확인한다.
+
+### 확인한 현재 상태 (2026-09-18 09:17 KST)
+
+- `git status --short --branch`가 `## devlop...origin/devlop` clean이다. HEAD `332e90b8f62d8f18d67ff2993b9a8bb6c5b196da`가 `origin/devlop`과 같다. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- fork-local CLI bundle `packages/coding-agent/dist/bundle/cli.js`가 2026-09-16 17:35 build로 존재한다. `packages/coding-agent/src`의 마지막 변경은 upstream `46bde88a1`(2026-09-10)이고 V0.3C/V0.3D는 이 경로를 변경하지 않아 build staleness는 확인되지 않았다. Weavra Runtime은 checkout source(`packages/company-runtime/src`)에서 로딩된다.
+- `~/.local/bin/weavra`가 checkout의 `packages/company-runtime/bin/weavra`를 가리킨다. Node는 v26.7.0(macOS arm64)이다.
+- `~/.weavra/agent`에 `auth.json`(provider 키 `openai-codex`), `models.json`(custom provider `codex-lb`, `omlx`), `settings.json`, `sessions`가 있다. **DeepSeek provider/profile은 아직 구성되지 않았다.**
+- `.github/workflows/ci.yml`(2026-09-17 갱신)이 존재하지만 실제 원격 Actions 실행 결과는 여전히 NOT VERIFIED다.
+- Weavra Runtime 규모: `packages/company-runtime/src` TypeScript 43개 파일 약 9.4천 줄, `test` 35개 파일.
+
+### 단계 진행 요약
+
+V0.1 RC(수동 GPT RC-01~08) → Branding/fork-local launcher/Status → Worktree create/open/list → V0.2A/B/C → V0.3A/B/C까지 완료·게시됐다. V0.3D(FIX-03/06 + `runtime_list_files`)는 구현과 자동 회귀가 `6da0c5ce5`로 게시됐고, 실제 Provider smoke는 Attempt 2 Runtime COMPLETED에도 acceptance는 path omission 미충족으로 FAILED를 유지한다(LOG-050, evidence 문서 게시 `332e90b8f`). 다음 로드맵 단계는 V0.3E Task Contract(FIX-05/FEAT-01)와 V0.3F Measurement & Evidence다.
+
+### 변경 파일
+
+- `docs/WORK_LOG.md`의 현재 요약과 본 항목만 갱신한다. source/test/config/dependency/lockfile 변경은 없다.
+
+### 이번 검증
+
+- 문서 갱신 후 `npm run check:ci` 재실행: exit 0. Biome `Checked 1388 files`, 자동 수정 없음, warning/info/error 없음. pinned-deps/runtime-deps/ts-imports/entry-graphs/shrinkwrap/install-lock/tsgo/browser-smoke 포함.
+- `git diff --check` exit 0, `git status --short`에서 변경은 `docs/WORK_LOG.md` 1개뿐이다.
+- 코드·테스트·Provider·build·TUI는 이번 작업에서 실행하지 않았다(소스 변경 없음).
+
+### 문제·해결
+
+- 추가 문제 없음. 하네스 전환 자체는 저장소 변경을 요구하지 않는다. 개발 하네스(OMP + DeepSeek)와 Weavra worker profile(`.ai/config.yaml` + `~/.weavra/agent` provider)은 별개 계층이며, 후자는 현재 `codex-lb`/`omlx`만 구성되어 있다.
+
+### 남은 제한과 다음 작업
+
+- DeepSeek·다른 Provider/OS/Node 조합은 NOT VERIFIED를 유지한다. V0.3D omitted-path의 실제 Provider 검증도 NOT VERIFIED다. 원격 GitHub Actions/Node22 Linux/fresh install/JVM build matrix/전체 suite는 미실행이다.
+- 다음 작업 후보(사용자 결정): (a) V0.3D omitted-path smoke 재시도(별도 승인), (b) V0.3E Task Contract 착수, (c) Weavra worker profile에 DeepSeek provider 구성·검증.
+- **커밋:** 하지 않음.
+
+---
+
+## LOG-053 — CommandCode Provider 구성과 DeepSeek worker smoke
+
+- **기록일:** 2026-09-18 (KST), 실제 Provider 실행 09:30–09:36 KST.
+- **상태:** 완료 (user-level 설정 + 실제 Provider smoke; 제품 source/test/dependency 변경 없음)
+- **목적:** 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek로 전환하는 시점에, 같은 모델을 Weavra worker로 쓸 수 있도록 user-level 설정만으로 구성하고 실제 동작과 실패 모드를 확인한다.
+
+### 계층 분리
+
+```text
+Development harness:        OMP
+Development model/provider: DeepSeek V4.1 Flash via CommandCode Provider API
+Weavra validation:          동일 (CommandCode Provider API)
+Cross validation:           codex-lb / GPT-6 Astra (1회)
+```
+
+### 변경 파일
+
+- repo 밖(user-level): `~/.weavra/agent/models.json`에 `commandcode` custom provider 추가(기존 `codex-lb`/`omlx` entry는 byte 단위 불변), `~/.weavra/cmd.env`(mode 600, `CMD_API_KEY`). 값 원문은 repo·문서·로그에 기록하지 않았다.
+- repo: 신규 `docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md`, `docs/WORK_LOG.md` 현재 요약·본 항목, `README.md`의 DeepSeek 표기. 제품 source/test/config/dependency/lockfile 변경 없음.
+
+### 착수 상태
+
+- `git status --short --branch`에서 미커밋 LOG-052(`docs/WORK_LOG.md`)만 있었다. stash/reset/clean은 하지 않았고 그대로 보존했다. HEAD와 origin은 `332e90b8f62d8f18d67ff2993b9a8bb6c5b196da`였다.
+
+### 구성 전 확인과 결정
+
+- Pi 내장 provider `deepseek`(base `https://api.deepseek.com`, auth env `DEEPSEEK_API_KEY`)와 catalog `deepseek-flash`는 존재하지만 이번에는 사용하지 않고, 사용자 지시대로 CommandCode를 `openai-completions` custom provider로 등록했다. 모델 ID는 `deepseek/deepseek-v4.1-flash`다.
+- `models.json` schema는 `providers.<id>.{baseUrl,api,apiKey,models[]}`이고 `apiKey`는 `${ENV}` template을 지원한다. 그래서 secret 없이 `${CMD_API_KEY}` 참조만 기록했다.
+- `CMD_API_KEY` 값은 사용자 승인 아래 OMP credential store(`~/.omp/agent/agent.db`의 `auth_credentials`)에서 `~/.weavra/cmd.env`로 옮겼고 어떤 출력에도 원문을 남기지 않았다.
+
+### 실행한 검증과 실제 결과
+
+1. ModelRuntime resolve/auth: `commandcode / deepseek/deepseek-v4.1-flash` provider·model 확인, `checkAuth`가 "configured API key"로 해석됨(apiKeyLength 92). 추가 Provider 코드는 만들지 않았다.
+2. READ_ONLY 최소 smoke(QUICK/R0) 3회: 0/3 완료. A/A3는 `submit_handoff.task`에 task ID 대신 goal을 넣어 identity mismatch로 FAILED, A2는 identity는 맞았지만 `unresolved`가 비어 있지 않아 Kernel이 BLOCKED 처리했다. 세 run 모두 workspace 무변경.
+3. EDIT smoke(STANDARD/R1, V0.3D 유사 fixture) 5회: 1/5 COMPLETED(B2). B1·B3은 보호된 `AGENTS.md` read가 Policy R0/DENY되어 FAILED(B1은 Reviewer, B3은 Developer), B4·B5는 identity mismatch로 FAILED. 편집이 이미 적용된 실패 run은 partialChanges=true로 남았고 자동 rollback은 없었다.
+4. B2 COMPLETED 상세: anchored edit 1회로 `Helo`→`Hello`, SELF_CHECK PASS/exit 0, 독립 Reviewer PASS(trusted refs 2개 정확히 사용), TEST PASS/exit 0, `changedFiles=["src/greeting.js"]`·2줄, writer.lock 없음, session cleanup 확인.
+5. 모든 run에서 `commandcode / deepseek/deepseek-v4.1-flash`, thinking `medium`, fallback 0, malformed tool call 0, Provider error/retry 0이었다. `runtime_list_files` 호출 8회 중 7회가 `{}`(path 생략)였고 V0.3D의 미충족 항목(path omission)이 별도 provider/run에서 확인됐다.
+6. 교차검증(codex-lb/GPT-6 Astra, 동일 fixture·goal·config semantics) 1회: COMPLETED, 35,236ms, 9,751 tokens, tool error 0. DeepSeek B2와 최종 `src/greeting.js`가 byte-identical했다.
+7. 표·관찰·판정 세분화·한계는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록했다.
+
+### 문제·해결
+
+- 첫 실행은 fixture 설정 수정이 커밋되지 않아 preflight가 "Dirty workspace"로 거부했다. 설정을 커밋한 뒤 재실행했고, 이후에는 매 run을 fresh clone에서 시작해 이전 run의 `.ai` state가 다음 run을 오염시키지 않게 했다.
+- identity mismatch는 consumable이 아니라 fatal이라 모델이 같은 session에서 정정할 기회가 없다. 반면 `unresolved` 검증 오류는 consumable로 재시도된다. 이 비대칭과 QUICK Executor prompt의 `unresolved` 안내 부재는 개선 후보로만 기록하고 이번에 제품 코드를 바꾸지 않았다.
+- 추가 문제 없음. 실패 run도 모두 fail-closed였고 workspace 무변경 또는 partialChanges 보고가 실제 상태와 일치했다.
+
+### 이번 검증
+
+- 문서 갱신 후 `npm run check:ci` 재실행: exit 0. Biome `Checked 1388 files`, 자동 수정·warning/info/error 없음(pinned-deps/runtime-deps/ts-imports/entry-graphs/shrinkwrap/install-lock/tsgo/browser-smoke 포함).
+- `git diff --check` exit 0, `bash -n packages/company-runtime/bin/weavra` exit 0, `git status --short`에서 변경은 `README.md`, `docs/WORK_LOG.md`, 신규 `docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md`뿐이다.
+- 제품 source 변경이 없어 자동 테스트·build·TUI는 이번에 실행하지 않았다. smoke의 실제 검증 내용은 위 "실행한 검증과 실제 결과"와 smoke 문서에 기록했다.
+
+### 남은 제한과 다음 작업
+
+- DeepSeek 공식 API, Linux Actions/Node22, fresh install, TUI/launcher 경로, LSP/JVM risk, R2/R3, self-hosting은 NOT VERIFIED다. 표본이 작아 완주율은 이번 조건의 관찰값이다. 실제 billing 비용은 UNKNOWN이다.
+- QUICK/R0 handoff 처리(identity mismatch의 consumable 여부), QUICK Executor `unresolved` 안내, 보호된 지시 파일 read 안내는 제품 source/prompt 변경이 필요한 **미결정 사항**이며 이번에 코드를 바꾸지 않았다. `~/.weavra/cmd.env` 유지/삭제도 사용자 결정이다. 네 항목과 근거는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "열린 결정"에 기록했다.
+- V0.3E Task Contract 구현은 이번 작업에서 시작하지 않았다. DeepSeek로 dogfooding하려면 위 오류 처리·prompt 개선을 선행하는 편이 실효적이라는 판단만 기록하며, 착수는 별도 승인 대상이다.
+- **커밋:** 하지 않음 (LOG-052 포함 미커밋).
 
 ---
 

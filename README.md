@@ -22,7 +22,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.3B: explicit opt-in LSP diagnostics/definition/references/document symbols, verifier-owned advisory evidence와 읽기 전용 `/lsp status`.
 - V0.3C: READ_ONLY/EDIT Execution Contract, devlop 설치 기준, non-mutating CI gate.
 - V0.3D: 명시적 project instruction snapshot, bounded `runtime_list_files`, JVM dependency/build 파일의 최소 R2 분류.
-- [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek는 NOT VERIFIED**다.
+- [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek 공식 API는 NOT VERIFIED**다. CommandCode Provider 경유 `deepseek/deepseek-v4.1-flash` worker smoke는 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)을 따른다(STANDARD/EDIT 5회 중 1회 완주, QUICK/R0 0/3; 실패는 모두 fail-closed이고 workspace 무변경).
 
 ## Installation
 
@@ -523,7 +523,7 @@ R3 요청 문법은 `Delete file src/obsolete.ts`, `Remove file src/obsolete.ts`
 
 COMPLEX 실행, Planner/Lead 실행, 병렬 Agent, DAG scheduler, T3Code, Windows, 범용 R3, arbitrary shell/install/deploy 도구, 자동 resume/checkpoint/rollback은 지원하지 않는다. 전체 Runtime RPC 실행도 검증된 지원 범위가 아니다. Print/JSON 모드에서는 Runtime 명령의 UI가 없어 명시적으로 실패한다.
 
-DeepSeek/다른 Provider, Linux/다른 OS·Node 조합, 전체 upstream e2e 및 배포물 검증은 NOT VERIFIED다. GPT validation의 한정된 PASS를 모든 환경/모델의 보장으로 확대하지 않는다.
+DeepSeek 공식 API와 다른 Provider, Linux/다른 OS·Node 조합, 전체 upstream e2e 및 배포물 검증은 NOT VERIFIED다. CommandCode 경유 DeepSeek smoke는 한정된 조건의 관찰이며 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)을 따른다. GPT validation의 한정된 PASS를 모든 환경/모델의 보장으로 확대하지 않는다.
 
 ## Roadmap
 
