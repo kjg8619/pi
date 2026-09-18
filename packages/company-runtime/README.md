@@ -277,7 +277,8 @@ registered process checks (기존 required/PASS/FAIL)
 - `required`는 fail closed다: backend package/CLI/version/platform을 Run 시작(preflight, worker model 호출 전)에 확인하고, 불가하면 unsandboxed로 fallback하지 않고 실행을 중단한다. auto install은 하지 않는다.
 - policy digest: `weavra-verifier-sandbox-v1` 도메인으로 freeze하고 CheckRequirement에 `sandboxRequired`/`sandboxPolicyDigest`로 고정한다. Kernel guard는 `status === "ENFORCED"` + digest 정확 일치를 요구하며 ENFORCED 문자열만으로 완료될 수 없다.
 - bounded evidence: `sandbox {mode,status,backend,backendVersion,policyDigest}`만 CheckResult/Evidence Pack에 담고 settings JSON·HOME·절대 protected path·env·credential은 넣지 않는다.
-- 한계: SRT는 Beta Research Preview이고, 이 단계는 container/VM/network namespace 수준 격리가 아니다. transitive dependency·plugin graph는 sandbox boundary가 아니며, 마지막 검증 syscall과 execute 사이의 비협조 외부 process race 한계는 그대로다. Linux bubblewrap 실제 검증은 아직 NOT VERIFIED다.
+- 한계: SRT는 Beta Research Preview이고, 이 단계는 container/VM/network namespace 수준 격리가 아니다. transitive dependency·plugin graph는 sandbox boundary가 아니며, 마지막 검증 syscall과 execute 사이의 비협조 외부 process race 한계는 그대로다.
+- **플랫폼 검증 상태:** macOS(Seatbelt) 실제 경계는 PASS다. Linux는 **NOT VERIFIED**이며 PASS로 표기하지 않는다 — GitHub runner에서 확인된 두 가지 외부 blocker: ① `ubuntu-latest`는 제한된 unprivileged user namespace 때문에 `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`로 SRT 초기화 실패, ② `ubuntu-22.04`는 bwrap은 동작하지만 SRT 0.0.76 npm 패키지에 vendored seccomp helper(`vendor/seccomp/x64/apply-seccomp`)가 없어 SRT 자체가 실행 불가(exit 127). 두 경우 모두 host security 완화 없이 해결되지 않으며, 경계 테스트는 backend가 실제 동작하는 플랫폼에서만 실행되고 그 외에는 NOT VERIFIED로 보고된다(결정론적 계약 테스트는 모든 플랫폼에서 실행).
 
 ### FIX-08 — verifier trust (V0.4B)
 
