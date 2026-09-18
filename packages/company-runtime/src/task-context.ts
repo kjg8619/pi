@@ -378,6 +378,19 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 
 	const projectRules = projectRulesOf(input);
 	const heuristicReasons = new Set(["same-stem-test", "literal-reference", "lsp-reference"]);
+	// Deterministic advisory priority: lower rank is dropped first when the pack exceeds its budget.
+	const reasonRank = (reasons: readonly string[]): number => {
+		const ranks = [5, 4, 3, 2, 1, 0];
+		const order = [
+			"acceptance-scope",
+			"changed-file",
+			"previous-review",
+			"lsp-reference",
+			"literal-reference",
+			"same-stem-test",
+		];
+		return Math.max(...reasons.map((reason) => (order.includes(reason) ? order.indexOf(reason) : ranks.length)));
+	};
 	const finalize = (parts: {
 		symbols: TaskContextSymbol[];
 		related: TaskContextRelated[];
@@ -436,21 +449,40 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 				symbols = symbols.slice(0, -1);
 				continue;
 			}
-			const heuristicRelation = [...relatedFiles]
-				.reverse()
-				.find((file) => file.reasons.every((reason) => heuristicReasons.has(reason)));
-			if (heuristicRelation) {
-				relatedFiles = relatedFiles.filter((file) => file !== heuristicRelation);
+			// Advisory metadata yields to the output cap: drop the lowest-priority relation, deterministic
+			// tie-break is reverse lexical order, so the same input always trims to the same pack.
+			const ranked = [...relatedFiles].sort(
+				(a, b) => reasonRank(a.reasons) - reasonRank(b.reasons) || b.path.localeCompare(a.path),
+			);
+			if (ranked.length) {
+				relatedFiles = relatedFiles.filter((file) => file !== ranked[0]);
 				continue;
 			}
 			if (unknownList.length > 1) {
 				unknownList = [unknownList[0], "additional unknowns omitted: output limit"];
 				continue;
 			}
-			break;
+			// Everything selectable is gone: degrade to the minimal valid pack instead of returning an
+			// oversized one. Only an impossible metadata shape may still exceed the cap here.
+			const minimal = finalize({
+				symbols: [],
+				related: [],
+				snippets: [],
+				unknownList: ["context entries omitted: output limit"],
+				truncatedFlag: true,
+			});
+			if (Buffer.byteLength(JSON.stringify(minimal), "utf8") > CONTEXT_MAX_PACK_BYTES)
+				throw new Error("Task context pack exceeds its byte cap even without optional context");
+			return minimal;
 		}
-		return finalize({ symbols, related: relatedFiles, snippets, unknownList, truncatedFlag: true });
+		const trimmedPack = finalize({ symbols, related: relatedFiles, snippets, unknownList, truncatedFlag: true });
+		// Successful returns always satisfy the cap; this makes the invariant explicit in code.
+		if (Buffer.byteLength(JSON.stringify(trimmedPack), "utf8") > CONTEXT_MAX_PACK_BYTES)
+			throw new Error("Task context pack exceeds its byte cap");
+		return trimmedPack;
 	}
+	if (Buffer.byteLength(JSON.stringify(pack), "utf8") > CONTEXT_MAX_PACK_BYTES)
+		throw new Error("Task context pack exceeds its byte cap");
 	return pack;
 }
 

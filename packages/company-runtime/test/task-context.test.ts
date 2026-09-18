@@ -236,6 +236,53 @@ describe("V0.5A task context pack", () => {
 		expect(second.digest).toBe(first.digest);
 	});
 
+	it("never returns an oversized pack even when every entry is a high-priority seed", async () => {
+		// Pre-trim pressure: long allowed paths, 24 acceptance seeds, changed/review seeds, big snippets,
+		// projectRules metadata and unknown pressure.
+		const longRoot = `src/${"very-long-directory-name-".repeat(6)}`;
+		const longPolicy: PolicyContext = { ...policy, allowedPaths: ["src", longRoot] };
+		mkdirSync(join(cwd, longRoot), { recursive: true });
+		const seeds: string[] = [];
+		for (let index = 0; index < 24; index += 1) {
+			const path = `${longRoot}/service-${String(index).padStart(2, "0")}.ts`;
+			write(path, `export const formatLabel = "${"y".repeat(300)}";\n`);
+			seeds.push(path);
+		}
+		const changed = Array.from({ length: 12 }, (_, index) => {
+			const path = `${longRoot}/changed-${String(index).padStart(2, "0")}.ts`;
+			write(path, "export const formatLabel = 1;\n");
+			return path;
+		});
+		const reviewed = Array.from({ length: 12 }, (_, index) => {
+			const path = `${longRoot}/reviewed-${String(index).padStart(2, "0")}.ts`;
+			write(path, `// ${"z".repeat(400)} formatLabel\n`);
+			return path;
+		});
+		const pack = (await build({
+			policy: longPolicy,
+			listingRoots: [longRoot],
+			seedPaths: seeds,
+			changedFiles: changed,
+			previousReviewFiles: reviewed,
+			projectInstruction: { path: "AGENTS.md", digest: `sha256:${"a".repeat(64)}`, bytes: 4096 },
+		}))!;
+		const size = Buffer.byteLength(JSON.stringify(pack), "utf8");
+		expect(size).toBeLessThanOrEqual(49152);
+		expect(pack.truncated).toBe(true);
+		expect(pack.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		// Repeated builds stay deterministic after trimming.
+		const again = (await build({
+			policy: longPolicy,
+			listingRoots: [longRoot],
+			seedPaths: seeds,
+			changedFiles: changed,
+			previousReviewFiles: reviewed,
+			projectInstruction: { path: "AGENTS.md", digest: `sha256:${"a".repeat(64)}`, bytes: 4096 },
+		}))!;
+		expect(again.digest).toBe(pack.digest);
+		expect(JSON.stringify(again)).not.toContain("very-long-directory-name-".repeat(20));
+	});
+
 	it("binds project-rule metadata into the pack digest without copying the instruction body", async () => {
 		const withRules = (await build({
 			projectInstruction: { path: "AGENTS.md", digest: `sha256:${"a".repeat(64)}`, bytes: 12 },
