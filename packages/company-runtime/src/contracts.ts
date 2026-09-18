@@ -2,7 +2,9 @@ import { type Static, type TSchema, Type } from "typebox";
 import { Check } from "typebox/value";
 import { ExecutionModeSchema } from "./execution-contract.ts";
 import { LspEvidenceSchema } from "./lsp/types.ts";
+import { WorkerMeasurementSchema } from "./measurement-types.ts";
 import { ProjectInstructionMetadataSchema } from "./project-instruction-types.ts";
+import { BudgetStatusSchema, ProvenanceSchema } from "./provenance-types.ts";
 
 const text = Type.String({ minLength: 1, pattern: "\\S" });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -407,6 +409,10 @@ export const RunSchema = Type.Object(
 		review: Type.Optional(ReviewRecordSchema),
 		// Per-criterion outcome projection for observation; derived from trusted submissions and verifier evidence.
 		acceptance: Type.Optional(Type.Array(AcceptanceResultSchema)),
+		// Bounded per-invocation measurements (no prompts, completions, reasoning text or tool arguments).
+		workerMeasurements: Type.Optional(Type.Array(WorkerMeasurementSchema)),
+		provenance: Type.Optional(ProvenanceSchema),
+		budget: Type.Optional(BudgetStatusSchema),
 		verification: Type.Array(CheckResultSchema),
 		lastError: Type.Union([text, Type.Null()]),
 		createdAt: counter,

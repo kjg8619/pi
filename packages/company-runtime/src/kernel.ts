@@ -1,4 +1,5 @@
 import { awaitApproval, selectR3Scope } from "./approval.ts";
+import { BudgetController, BudgetDenied, type BudgetLimits } from "./budget.ts";
 import { selectWorkflow } from "./classification.ts";
 import {
 	type AcceptanceCriterion,
@@ -42,8 +43,10 @@ import {
 } from "./criterion-evidence.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
 import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
+import { type WorkerMeasurement, WorkerMeasurementSchema } from "./measurement-types.ts";
 import type { KernelPorts } from "./ports.ts";
 import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
+import type { Provenance } from "./provenance-types.ts";
 import { assertQuickWorkspace, selectQuickScope } from "./quick.ts";
 
 export interface CreateRunRequest {
@@ -52,6 +55,10 @@ export interface CreateRunRequest {
 	runId: string;
 	/** Host-confirmed, frozen Task Contract. Legacy runs are read-only and cannot be created here. */
 	task: TaskContract;
+	/** Optional bounded budget from the trusted Host config; absent means no configured budget. */
+	budget?: BudgetLimits;
+	/** Host-captured provenance snapshot; the Kernel only stores it. */
+	provenance?: Provenance;
 	classification: Classification;
 	workflow?: Workflow | "adaptive";
 	maxRevisionCycles?: number;
@@ -338,6 +345,7 @@ export class CompanyKernel {
 	private readonly checks: CheckRequirement[];
 	private readonly maxRevisionCycles: number;
 	private readonly approvalTimeoutMs: number;
+	private readonly budget: BudgetController;
 	private busy = false;
 	private storageFailed = false;
 	private handoff?: Handoff | ExecutorHandoff;
@@ -355,6 +363,7 @@ export class CompanyKernel {
 		this.checks = structuredClone(request.checks ?? []);
 		this.maxRevisionCycles = state.maxRevisionCycles ?? 0;
 		this.approvalTimeoutMs = request.approvalTimeoutMs ?? 30_000;
+		this.budget = new BudgetController(request.budget ?? {});
 	}
 
 	static async create(
@@ -415,6 +424,9 @@ export class CompanyKernel {
 			revisionCycle: 0,
 			maxRevisionCycles: selection.workflow === "QUICK" || request.classification.risk === "R3" ? 0 : limit,
 			reviewHistory: [],
+			workerMeasurements: [],
+			...(request.provenance ? { provenance: request.provenance } : {}),
+			budget: new BudgetController(request.budget ?? {}).status,
 			verification: [],
 			lastError: null,
 			createdAt: timestamp,
@@ -584,6 +596,29 @@ export class CompanyKernel {
 		} catch (error) {
 			throw new BlockedError(error instanceof Error ? error.message : "QUICK scope exceeded");
 		}
+	}
+
+	/** Budget denial happens before any model call and keeps BLOCKED (not FAILED) semantics. */
+	private reserveBudget(role: string): void {
+		try {
+			this.budget.reserve(role);
+		} catch (error) {
+			if (error instanceof BudgetDenied) throw new BlockedError(error.message);
+			throw error;
+		}
+	}
+
+	/** Trusted-ledger record; a missing measurement never fabricates zero usage. */
+	private recordBudget(role: string, result: { measurement?: WorkerMeasurement }): Partial<Run> {
+		const measurement = result.measurement
+			? structuredClone(validateContract(WorkerMeasurementSchema, result.measurement))
+			: undefined;
+		if (measurement) this.budget.record(role, measurement);
+		else this.budget.recordUnavailable();
+		return {
+			budget: this.budget.status,
+			...(measurement ? { workerMeasurements: [...(this.state.workerMeasurements ?? []), measurement] } : {}),
+		};
 	}
 
 	/** One fixed sequential workflow step per call. The caller cannot skip/reorder steps or inject a target status. */
@@ -757,6 +792,7 @@ export class CompanyKernel {
 			const patch: Partial<Run> = {};
 			switch (expectedStep) {
 				case "implement": {
+					this.reserveBudget(role ?? "Worker");
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -771,6 +807,7 @@ export class CompanyKernel {
 								}),
 					});
 					signal?.throwIfAborted();
+					Object.assign(patch, this.recordBudget(role ?? "Worker", result));
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					approvalCallbacksOpen = false;
 					if (result.role === "Reviewer" || result.role !== role)
@@ -843,6 +880,7 @@ export class CompanyKernel {
 				case "review": {
 					if (!this.handoff || this.handoff.role !== "Developer" || !this.selfCheck)
 						throw new Error("Review requires Developer handoff and self-check evidence");
+					this.reserveBudget(role ?? "Worker");
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -853,6 +891,7 @@ export class CompanyKernel {
 						verification: structuredClone(this.selfCheck),
 					});
 					signal?.throwIfAborted();
+					Object.assign(patch, this.recordBudget(role ?? "Worker", result));
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					if (result.role !== "Reviewer") throw new Error("Expected Reviewer result");
 					if (this.state.risk === "R2" || this.state.risk === "R3")

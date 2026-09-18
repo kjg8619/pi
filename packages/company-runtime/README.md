@@ -331,6 +331,15 @@ Host가 확인한 수용 기준(Acceptance Criteria)을 run 단위로 고정한�
 - digest는 `{id, goal, acceptanceCriteria}`만 대상으로 하며 lifecycle `status`는 포함하지 않는다(전이에도 안정). digest는 permission token이 아니다.
 - legacy `requirements: string[]` state는 자동 migration 없이 읽기 전용으로만 호환한다. 새 live run은 항상 Task Contract를 요구한다.
 
+## V0.3F Measurement & Evidence
+
+- 모든 worker invocation을 `run.workerMeasurements[]`로 측정한다: requested/actual provider·model, responseModel/thinking(없으면 UNKNOWN), duration, turns, tool 호출 수(이름별), provider-reported usage, outcome. prompt·completion·reasoning text·tool args는 저장하지 않는다.
+- usage는 `AssistantMessage.usage`만 사용하고 reasoning을 total에 더하지 않는다. 한 message라도 usage가 없으면 `source: "unavailable"`로 표시하고 0으로 위장하지 않는다. 가격이 불명확하면 Evidence Pack은 `Estimated cost: UNKNOWN`을 출력한다.
+- `budget: { max_worker_invocations?, max_reported_tokens? }`(미설정=unlimited). 호출 수는 모델 호출 전에 정확히 차단되고, token은 provider-reported 기반으로 다음 호출만 차단하며 accounting UNKNOWN이면 fail closed다. Budget denial은 workspace를 바꾸지 않고 approval을 만들지 않는다.
+- Run 시작 시 provenance snapshot(Runtime source commit, CLI bundle SHA-256/mtime/version, target HEAD, config/contract digest)을 1회 기록하며, 확인 불가 값은 UNKNOWN이다.
+- `/state evidence [runId]`는 기존 state의 read-only projection을 출력한다: AC별 결과·evidence, checks, Reviewer/approval, partial changes, cleanup confirmed/uncertain, worker measurement, budget, provenance, failure category(구조화 신호만 사용). execution authority가 아니다.
+- telemetry는 optional `TelemetryContext`(기본 NOOP)로 `weavra.run`/`weavra.worker` span만 내보내며 exporter 실패는 실행 결과를 바꾸지 않는다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.

@@ -48,6 +48,16 @@ export const RuntimeConfigSchema = Type.Object(
 			),
 		),
 		review: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Literal(true)) }, strict)),
+		// Optional bounded budget; absent means no configured budget (explicit unlimited). Not a billing hard cap.
+		budget: Type.Optional(
+			Type.Object(
+				{
+					max_worker_invocations: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+					max_reported_tokens: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000_000 })),
+				},
+				strict,
+			),
+		),
 		state: Type.Optional(
 			Type.Object(
 				{
@@ -181,6 +191,7 @@ export function parseRuntimeConfig(source: string) {
 			worker_timeout_ms: value.agents?.worker_timeout_ms ?? 180_000,
 		},
 		review: { enabled: true as const },
+		...(value.budget ? { budget: structuredClone(value.budget) } : {}),
 		state: { enabled: true as const, directory: ".ai" as const },
 		risk: { approval_required: ["R3"] as ["R3"] },
 		files: { allowed_paths: allowedPaths },

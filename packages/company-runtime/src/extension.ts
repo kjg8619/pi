@@ -10,6 +10,7 @@ import { PiAgentExecutor } from "./agent-runner.ts";
 import { classifyRequest, selectWorkflow } from "./classification.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
+import { formatEvidencePack, projectEvidencePack } from "./evidence.ts";
 import { proposeExecutionMode } from "./execution-contract.ts";
 import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
 import { GraphViewSession } from "./graph-view-component.ts";
@@ -141,7 +142,7 @@ export function registerCompanyRuntime(
 	registerLspCommand(pi, (cwd) => (project === cwd && pending ? workflow?.lspStatus : undefined));
 	const usage = {
 		workflow: "/workflow [help|run <goal>|status [runId]|history [page]|config|cancel]",
-		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state export",
+		state: "/state [runId] | /state checks|decisions [runId] [page] | /state review [runId] | /state check <number> [runId] | /state evidence [runId] | /state export",
 		team: "/team [runId]",
 		risk: "/risk [runId]",
 		graph: "/graph [latest|runId] | /graph view [latest|runId]",
@@ -439,6 +440,17 @@ export function registerCompanyRuntime(
 							view.state ? formatHistory(view.state, pageNumber(parts[1])) : "Weavra: state missing; no history",
 							view.state ? "info" : "warning",
 						);
+						return;
+					}
+					if (name === "state" && parts[0] === "evidence") {
+						if (parts.length > 2) throw new ObservationInputError(usage.state);
+						const view = await inspect(ctx, parts[1]);
+						if (!view.run) ctx.ui.notify("Weavra: no run recorded; no evidence pack was produced", "warning");
+						else
+							ctx.ui.notify(
+								formatEvidencePack(projectEvidencePack({ run: view.run, report: view.report })),
+								"info",
+							);
 						return;
 					}
 					let detail = "summary";

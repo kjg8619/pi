@@ -10,6 +10,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { TelemetryContext } from "@earendil-works/pi-telemetry";
 import { createWorkerTools, trustedReviewEvidenceRefs, WORKER_FILE_TOOLS, workerDigest } from "./agent-tools.ts";
 import { ANCHORED_EDIT_GUIDANCE } from "./anchored-edit.ts";
 import { type RuntimeConfig, RuntimeConfigSchema } from "./config.ts";
@@ -32,10 +33,12 @@ import {
 	executionGuidance,
 } from "./execution-contract.ts";
 import { LSP_READ_TOOLS } from "./lsp/types.ts";
+import { WorkerExecutionError, WorkerMeasurementAccumulator } from "./measurement.ts";
 import { type ActionAudit, isPolicyPath, type PolicyContext } from "./policy.ts";
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, AgentExecutor } from "./ports.ts";
 import { snapshotProjectInstructions } from "./project-instructions.ts";
+import { NOOP_TELEMETRY_CONTEXT, withSpan } from "./telemetry.ts";
 
 type WorkerModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
@@ -73,6 +76,8 @@ export interface PiAgentExecutorOptions {
 	/** Enables R2 file actions only for this preselected STANDARD run. Not an approval or review PASS. */
 	r2RunId?: string;
 	r3Scope?: R3Scope;
+	/** Observation-only telemetry; exporter failures never change execution results. */
+	telemetry?: TelemetryContext;
 }
 
 function inside(root: string, path: string): boolean {
@@ -322,7 +327,37 @@ export class PiAgentExecutor implements AgentExecutor {
 		return model;
 	}
 
+	/** Observation-only span; a failing exporter never changes the worker result. */
 	async execute(input: AgentExecutionRequest): Promise<AgentExecutionResult> {
+		const telemetry = this.options.telemetry ?? NOOP_TELEMETRY_CONTEXT;
+		return withSpan(
+			telemetry,
+			"weavra.worker",
+			{ role: input.role, profile: input.profile, revision: input.revision },
+			() => this.performExecution(input),
+			(result) => ({
+				status: result.measurement?.outcome === "SUCCEEDED" ? { status: "ok" } : { status: "error" },
+				attributes: result.measurement
+					? {
+							actualProvider: result.measurement.actualProvider,
+							actualModel: result.measurement.actualModel,
+							...(result.measurement.providerThinkingLevel
+								? { thinking: result.measurement.providerThinkingLevel }
+								: {}),
+							outcome: result.measurement.outcome,
+							durationMs: result.measurement.durationMs,
+							modelTurns: result.measurement.modelTurns,
+							toolCalls: result.measurement.toolCalls,
+							...(result.measurement.usage.source === "provider"
+								? { reportedTokens: result.measurement.usage.totalTokens }
+								: {}),
+						}
+					: {},
+			}),
+		);
+	}
+
+	private async performExecution(input: AgentExecutionRequest): Promise<AgentExecutionResult> {
 		if (this.busy || !this.cleanupConfirmed || this.stoppedRuns.has(input.runId))
 			throw new Error("Worker already active or run stopped");
 		const { signal: parentSignal, onSessionCreated, onApprovalRequested, onApprovalConsumed, lsp, ...data } = input;
@@ -367,6 +402,7 @@ export class PiAgentExecutor implements AgentExecutor {
 		let executionError: Error | undefined;
 		let result: AgentExecutionResult | undefined;
 		let active = true;
+		let measurement: WorkerMeasurementAccumulator | undefined;
 		let stage = "preflight";
 		const abort = () => {
 			this.stoppedRuns.add(request.runId);
@@ -505,6 +541,7 @@ export class PiAgentExecutor implements AgentExecutor {
 				)
 					failure ??= worker.policyDenial() ?? "Worker tool failed or was denied";
 				if (event.type === "message_end" && event.message.role === "assistant") {
+					measurement?.observeAssistant(event.message);
 					const calls = event.message.content.filter((part) => part.type === "toolCall");
 					if (
 						calls.some((call) => call.name === "submit_handoff" || call.name === "submit_review") &&
@@ -517,6 +554,14 @@ export class PiAgentExecutor implements AgentExecutor {
 				if (failure) cancellation.abort();
 			});
 			if (!session.sessionFile) throw new Error("Worker session reference unavailable");
+			measurement = new WorkerMeasurementAccumulator({
+				role: request.role,
+				profile: request.profile,
+				revision: request.revision,
+				step: request.step,
+				requestedProvider: this.options.config.models.profiles[request.profile].provider,
+				requestedModel: this.options.config.models.profiles[request.profile].model,
+			});
 			stage = "session reference persistence";
 			await onSessionCreated!({
 				role: request.role,
@@ -592,12 +637,16 @@ export class PiAgentExecutor implements AgentExecutor {
 			this.stoppedRuns.add(request.runId);
 			throw new Error(`Worker cleanup unconfirmed (${stage}); retain project lock`);
 		}
-		if (executionError) throw executionError;
+		if (executionError)
+			throw new WorkerExecutionError(
+				executionError.message,
+				measurement?.finish(signal.aborted ? "CANCELLED" : "FAILED"),
+			);
 		if (signal.aborted) {
 			this.stoppedRuns.add(request.runId);
-			throw new Error("Worker aborted during cleanup");
+			throw new WorkerExecutionError("Worker aborted during cleanup", measurement?.finish("CANCELLED"));
 		}
-		if (!result) throw new Error("Worker result unavailable");
-		return result;
+		if (!result) throw new WorkerExecutionError("Worker result unavailable", measurement?.finish("FAILED"));
+		return { ...result, measurement: measurement?.finish("SUCCEEDED") };
 	}
 }

@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { TelemetryContext } from "@earendil-works/pi-telemetry";
 import { selectR3Scope } from "./approval.ts";
+import { budgetLimitsFromConfig } from "./budget.ts";
 import { classifyRequest, selectWorkflow } from "./classification.ts";
 import type { RuntimeConfig } from "./config.ts";
 import type { QuickScope, R3Scope, Run, TaskContract } from "./contracts.ts";
+import { taskContractDigest } from "./criterion-evidence.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import {
 	bindExecutionContract,
@@ -17,9 +20,11 @@ import { formatRunView, type ObservationState } from "./observations.ts";
 import type { PolicyContext } from "./policy.ts";
 import type { AgentExecutor, ApprovalPort } from "./ports.ts";
 import { ProcessCleanupError } from "./process-runner.ts";
+import { captureProvenance } from "./provenance.ts";
 import { selectQuickScope } from "./quick.ts";
 import { FileStateStore } from "./state-store.ts";
 import { assertTaskContractBinding } from "./task-contract.ts";
+import { NOOP_TELEMETRY_CONTEXT, withSpan } from "./telemetry.ts";
 import { RegisteredVerifier } from "./verification.ts";
 import { GitWorkspace } from "./workspace.ts";
 
@@ -39,6 +44,8 @@ export interface WorkflowOptions {
 		executionContract: ExecutionContract,
 	) => Promise<{ executor: AgentExecutor; policy: PolicyContext }>;
 	events?: RuntimeEventSink;
+	/** Observation-only telemetry; absent means noop and never affects authority. */
+	telemetry?: TelemetryContext;
 	signal?: AbortSignal;
 	approval?: ApprovalPort;
 	approvalTimeoutMs?: number;
@@ -161,6 +168,12 @@ export class StandardWorkflow {
 				throw new Error("R3 execution binding differs from selected scope");
 			if (agents.policy.r2RunId !== r2RunId) throw new Error("R2 execution binding differs from the selected run");
 			signal.throwIfAborted();
+			// Host-owned snapshot at run start; never refreshed mid-run and UNKNOWN stays UNKNOWN.
+			const provenance = captureProvenance({
+				cwd: this.options.cwd,
+				configDigest: agents.policy.configDigest,
+				taskContractDigest: taskContractDigest(this.options.taskContract),
+			});
 			workspace = await GitWorkspace.open(this.options.cwd, agents.policy, signal);
 			const lspConfig = this.options.config.code_intelligence?.lsp;
 			if (lspConfig?.enabled) this.lsp = await LspManager.create(workspace.cwd, lspConfig, agents.policy);
@@ -173,6 +186,11 @@ export class StandardWorkflow {
 					executionMode: contract.mode,
 					projectInstruction: agents.policy.projectInstruction ?? null,
 					task: this.options.taskContract,
+					...(() => {
+						const budget = budgetLimitsFromConfig(this.options.config.budget);
+						return budget ? { budget } : {};
+					})(),
+					provenance,
 					classification,
 					workflow: selection.workflow,
 					maxRevisionCycles: classification.risk === "R3" ? 0 : this.options.config.agents.max_revision_cycles,
@@ -198,18 +216,34 @@ export class StandardWorkflow {
 					approval: this.options.approval,
 				},
 			);
-			await this.kernel.start();
-			while (this.kernel.snapshot.status === "RUNNING") {
-				if (signal.aborted) {
-					await this.kernel.stop("CANCELLED", "Workflow cancelled");
-					break;
-				}
-				const step = this.kernel.snapshot.currentStep;
-				if (!step) throw new Error("Running workflow has no step");
-				// A live/unconfirmed LSP process must not survive a successful terminal commit.
-				if (step.stepId === "complete") await this.lsp?.close();
-				await this.kernel.advance(step.stepId, signal);
-			}
+			const kernelStartedAt = Date.now();
+			await withSpan(
+				this.options.telemetry ?? NOOP_TELEMETRY_CONTEXT,
+				"weavra.run",
+				{ runId, workflow: selection.workflow, risk: classification.risk, executionMode: contract.mode },
+				async () => {
+					await this.kernel!.start();
+					while (this.kernel!.snapshot.status === "RUNNING") {
+						if (signal.aborted) {
+							await this.kernel!.stop("CANCELLED", "Workflow cancelled");
+							break;
+						}
+						const step = this.kernel!.snapshot.currentStep;
+						if (!step) throw new Error("Running workflow has no step");
+						// A live/unconfirmed LSP process must not survive a successful terminal commit.
+						if (step.stepId === "complete") await this.lsp?.close();
+						await this.kernel!.advance(step.stepId, signal);
+					}
+				},
+				() => ({
+					status: this.snapshot?.status === "COMPLETED" ? { status: "ok" as const } : { status: "error" as const },
+					attributes: {
+						status: this.snapshot?.status ?? "UNKNOWN",
+						changedFiles: this.snapshot?.workspace?.changedFiles.length ?? 0,
+						durationMs: Date.now() - kernelStartedAt,
+					},
+				}),
+			);
 		} catch (error) {
 			cleanupUncertain ||= error instanceof ProcessCleanupError;
 			this.reportValue.error = signal.aborted

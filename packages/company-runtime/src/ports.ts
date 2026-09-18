@@ -16,6 +16,7 @@ import type {
 import type { RuntimeEventSink } from "./events.ts";
 import type { ExecutionMode } from "./execution-contract.ts";
 import type { LspPort } from "./lsp/types.ts";
+import type { WorkerMeasurement } from "./measurement.ts";
 import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
 
 export type { LspPort } from "./lsp/types.ts";
@@ -43,10 +44,14 @@ export type AgentExecutionRequest = StepRequest & {
 		| { role: "Executor"; profile: "coding"; scope: QuickScope }
 		| { role: "Reviewer"; profile: "reasoning"; handoff: Handoff; verification: VerificationResult }
 	);
-export type AgentExecutionResult =
+export type AgentExecutionResult = (
 	| { role: "Developer"; handoff: Handoff }
 	| { role: "Executor"; handoff: ExecutorHandoff }
-	| { role: "Reviewer"; review: Review };
+	| { role: "Reviewer"; review: Review }
+) & {
+	/** Bounded per-invocation measurement; absent only for adapters that do not report it. */
+	measurement?: WorkerMeasurement;
+};
 
 export interface AgentExecutor {
 	/** False while resources are live or cleanup is unconfirmed. A settled call alone is not termination proof. */

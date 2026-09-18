@@ -221,7 +221,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		]);
 		await executor.execute(developer());
 		const result = await executor.execute(reviewer());
-		expect(result).toEqual({ role: "Reviewer", review });
+		expect(result).toMatchObject({ role: "Reviewer", review });
 		expect(workers).toHaveLength(2);
 		expect(workers[0]).not.toBe(workers[1]);
 		expect(workers[0].sessionId).not.toBe(workers[1].sessionId);
@@ -247,7 +247,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 
 	it.each(["PASS", "REVISE", "BLOCK"] as const)("accepts structured Reviewer %s", async (result) => {
 		harness.setResponses([submitReview(result)]);
-		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review: { ...review, result } });
+		expect(await executor.execute(reviewer())).toMatchObject({ role: "Reviewer", review: { ...review, result } });
 	});
 
 	// RC-04: evidence mistakes must be tool errors, not accepted results or terminal worker failures.
@@ -273,7 +273,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				return submitReview();
 			},
 		]);
-		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review });
+		expect(await executor.execute(reviewer())).toMatchObject({ role: "Reviewer", review });
 		expect(workers).toHaveLength(1);
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
@@ -322,7 +322,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				return fauxAssistantMessage(fauxToolCall("submit_review", expected), { stopReason: "toolUse" });
 			},
 		]);
-		expect(await executor.execute(request)).toEqual({ role: "Reviewer", review: expected });
+		expect(await executor.execute(request)).toMatchObject({ role: "Reviewer", review: expected });
 	});
 
 	it.each(["REVISE", "BLOCK"] as const)(
@@ -352,7 +352,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 					return fauxAssistantMessage(fauxToolCall("submit_review", valid), { stopReason: "toolUse" });
 				},
 			]);
-			expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review: valid });
+			expect(await executor.execute(reviewer())).toMatchObject({ role: "Reviewer", review: valid });
 			expect(workers).toHaveLength(1);
 		},
 	);
@@ -376,7 +376,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				return submitReview();
 			},
 		]);
-		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review });
+		expect(await executor.execute(reviewer())).toMatchObject({ role: "Reviewer", review });
 		expect(workers).toHaveLength(1);
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(store.snapshot.actions).toEqual([]);
@@ -450,7 +450,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				return submitHandoff();
 			},
 		]);
-		expect(await executor.execute(developer())).toEqual({ role: "Developer", handoff });
+		expect(await executor.execute(developer())).toMatchObject({ role: "Developer", handoff });
 		expect(workers).toHaveLength(1);
 		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
 		expect(dispose).toHaveBeenCalledTimes(1);
@@ -477,7 +477,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				return submitHandoff();
 			},
 		]);
-		expect(await executor.execute(developer())).toEqual({ role: "Developer", handoff });
+		expect(await executor.execute(developer())).toMatchObject({ role: "Developer", handoff });
 		expect(workers).toHaveLength(1);
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
@@ -599,7 +599,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 			]);
 			expect(
 				await runner.execute({ ...developer(), executionMode, role: "Executor", profile: "coding", scope }),
-			).toEqual({
+			).toMatchObject({
 				role: "Executor",
 				handoff: result,
 			});

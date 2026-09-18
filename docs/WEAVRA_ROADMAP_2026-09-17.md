@@ -23,6 +23,8 @@
 
 **V0.3E 후속 상태:** FIX-05 Acceptance Criteria와 FEAT-01 Plan Preview를 구현하고 자동 회귀·실제 Provider smoke를 수행했다(WORK_LOG LOG-057). Host가 순차 AC ID(`AC-001`…)를 부여하고 Plan Preview 확인 후 frozen digest로 고정하며, Developer/Executor/Reviewer는 AC ID로만 결과/evidence를 제출한다. Kernel 완료 guard가 missing/duplicate/unknown/UNMET/stale을 거부한다. DeepSeek STANDARD/EDIT와 GPT 교차 각 1회 COMPLETED(2 AC MET), R2/R3·미충족 AC의 live smoke는 NOT VERIFIED다.
 
+**V0.3F 후속 상태:** worker measurement·budget controller·provenance·Evidence Pack(`/state evidence`)·evals adapter/fixture 6개를 구현하고 자동 회귀·실제 DeepSeek/GPT smoke를 완료했다(WORK_LOG LOG-059). 실제 Plain Pi vs Weavra 비교 실행과 20개 corpus 확장은 NOT VERIFIED다.
+
 ---
 
 ## 1. 현재 기준선
@@ -395,6 +397,8 @@ Plan 확인은 R3 Human Approval과 별개다.
 ---
 
 # 7. V0.3F — Measurement & Evidence
+
+**상태: 구현·자동 회귀·실제 smoke 완료(WORK_LOG LOG-059).** provider-reported usage 기반 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` projection, deterministic eval fixture 6개가 반영됐다. 실제 Plain Pi 대비 비교와 repetition 반복은 NOT VERIFIED다.
 
 ## 목표
 

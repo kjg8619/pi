@@ -22,6 +22,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.3B: explicit opt-in LSP diagnostics/definition/references/document symbols, verifier-owned advisory evidence와 읽기 전용 `/lsp status`.
 - V0.3C: READ_ONLY/EDIT Execution Contract, devlop 설치 기준, non-mutating CI gate.
 - V0.3D: 명시적 project instruction snapshot, bounded `runtime_list_files`, JVM dependency/build 파일의 최소 R2 분류.
+- V0.3F: worker별 실제 provider/model·usage·latency·tool 호출 측정(provider-reported usage, UNKNOWN 규칙), optional budget(호출 수 사전 차단·token fail-closed), Run 시작 provenance snapshot, `/state evidence` read-only Evidence Pack, `packages/evals` 기반 Weavra eval adapter와 deterministic fixture 6개.
 - V0.3E: Host-confirmed Task Contract(순차 AC ID·scope·check mapping), `/workflow run` Plan Preview(AC editor·확인), frozen contract digest, Reviewer/Executor의 AC ID별 결과와 Kernel AC 완료 guard. Plan 확인은 approval이 아니며 legacy state는 `UNKNOWN (legacy)`로 읽는다.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek 공식 API는 NOT VERIFIED**다. CommandCode Provider 경유 `deepseek/deepseek-v4.1-flash` worker smoke는 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)과 [V0.3E smoke](docs/WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md)를 따른다: hardening 전 STANDARD 1/5·QUICK 0/3, hardening 후 STANDARD 2/3·QUICK 1/3, V0.3E 2 AC run은 DeepSeek·GPT 교차 모두 COMPLETED(provider 오류 3회 포함, 실패는 모두 fail-closed이고 workspace 무변경).
 

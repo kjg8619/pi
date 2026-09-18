@@ -45,6 +45,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
+| V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 미커밋 | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
@@ -2744,6 +2745,81 @@ bash -n packages/company-runtime/bin/weavra
 - **과거 검증과 구분:** 실제 Provider smoke(DeepSeek STANDARD/EDIT, GPT 교차) 결과는 LOG-057 당시 결과다.
 - **커밋·푸시:** `5bc7f8a43`(`9e2cf9e8b` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-057의 "커밋·푸시: 하지 않음"은 작성 시점 기준이며 실제 게시 커밋은 `5bc7f8a43`다. 강제 푸시는 사용하지 않았고 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
 - **남은 제한·다음 작업:** LOG-057의 남은 제한(미충족 AC의 live 부정 경로, R2/R3 live AC 흐름, 다른 OS/Node·원격 CI·JVM build matrix, Planner/병렬/telemetry 등 후속 범위)을 그대로 유지한다.
+
+
+---
+
+## LOG-059 — V0.3F Measurement & Evidence (FEAT-03/04/05 + FIX-09)
+
+- **기록일:** 2026-09-18 (KST), 실제 Provider 실행 11:40–11:42 KST.
+- **상태:** 구현·자동 회귀·실제 smoke 완료. **미커밋**.
+- **기준 SHA:** `6c81b21de9548306bd37982b32bcb55c7ec3598c`(착수 시 clean, 로컬=원격). `weavra-v0.1-rc1`은 `183f85de1`로 불변.
+- **개발 하네스:** OMP. **개발 모델:** CommandCode/DeepSeek V4.1(Weavra worker smoke에도 동일).
+
+### Measurement schema / usage semantics
+
+```text
+WorkerMeasurement { role, profile, revision, step, requested/actual provider+model, responseModel?, providerThinkingLevel?,
+                    startedAt/finishedAt/durationMs, modelTurns, toolCalls, toolCallsByName, usage, outcome }
+WorkerUsage       { source: "provider"|"unavailable", input, output, cacheRead, cacheWrite, totalTokens, reasoning? }
+```
+
+- source는 `AssistantMessage.usage`만 사용하고 추정하지 않는다. invocation 내 모든 assistant message를 합산하되 responseId/timestamp로 **중복 집계를 막고**, `reasoning`은 `output`의 subset이므로 total에 더하지 않으며 provider-reported `totalTokens`를 우선한다. 한 message라도 usage가 없으면 `source: "unavailable"`(부분합은 보존)이고 reasoning은 UNKNOWN으로 남긴다.
+- UNKNOWN 규칙: reasoning/responseModel/thinking level 미제공, 가격 미확인, provenance 확인 불가는 0/`$0.00`이 아니라 `UNKNOWN`으로 렌더링한다. CommandCode custom model은 cost 0으로 등록돼 있어도 Evidence Pack은 항상 `Estimated cost: UNKNOWN`을 출력한다.
+- requested와 actual(세션 provider/model, responseModel, thinking)을 분리하고, 존재하지 않으면 UNKNOWN이며 fallback은 그대로 드러난다.
+
+### Budget semantics
+
+- `budget: { max_worker_invocations?, max_reported_tokens? }`는 optional이다. **미설정 = configured unlimited**(기존 사용자를 제한하지 않음).
+- `max_worker_invocations`는 정확히 사전 강제한다: 다음 호출 전에 `used+1 > max`면 모델 호출 전에 BLOCKED. `max_reported_tokens`는 provider-reported 기반이며 **billing hard cap이 아니다**: in-flight 초과는 기록 후 다음 호출을 차단한다.
+- token budget이 설정됐는데 이전 usage가 unavailable이면 `Budget accounting unavailable`로 fail closed. token budget이 없으면 usage UNKNOWN 자체로 실행을 실패시키지 않는다.
+- BudgetController는 telemetry exporter와 분리된 Kernel-owned ledger다(exporter 실패로 예산이 무제한이 되지 않음). Budget denial은 worker 실행 전에 발생하고 workspace를 mutate하거나 approval을 만들지 않으며, 기존 partial changes는 rollback 없이 보존된다.
+
+### Telemetry / provenance
+
+- `weavra.run`·`weavra.worker` 두 span만 정의했고(`WEAVRA_TELEMETRY_SCHEMA`), attribute는 workflow/risk/mode/role/revision/provider/model/status/duration/tool count/token 계열로 제한한다. prompt·completion·reasoning text·tool args/output·credential·env는 넣지 않는다. 기본은 NOOP이며 exporter 실패는 실행 결과를 바꾸지 않는다.
+- provenance는 Run 시작 시 Host가 1회 snapshot한다: Runtime source checkout commit(모듈 위치에서 .git 탐색), fork-local CLI bundle의 SHA-256/mtime/version, target workspace HEAD(별도 값), config digest, Task Contract digest, capturedAt. 확인 불가 값은 저장하지 않고 UNKNOWN으로 렌더링한다. mtime을 commit으로 부르지 않는다.
+
+### Evidence Pack
+
+- 기존 Run state + live report의 **read-only projection**이다(새 authority/저장소 아님). status/goal/workflow/risk/execution mode, Task Contract digest와 AC별 statement·status·evidence refs, changed files/diff digest/changed lines, SELF_CHECK/TEST checks, LSP advisory 유무, Reviewer 결과·독립성, R3 approval, partial changes, cleanup confirmed/uncertain/UNKNOWN, worker measurement, budget 상태, provenance, limitations, failure category를 담는다.
+- failure category는 **구조화된 신호만** 사용한다: budget exceeded → BUDGET, status CANCELLED → CANCELLED, approval DENIED/EXPIRED → APPROVAL, 실패/UNAVAILABLE required check → VERIFICATION, review REVISE/BLOCK → REVIEW, 그리고 runtime이 실제로 생성하는 exact 문자열(`Policy `, `Budget `, `Worker provider failed`, `Worker tool failed or was denied`, `Runtime storage failed`, cleanup unconfirmed)만 매핑하고 나머지는 UNKNOWN이다. lastError를 대규모 regex로 추론하지 않는다.
+- `/state evidence [runId]`로 사람이 읽는 요약을 출력한다(기존 `/state export` 의미는 그대로). raw prompt/reasoning/credential은 포함하지 않는다.
+
+### Eval adapter (FEAT-04)
+
+- `packages/evals/src/weavra-harness.ts`: `materializeFixture`(격리 Git workspace + trusted config + required check), `runWeavraFixture`(실제 Runtime 경로: Task Contract → StandardWorkflow → PiAgentExecutor → Evidence Pack projection). 실제 provider 실행은 **opt-in**이며 자동 회귀에 넣지 않는다. Plain Pi baseline은 기존 `createPiCodingAgentHarness`를 그대로 쓴다(별도 mock 없음).
+- `packages/evals/src/weavra-fixtures.ts`: deterministic fixture 6개(read-only 3: read-explain/read-discover/quick-read, QUICK edit 1: quick-edit, STANDARD 2: standard-2ac, standard-incomplete false-completion probe). oracle은 Host 소유로 workspace 파일 내용/부재를 직접 검사하며 Runtime COMPLETED 주장과 독립이다.
+- eval metadata(baseline/runtime commit·provider·model·thinking·workflow·mode·contract digest·budget)와 repetition=1 원칙, 비용 UNKNOWN 원칙을 문서화했다. 실제 Plain Pi vs Weavra 비교 실행은 이번에 하지 않았다(quota 보호).
+
+### 이번 자동 검증
+
+```sh
+# packages/company-runtime (전체)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2
+# packages/coding-agent (Weavra suite 11개 파일)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-*.test.ts
+# packages/evals (unit)
+node ../../node_modules/vitest/dist/cli.js run --config vitest.test.config.ts
+# root
+npm run check / npm run check:ci / git diff --check / bash -n packages/company-runtime/bin/weavra
+```
+
+- Runtime **35개 파일·1,145개 PASS**, coding-agent **11개 파일·447개 PASS**, evals unit **5개 파일·32개 PASS**(합 51개 파일·1,624개, 실패/skip 0). 신규 test는 measurement 2·budget 5·provenance 1·evidence pack 5·eval adapter 4건이다.
+- 구현 중 실제 결함 1건을 발견·수정했다: `contracts.ts ↔ measurement.ts` 순환 import로 Node ESM에서 `RoleSchema` TDZ 오류가 발생해 schema를 leaf 모듈(`measurement-types.ts`)로 분리했다.
+- `npm run check`·`check:ci` PASS, `git diff --check`·`bash -n` PASS.
+
+### 실제 Provider smoke
+
+- DeepSeek(commandcode/deepseek-v4.1-flash, STANDARD/EDIT 2 AC, `budget.max_worker_invocations=4`): **1차 시도는 모델 상호작용 중 provider transport 오류로 FAILED**였고 measurement·partial changes 보존·BUDGET/PROVIDER 분류·provenance가 그대로 기록됐다. 재시도는 **COMPLETED**: Developer 13,466 tokens/8.4s/5 turns/6 tools, Reviewer 7,357 tokens/5.7s/2 turns/3 tools, budget 2/4 invocations·20,823 reported tokens, AC-001/AC-002 MET, Reviewer PASS(독립), checks PASS×2, cleanup confirmed, cost UNKNOWN.
+- GPT 교차(codex-lb/gpt-6-astra, 동일 fixture): **COMPLETED**, worker measurement 2건·11,824 reported tokens·6 tool calls, 동일한 Evidence Pack shape. instrumentation이 기존 GPT 경로를 깨지 않았다.
+- 상세는 [V0.3F smoke](WEAVRA_V03F_MEASUREMENT_EVIDENCE_2026-09-18.md)에 기록했다.
+
+### 남은 제한과 다음 작업
+
+- Plain Pi vs Weavra 실제 비교 실행, 20개 corpus 확장, repetition 반복, telemetry exporter/SaaS, LLM judge oracle, Planner/병렬/COMPLEX/strict edit/verifier sandbox/browser/MCP/memory는 이번 범위 밖이며 NOT VERIFIED다.
+- provider-reported token 한도는 billing 정확도가 아니고, 가격은 어느 provider도 신뢰 가능한 출처가 없어 전부 UNKNOWN이다.
+- **커밋·푸시:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 
