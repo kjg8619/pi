@@ -732,3 +732,82 @@ describe("V0.4A strict text fidelity and paths", () => {
 		expect(bytes("docs 한글/문서.md").toString()).toBe("bar()\n");
 	});
 });
+
+describe("V0.5A context pack is not mutation authority", () => {
+	it("rejects pack digests presented as a strict read receipt", async () => {
+		await create("strict");
+		const read = await strictRead();
+		const packDigest = `sha256:${"a".repeat(64)}`;
+		const packSnippetDigest = `sha256:${"b".repeat(64)}`;
+		const attempt = async (receipt: string) =>
+			await call(
+				"runtime_edit",
+				{
+					path: "src/app.ts",
+					oldText: "foo()",
+					newText: "bar()",
+					anchor: read.line(1),
+					fileDigest: read.fileDigest,
+					readReceipt: receipt,
+				},
+				`pack-${receipt.slice(7, 11)}`,
+			);
+		await expect(attempt(packDigest)).rejects.toThrow("STALE_ANCHOR");
+		await expect(attempt(packSnippetDigest)).rejects.toThrow("STALE_ANCHOR");
+		// A file digest or anchor from the pack cannot stand in for the receipt either.
+		await expect(
+			call(
+				"runtime_edit",
+				{
+					path: "src/app.ts",
+					oldText: "foo()",
+					newText: "bar()",
+					anchor: read.line(1),
+					fileDigest: packDigest,
+					readReceipt: packDigest,
+				},
+				"pack-digest-only",
+			),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(bytes().toString()).toBe("foo()\nfoo()\n");
+		// The real path still works: fresh anchored read -> fresh receipt -> edit.
+		const fresh = await strictRead();
+		await call("runtime_edit", {
+			path: "src/app.ts",
+			oldText: "foo()",
+			newText: "bar()",
+			anchor: fresh.line(1),
+			fileDigest: fresh.fileDigest,
+			readReceipt: fresh.readReceipt,
+		});
+		expect(bytes().toString()).toBe("bar()\nfoo()\n");
+	});
+
+	it("rejects pack digests presented as a strict replace receipt", async () => {
+		await create("strict");
+		const fresh = await strictRead();
+		const packDigest = `sha256:${"c".repeat(64)}`;
+		await expect(
+			call(
+				"runtime_write",
+				{
+					path: "src/app.ts",
+					content: "replaced\n",
+					operation: "replace",
+					readReceipt: packDigest,
+					fileDigest: fresh.fileDigest,
+				},
+				"pack-replace",
+			),
+		).rejects.toThrow("STALE_ANCHOR");
+		expect(bytes().toString()).toBe("foo()\nfoo()\n");
+		await call("runtime_write", {
+			path: "src/app.ts",
+			content: "replaced\n",
+			operation: "replace",
+			readReceipt: fresh.readReceipt,
+			fileDigest: fresh.fileDigest,
+		});
+		expect(bytes().toString()).toBe("replaced\n");
+	});
+});
