@@ -48,7 +48,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 | V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 게시 `c95993b9f` | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS. 선행 LOG-061 Measurement Hardening: 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
-| V0.4A Strict Mutation | 구현·자동 회귀 PASS / 커밋 보류 | LOG-064. opt-in `mutation.mode`(기본 compatible)·read receipt(최신 1개, mutation 후 무효화)·strict `runtime_edit`(legacy fallback 없음)·`runtime_write` create/replace 분리(O_EXCL create, fresh receipt replace, fallback 없음). 자동 53개 파일·1,668개 PASS. DeepSeek strict smoke에서 stale→re-read→재시도 성공을 확인했으나 fixture check 실패로 COMPLETED는 미확인 |
+| V0.4A Strict Mutation | 구현·자동 회귀 PASS / 게시 `bb909a59b` | LOG-064. opt-in `mutation.mode`(기본 compatible)·read receipt(최신 1개, mutation 후 무효화)·strict `runtime_edit`(legacy fallback 없음)·`runtime_write` create/replace 분리(O_EXCL create, fresh receipt replace, fallback 없음). 자동 53개 파일·1,668개 PASS. DeepSeek strict smoke에서 stale→re-read→재시도 성공을 확인했으나 fixture check 실패로 COMPLETED는 미확인 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2972,7 +2972,7 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
   - 다음 시도 제안(사용자 승인 필요): `Heelo,`처럼 교정 결과가 유일하게 `Hello,`가 되는 주입으로 1회 더 실행해 COMPLETED를 확인한다. 지시된 attempt 상한(2회)을 이미 사용했으므로 추가 실행은 승인 후 진행한다.
 - **NOT VERIFIED:** strict COMPLETED end-to-end, R2/R3에서의 strict smoke, GPT cross(지시대로 미실행), external TOCTOU의 완전 해소(주장하지 않음), remote GitHub Actions 실제 PASS. V0.4A는 권한을 늘리지 않았고 Policy/R2/R3/approval/Task Contract/Verifier/Budget/cleanup 경계는 그대로다.
 - **임시 파일:** smoke harness script(`packages/evals/smoke-v04a.mts`)와 진단용 keep-root 옵션은 smoke 종료 후 제거했고 커밋 대상이 아니다. 재사용 가능한 harness seam(`mutation`, `wrapAudit`)과 state.json 부재 시 오류 보존 수정만 남긴다.
-- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
+- **커밋·푸시:** 사용자 승인 후 `bb909a59b`(`62b9a3853` 위)로 게시했다(13개 경로, 923 insertions). 강제 push는 하지 않았고 `weavra-v0.1-rc1` 태그는 불변이다.
 
 ---
 
