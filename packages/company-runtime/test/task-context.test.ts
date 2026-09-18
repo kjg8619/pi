@@ -185,6 +185,74 @@ describe("V0.5A task context pack", () => {
 		expect(Buffer.byteLength(JSON.stringify(pack), "utf8")).toBeLessThanOrEqual(49152);
 	});
 
+	it("derives default listing roots from allowed paths instead of the workspace root", async () => {
+		write("docs/note.md", "formatLabel lives here but docs are outside the allowed roots\n");
+		const pack = (await build({ listingRoots: undefined }))!;
+		const paths = pack.relatedFiles.map((file) => file.path);
+		expect(paths.some((path) => path.startsWith("docs/"))).toBe(false);
+		expect(paths).toContain("src/service.ts");
+	});
+
+	it("degrades to an honest empty pack when no listable allowed root exists", async () => {
+		const emptyPolicy: PolicyContext = { ...policy, allowedPaths: [] };
+		const pack = (await build({ policy: emptyPolicy, listingRoots: undefined }))!;
+		expect(pack.relatedFiles).toEqual([]);
+		expect(pack.snippets).toEqual([]);
+		expect(pack.targetSymbols).toEqual([]);
+		expect(pack.truncated).toBe(false);
+		expect(pack.unknowns).toContain("no listable allowed roots");
+		expect(pack.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+	});
+
+	it("denies lexical symlink seeds and symlinked parent directories", async () => {
+		write("src/real.ts", "export const formatLabel = 1;\n");
+		execFileSync("ln", ["-sf", "real.ts", join(cwd, "src/lexical.ts")]);
+		mkdirSync(join(cwd, "src/linked-dir"), { recursive: true });
+		execFileSync("ln", ["-sfn", "real.ts", join(cwd, "src/linked-dir/inner.ts")]);
+		execFileSync("ln", ["-sfn", join(cwd, "src"), join(cwd, "src/dir-link")]);
+		const pack = (await build({ seedPaths: ["src/lexical.ts", "src/dir-link/real.ts"] }))!;
+		const serialized = JSON.stringify(pack);
+		expect(pack.relatedFiles.some((file) => file.path.includes("lexical.ts"))).toBe(false);
+		expect(serialized).not.toContain("dir-link");
+		// real.ts is a legitimate allowed file; only the symlinked paths must never appear.
+		expect(pack.relatedFiles.every((file) => file.path === "src/real.ts" || !file.path.includes("lexical"))).toBe(
+			true,
+		);
+	});
+
+	it("hard-caps the whole canonical pack at 48 KiB with deterministic trimming", async () => {
+		for (let index = 0; index < 20; index += 1) {
+			const filler = Array.from({ length: 200 }, (_, line) => `// formatLabel line ${line} ${"x".repeat(60)}`).join(
+				"\n",
+			);
+			write(`src/big${String(index).padStart(2, "0")}.ts`, `${filler}\nexport const value = formatLabel;\n`);
+		}
+		const seeds = Array.from({ length: 20 }, (_, index) => `src/big${String(index).padStart(2, "0")}.ts`);
+		const first = (await build({ seedPaths: ["src/service.ts", ...seeds] }))!;
+		const second = (await build({ seedPaths: ["src/service.ts", ...seeds] }))!;
+		expect(Buffer.byteLength(JSON.stringify(first), "utf8")).toBeLessThanOrEqual(49152);
+		expect(first.truncated).toBe(true);
+		expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(second.digest).toBe(first.digest);
+	});
+
+	it("binds project-rule metadata into the pack digest without copying the instruction body", async () => {
+		const withRules = (await build({
+			projectInstruction: { path: "AGENTS.md", digest: `sha256:${"a".repeat(64)}`, bytes: 12 },
+		}))!;
+		const otherRules = (await build({
+			projectInstruction: { path: "AGENTS.md", digest: `sha256:${"b".repeat(64)}`, bytes: 12 },
+		}))!;
+		expect(withRules.projectRules).toEqual({
+			kind: "configured-file",
+			path: "AGENTS.md",
+			digest: `sha256:${"a".repeat(64)}`,
+			bytes: 12,
+		});
+		expect(otherRules.digest).not.toBe(withRules.digest);
+		expect(JSON.stringify(withRules)).not.toContain("PROJECT_PRIVATE_MARKER");
+	});
+
 	it("extracts only deterministic literal terms", () => {
 		const terms = extractLiteralTerms([
 			"Rename `formatLabel` in src/service.ts",

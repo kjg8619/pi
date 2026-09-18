@@ -28,16 +28,16 @@ const FILE_MAX_BYTES = 262144;
 
 export type TaskContextMode = "disabled" | "bounded";
 
-export interface TaskContextFile {
-	path: string;
-	reasons: string[];
-}
-
 export interface TaskContextSymbol {
 	name: string;
 	path: string;
 	kind: string;
 	reason: "lsp-symbol" | "literal";
+}
+
+export interface TaskContextRelated {
+	path: string;
+	reasons: string[];
 }
 
 export interface TaskContextSnippet {
@@ -61,7 +61,7 @@ export interface TaskContextPack {
 	digest: string;
 	mode: "bounded";
 	targetSymbols: TaskContextSymbol[];
-	relatedFiles: TaskContextFile[];
+	relatedFiles: TaskContextRelated[];
 	projectRules: TaskContextRules;
 	snippets: TaskContextSnippet[];
 	unknowns: string[];
@@ -91,6 +91,10 @@ export interface TaskContextInput {
 	verifierSources?: readonly string[];
 	/** Frozen policy for listable-path filtering (Host-owned, never worker input). */
 	policy: PolicyContext;
+	/** Metadata for the configured project instruction file; the body stays in the system context. */
+	projectInstruction?: { path: string; digest: string; bytes: number };
+	/** Metadata for an explicit inline Host instruction; the body is never copied here. */
+	inlineInstruction?: { digest: string; bytes: number };
 	/** Host-owned listing bounds; defaults to the workspace root at depth 4. */
 	listingRoots?: readonly string[];
 	listingDepth?: number;
@@ -120,20 +124,45 @@ function isContextEligible(
 	if (!isListablePath(path, policy) || !isPolicyPath(path)) return false;
 	if (isProtectedPath(path, protectedPaths)) return false;
 	if (verifierSources.some((source) => source === path)) return false;
-	let absolute: string;
-	try {
-		absolute = canonical(join(workspace, path));
-	} catch {
-		return false;
+	if (!policy.allowedPaths.some((root) => path === root || path.startsWith(`${root}/`))) return false;
+	// Lexical path safety: the declared path and every parent component must be real directory entries.
+	// A symlink that happens to resolve to a safe target is still denied; realpath is never the authority.
+	const parts = path.split("/");
+	let current = workspace;
+	for (const [index, part] of parts.entries()) {
+		current = join(current, part);
+		let stat: ReturnType<typeof lstatSync>;
+		try {
+			stat = lstatSync(current);
+		} catch {
+			return false;
+		}
+		if (index < parts.length - 1) {
+			if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+			continue;
+		}
+		if (stat.isSymbolicLink() || !stat.isFile() || stat.nlink > 1) return false;
 	}
-	if (!absolute.startsWith(workspace + sep)) return false;
-	try {
-		const stat = lstatSync(absolute);
-		if (stat.isSymbolicLink() || stat.nlink > 1 || !stat.isFile()) return false;
-	} catch {
-		return false;
-	}
-	return true;
+	return canonical(current).startsWith(workspace + sep);
+}
+
+/** Bounded project-rule metadata only; the instruction body is never copied into the pack. */
+function projectRulesOf(input: TaskContextInput): TaskContextRules {
+	if (input.projectInstruction)
+		return {
+			kind: "configured-file",
+			path: input.projectInstruction.path,
+			digest: input.projectInstruction.digest,
+			bytes: input.projectInstruction.bytes,
+		};
+	if (input.inlineInstruction)
+		return {
+			kind: "inline",
+			path: null,
+			digest: input.inlineInstruction.digest,
+			bytes: input.inlineInstruction.bytes,
+		};
+	return { kind: "none", path: null, digest: null, bytes: null };
 }
 
 /** Bounded strict read with before/after identity validation; an unstable read yields no snippet. */
@@ -244,9 +273,27 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 	const unknowns: string[] = [];
 	let truncated = false;
 
+	const roots = (input.listingRoots ?? policy.allowedPaths.filter((path) => isListablePath(path, policy)))
+		.filter((path) => isListablePath(path, policy))
+		.filter((path, index, all) => all.indexOf(path) === index)
+		.sort();
+	if (!roots.length) {
+		// Honest empty pack: an absent listable root is not a permission change and must not fail the run.
+		const emptyBody = {
+			version: TASK_CONTEXT_VERSION,
+			mode: "bounded" as const,
+			targetSymbols: [],
+			relatedFiles: [],
+			snippets: [],
+			unknowns: ["no listable allowed roots"],
+			truncated: false,
+			projectRules: projectRulesOf(input),
+		};
+		return { ...emptyBody, digest: `sha256:${sha256Of(emptyBody, TASK_CONTEXT_DOMAIN)}` };
+	}
 	const listed = await listFiles(
 		workspace,
-		input.listingRoots ?? ["."],
+		roots,
 		input.listingDepth ?? 4,
 		input.policy,
 		input.paths,
@@ -329,21 +376,82 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 		}
 	}
 
-	const packBody = {
-		version: TASK_CONTEXT_VERSION,
-		mode: "bounded" as const,
-		targetSymbols: targetSymbols.slice(0, CONTEXT_MAX_SYMBOLS),
-		relatedFiles: relatedPaths.map((path) => ({ path, reasons: [...related.get(path)!].sort() })),
-		snippets,
-		unknowns: [...new Set(unknowns)].sort(),
-		truncated,
+	const projectRules = projectRulesOf(input);
+	const heuristicReasons = new Set(["same-stem-test", "literal-reference", "lsp-reference"]);
+	const finalize = (parts: {
+		symbols: TaskContextSymbol[];
+		related: TaskContextRelated[];
+		snippets: TaskContextSnippet[];
+		unknownList: string[];
+		truncatedFlag: boolean;
+	}): TaskContextPack => {
+		const body = {
+			version: TASK_CONTEXT_VERSION,
+			mode: "bounded" as const,
+			targetSymbols: parts.symbols,
+			relatedFiles: parts.related,
+			projectRules,
+			snippets: parts.snippets,
+			unknowns: parts.unknownList,
+			truncated: parts.truncatedFlag,
+		};
+		return { ...body, digest: `sha256:${sha256Of(body, TASK_CONTEXT_DOMAIN)}` };
 	};
-	const digest = `sha256:${sha256Of(packBody, TASK_CONTEXT_DOMAIN)}`;
-	return {
-		...packBody,
-		digest,
-		projectRules: { path: null, digest: null, bytes: null, kind: "none" },
-	};
+	const relatedEntries: TaskContextRelated[] = relatedPaths.map((path) => ({
+		path,
+		reasons: [...related.get(path)!].sort(),
+	}));
+	let pack = finalize({
+		symbols: targetSymbols.slice(0, CONTEXT_MAX_SYMBOLS),
+		related: relatedEntries,
+		snippets: [...snippets].sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine),
+		unknownList: [...new Set(unknowns)].sort().slice(0, 32),
+		truncatedFlag: truncated,
+	});
+	const fits = (candidate: TaskContextPack) =>
+		Buffer.byteLength(JSON.stringify(candidate), "utf8") <= CONTEXT_MAX_PACK_BYTES;
+	if (!fits(pack)) {
+		// The 48 KiB cap covers the whole canonical pack. Trimming order is deterministic:
+		// heuristic snippets -> symbols -> heuristic-only relations -> unknowns.
+		let symbols = pack.targetSymbols;
+		let relatedFiles = pack.relatedFiles;
+		let snippets = pack.snippets;
+		let unknownList = pack.unknowns;
+		for (;;) {
+			pack = finalize({ symbols, related: relatedFiles, snippets, unknownList, truncatedFlag: true });
+			if (fits(pack)) break;
+			const heuristicSnippet = [...snippets].reverse().find((snippet) => {
+				const entry = relatedFiles.find((file) => file.path === snippet.path);
+				return entry ? entry.reasons.every((reason) => heuristicReasons.has(reason)) : false;
+			});
+			if (heuristicSnippet) {
+				snippets = snippets.filter((snippet) => snippet !== heuristicSnippet);
+				continue;
+			}
+			if (snippets.length) {
+				snippets = snippets.slice(0, -1);
+				continue;
+			}
+			if (symbols.length) {
+				symbols = symbols.slice(0, -1);
+				continue;
+			}
+			const heuristicRelation = [...relatedFiles]
+				.reverse()
+				.find((file) => file.reasons.every((reason) => heuristicReasons.has(reason)));
+			if (heuristicRelation) {
+				relatedFiles = relatedFiles.filter((file) => file !== heuristicRelation);
+				continue;
+			}
+			if (unknownList.length > 1) {
+				unknownList = [unknownList[0], "additional unknowns omitted: output limit"];
+				continue;
+			}
+			break;
+		}
+		return finalize({ symbols, related: relatedFiles, snippets, unknownList, truncatedFlag: true });
+	}
+	return pack;
 }
 
 /** Bounded observation summary; contains no snippet text and no absolute paths. */
