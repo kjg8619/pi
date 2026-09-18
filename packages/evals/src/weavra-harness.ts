@@ -54,6 +54,8 @@ export interface WeavraEvalOptions {
 	mutation?: "compatible" | "strict";
 	/** Test/smoke fixture verifier trust mode; absent means the production default (compatible). */
 	verifierTrust?: "compatible" | "strict";
+	/** Test/smoke fixture verifier sandbox mode; absent means the production default (disabled). */
+	verifierSandbox?: "disabled" | "required";
 }
 
 export interface WeavraEvalResult {
@@ -94,6 +96,7 @@ export function materializeFixture(
 		model: string;
 		mutation?: "compatible" | "strict";
 		verifierTrust?: "compatible" | "strict";
+		verifierSandbox?: "disabled" | "required";
 	},
 ): { cwd: string; config: RuntimeConfig } {
 	const cwd = join(root, fixture.id);
@@ -116,6 +119,7 @@ export function materializeFixture(
 			...(options.mutation ? { mutation: { mode: options.mutation } } : {}),
 			verification: {
 				...(options.verifierTrust ? { trust: { mode: options.verifierTrust } } : {}),
+				...(options.verifierSandbox ? { sandbox: { mode: options.verifierSandbox } } : {}),
 				checks: fixture.checkIds.map((id) => ({
 					id,
 					kind: "test",
@@ -138,6 +142,7 @@ export function materializeFixture(
 			`files: { allowed_paths: [${fixture.allowedPaths.join(", ")}] }`,
 			...(options.mutation ? [`mutation: { mode: ${options.mutation} }`] : []),
 			...(options.verifierTrust ? [`verification: { trust: { mode: ${options.verifierTrust} } }`] : []),
+			...(options.verifierSandbox ? [`verification: { sandbox: { mode: ${options.verifierSandbox} } }`] : []),
 			"",
 		].join("\n"),
 	);
@@ -164,6 +169,7 @@ export async function runWeavraFixture(
 			model,
 			...(options.mutation ? { mutation: options.mutation } : {}),
 			...(options.verifierTrust ? { verifierTrust: options.verifierTrust } : {}),
+			...(options.verifierSandbox ? { verifierSandbox: options.verifierSandbox } : {}),
 		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);

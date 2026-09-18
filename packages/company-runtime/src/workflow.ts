@@ -206,6 +206,12 @@ export class StandardWorkflow {
 									trustRegistrationDigest: requirement.trustRegistrationDigest,
 								}
 							: {}),
+						...(requirement.sandboxRequired
+							? {
+									sandboxRequired: true,
+									sandboxPolicyDigest: requirement.sandboxPolicyDigest,
+								}
+							: {}),
 					})),
 				},
 				{
