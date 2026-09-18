@@ -192,7 +192,7 @@ Runtime이 직접 만든 `StaleAnchorError`만 tool call ID에 묶어 runner가 
 
 QUICK/R1 prompt와 edit 설명에 `Existing-file edits should prefer an anchored read followed by anchored edit. If an anchor is stale, re-read the file. Never guess or reconstruct an anchor.`를 넣는다. 이 안내는 권한이 아니며 실제 enforcement는 도구 구현이다. anchored mode는 기존 edit 권한 안에서 optional이고 STANDARD/R2에 강제하지 않는다. QUICK scope와 STANDARD/R2 binding의 분리, Reviewer read-only, R3 삭제·승인, Kernel/Verification/Graph/Viewer/Worktree/Product Isolation 의미는 그대로다.
 
-**Anchored stale protection applies to anchored `runtime_edit` operations; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 실제 사용 검증 뒤 별도 결정한다. 자동 unit/filesystem/SDK-faux와 별도로 `codex-lb / gpt-6-astra`의 [실제 Provider smoke](../../docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)에서 anchored mode 선택·두 번째 occurrence만 수정→QUICK COMPLETE와 외부 변경→old anchor→STALE_ANCHOR/bytes 보존을 확인했다. stale run은 실패 확인 뒤 harness가 취소했으며 실제 모델의 stale 후 재읽기/복구는 이번 smoke 범위가 아니다.
+**Anchored stale protection applies to anchored `runtime_edit` operations only in compatible mode; it does not magically make every possible file mutation anchored.** legacy exact edit·`runtime_write`는 compatible mode에서 계속 제공하고 trusted verifier/일반 Pi mutation까지 보호한다고 주장하지 않는다. 모든 existing-file mutation의 anchored-only 강제는 opt-in **strict mutation**으로 제공한다(아래 절). 자동 unit/filesystem/SDK-faux와 별도로 `codex-lb / gpt-6-astra`의 [실제 Provider smoke](../../docs/WEAVRA_V03A_PROVIDER_SMOKE_2026-09-17.md)에서 anchored mode 선택·두 번째 occurrence만 수정→QUICK COMPLETE와 외부 변경→old anchor→STALE_ANCHOR/bytes 보존을 확인했다. stale run은 실패 확인 뒤 harness가 취소했으며 실제 모델의 stale 후 재읽기/복구는 이번 smoke 범위가 아니다.
 
 ## V0.3B Read-only LSP
 
@@ -266,6 +266,20 @@ registered process checks (기존 required/PASS/FAIL)
 실제 설치된 `typescript-language-server 5.1.3`의 diagnostics/definition/references/document symbols·workspace 무변경·정리와 `codex-lb/gpt-6-astra`의 STANDARD/R1 edit → verifier-owned PARTIAL diagnostics → 독립 Reviewer → process checks/COMPLETE를 [smoke](../../docs/WEAVRA_V03B_LSP_SMOKE_2026-09-17.md)로 확인했다. 다른 서버/OS/Node, remote/multi-root/global daemon, rename/prepareRename/codeAction/applyEdit/formatting/organizeImports/workspace-wide symbols, 자동 설치/자동 diagnostic fix는 범위 밖이다.
 
 ## V0.3D Project Context
+
+### FIX-07 — strict mutation (V0.4A)
+
+`mutation: { mode: compatible | strict }`(기본 `compatible`)는 **freshness/precondition contract**이며 permission이 아니다. 권한은 계속 Execution Contract → Policy → R2/R3 → 필요 시 Human Approval이 결정한다. 모드는 trusted config로 Run 시작 시 고정되고 `configDigest`에 포함되며 worker 입력으로 바꿀 수 없다.
+
+strict 핵심:
+
+- 기존 파일 변경은 **가장 최근의 성공한 strict anchored read**에서 받은 `readReceipt`+`fileDigest`(+ `runtime_edit`는 `anchor`)가 있어야 한다. receipt는 adapter가 발급하는 opaque token(`rr1:…`)이며 credential/permission/approval이 아니다. path별로 최신 receipt만 유효하고, 성공한 mutation 뒤에는 그 path의 receipt가 무효화되므로 다시 읽어야 한다.
+- `runtime_edit`은 anchor+fileDigest+readReceipt를 모두 요구하고 legacy unanchored fallback을 쓰지 않는다. 하나라도 없으면 mutation 전에 거부한다.
+- `runtime_write`는 `operation`을 명시한다. `create`는 `mustNotExist:true`와 함께여야 하고 OS 수준 create-if-absent(`O_CREAT|O_EXCL|O_NOFOLLOW`)로만 만들며 기존 파일을 절대 덮어쓰지 않는다(parent mkdir 없음). `replace`는 fresh `readReceipt`+`fileDigest`를 요구하고 대상이 없으면 새로 만들지 않는다(create로 fallback하지 않음).
+- 외부 변경·이전 generation receipt·다른 path receipt·위조 receipt는 `STALE_ANCHOR`계열 typed error이며 **0 bytes**를 쓴다. Policy DENY·audit/storage 실패는 stale로 분류하지 않는다.
+- stale은 같은 worker session에서 re-read → fresh receipt/anchor → 재시도로 bounded correction이 가능하다(자동 re-read/자동 retry/host-side 재생성은 없음).
+- 기존 anchored-files 경계(NOFOLLOW·regular·nlink=1·bounded strict UTF-8·dev/ino/mode/size/mtime/ctime 재확인, validation→effect 무 yield)를 그대로 유지한다. 마지막 검증 syscall과 write syscall 사이의 비협조 외부 process race를 완전히 해결했다고 주장하지 않는다.
+- Reviewer는 계속 read-only이고, R3 Developer는 `runtime_delete`만 쓴다. strict mode는 권한을 늘리지 않는다.
 
 ### FIX-03 — configured instruction snapshot
 

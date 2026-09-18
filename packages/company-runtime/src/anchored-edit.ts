@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export const ANCHORED_MAX_BYTES = 262144;
 export const ANCHORED_EDIT_GUIDANCE =
@@ -11,6 +11,32 @@ export class StaleAnchorError extends Error {
 		this.name = "StaleAnchorError";
 	}
 }
+
+/**
+ * Strict-mutation freshness/precondition failure (receipt, digest, must-not-exist).
+ * Recoverable in-session by re-reading; never a Policy, audit or storage failure.
+ */
+export class StaleMutationError extends StaleAnchorError {
+	constructor(reason: string) {
+		super(reason);
+		this.name = "StaleMutationError";
+	}
+}
+
+/** Adapter-owned opaque freshness receipt. Not a credential, capability, permission or approval token. */
+export function mintReadReceipt(): string {
+	return `rr1:${randomBytes(24).toString("hex")}`;
+}
+
+export const STRICT_MUTATION_GUIDANCE =
+	"Strict mutation mode (freshness/precondition enforcement only; it grants no permission and is not approval): " +
+	"to change an existing file, call runtime_read with anchors:true and copy its exact readReceipt, fileDigest and anchor into the mutation; " +
+	"never invent, guess or reuse receipts, digests or anchors. " +
+	"runtime_edit requires anchor+fileDigest+readReceipt and has no unanchored fallback. " +
+	"runtime_write requires operation=create with mustNotExist:true for a new file, or operation=replace with a fresh readReceipt+fileDigest for an existing file; " +
+	"create never overwrites an existing file and replace never creates a missing one. " +
+	"After any successful mutation, re-read before mutating that file again. " +
+	"If a mutation reports a stale precondition, re-read the file with anchors:true and retry in this same session.";
 
 export interface AnchoredReplacement {
 	oldText: string;

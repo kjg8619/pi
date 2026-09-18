@@ -48,6 +48,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 | V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 게시 `c95993b9f` | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS. 선행 LOG-061 Measurement Hardening: 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
+| V0.4A Strict Mutation | 구현·자동 회귀 PASS / 커밋 보류 | LOG-064. opt-in `mutation.mode`(기본 compatible)·read receipt(최신 1개, mutation 후 무효화)·strict `runtime_edit`(legacy fallback 없음)·`runtime_write` create/replace 분리(O_EXCL create, fresh receipt replace, fallback 없음). 자동 53개 파일·1,668개 PASS. DeepSeek strict smoke에서 stale→re-read→재시도 성공을 확인했으나 fixture check 실패로 COMPLETED는 미확인 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2938,6 +2939,39 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - **보존:** LOG-001~062 본문과 판정·수치, V0.3D historical evidence(Attempt 1/2·acceptance FAILED·path omission NOT VERIFIED·default-root `{}` 후속 evidence), LOG-059~062 내용, RC 태그 사실은 삭제·재작성하지 않았다.
 - **검증:** `git diff --check` clean, `git status --short`는 `docs/WORK_LOG.md`만, `git diff -- docs/WORK_LOG.md`로 변경 확인, `npm run check:ci`는 non-mutating으로 실행(exit 0). docs-only이므로 Runtime/Provider test suite는 재실행하지 않았다.
 - **남은 제한·다음 작업:** 문서 표기 정리만 수행했으므로 코드·검증 상태는 LOG-062와 동일하다. 다음 단계는 V0.4A — Strict Mutation Hardening이다.
+- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
+
+---
+
+## LOG-064 — V0.4A Strict Mutation Hardening (FIX-07)
+
+- **기록일:** 2026-09-18 (KST)
+- **기준 SHA:** `62b9a38536effb3833f2e92b04adbeb56eedf744`(clean, `origin/devlop` 일치, rebase 불필요). 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **환경:** 개발 하네스는 OMP + `commandcode/deepseek/deepseek-v4.1-flash`다. strict smoke도 같은 Provider를 사용했고 GPT cross는 지시대로 실행하지 않았다(Codex quota 보호).
+- **상태:** 구현·자동 회귀 완료. 실제 Provider smoke는 stale recovery 동작까지 확인했고 COMPLETED 판정은 미확인(NOT VERIFIED). 커밋·푸시: 하지 않음.
+- **config 결정:** 기존 schema style에 맞춰 최상위 `mutation: { mode: compatible | strict }`를 추가했고 **기본은 compatible**이다(`mutation` 필드가 없으면 compatible). trusted frozen config이며 `configDigest` 재료에 자연스럽게 포함되고 Run 중 hot switch가 없다. Plan Preview와 표시 문구에 `Mutation mode: …`를 추가했고 strict에는 "strict freshness/precondition enforcement … not a permission and not approval"이라고 명시한다.
+- **read receipt 설계:** strict에서 `runtime_read({anchors:true})`는 기존 `fileDigest`/line anchor에 더해 adapter 발급 opaque token(`rr1:` + 24 random bytes)을 반환한다. `createWorkerTools`의 invocation-scoped `Map<path,{receipt,fileDigest}>`로 관리하며 같은 path를 다시 읽으면 이전 receipt가 무효화되고 최신만 유효하다. 성공한 create/replace/edit 뒤에는 그 path의 receipt가 삭제된다. receipt는 credential/permission/approval이 아니고 state/evidence/telemetry/audit prose에 raw token으로 저장하지 않는다(action digest 재료로만 쓰인다).
+- **runtime_edit(strict):** path·oldText·newText·anchor·fileDigest·readReceipt를 모두 요구하고 하나라도 없으면 mutation 전에 거부한다. legacy exact-edit fallback은 없다. 검증 순서는 기존 Policy/audit authority 순서를 유지하며(입력 검증 → Policy/durable intent → receipt → filesystem digest/anchor/oldText/identity → write) Policy DENY가 stale 검사보다 앞선다.
+- **runtime_write(strict):** `operation` 필수. `create`는 `mustNotExist:true` 필수(+receipt/digest 금지)이고 `O_CREAT|O_EXCL|O_NOFOLLOW`로만 생성하며 기존 파일 bytes는 그대로 둔다(parent mkdir 없음). `replace`는 fresh `readReceipt`+`fileDigest` 필수(+mustNotExist 금지)이고 대상 missing이면 생성하지 않는다. external race가 이기면 O_EXCL/ENOENT 실패로 끝나고 외부 bytes를 보존한다.
+- **stale 분류:** `StaleMutationError extends StaleAnchorError`(receipt 불일치·mutation 후 재사용·digest generation 불일치·create 대상 존재·replace 대상 missing)를 추가했다. consumable stale은 `runtime_edit`/`runtime_write` 두 도구로 확장했고 Policy DENY·audit/storage 실패·malformed schema는 fatal로 유지한다. 새 retry loop는 만들지 않았다.
+- **compatible 유지:** legacy `runtime_write` existing-file 교체와 unanchored unique exact edit가 그대로 동작한다. compatible에서 strict-only 필드(`operation`/`mustNotExist`/`readReceipt`/`fileDigest`)를 쓰면 명시적으로 거부한다(조용한 strict/legacy 혼용 방지).
+- **prompt:** strict일 때 mutation 도구가 있는 역할에만 `STRICT_MUTATION_GUIDANCE`를 추가했다(receipt/digest/anchor 복사 금지 규칙·create/replace 계약·mutation 후 재-read·stale 시 재시도). compatible에서는 기존 ANCHORED_EDIT_GUIDANCE 안내만 유지한다.
+- **자동 검증:**
+  ```sh
+  packages/company-runtime        node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2      # 36개 파일·1,186개 PASS
+  packages/coding-agent           node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-*.test.ts  # 11개 파일·449개 PASS
+  packages/evals                  node ../../node_modules/vitest/dist/cli.js run --config vitest.test.config.ts   # 6개 파일·33개 PASS
+  root                            npm run check / npm run check:ci / git diff --check / bash -n packages/company-runtime/bin/weavra   # 모두 exit 0
+  ```
+  합계 53개 파일·1,668개 PASS(실패·skip 0). 신규 `test/strict-mutation.test.ts` 28건이 config 기본값/Plan Preview/receipt lifecycle(최신 1개·mutation 후 무효화·위조·다른 path)/strict edit positive·negative/replace digest precondition/create race(O_EXCL)·missing replace/existing create/compatible 회귀/CRLF·BOM·CJK·emoji·긴 줄·공백·한글 path를 검증한다.
+- **실제 Provider smoke(strict):** `standard-2ac` fixture를 `mutation.mode: strict`로 실행하고, harness audit seam(`wrapAudit`, 제품 코드 아님)으로 **첫 mutation intent 시점에 정확히 한 번** 외부 변경(`Helo,` → `Helo!!,`)을 주입했다.
+  - 1차: credential preflight 실패(`~/.weavra/cmd.env` 미로드, model interaction 0회) → 승인된 재시도로 간주하고 `cmd.env` 로드 후 재실행.
+  - 2차(real interaction): `runtime_edit` → **`STALE_ANCHOR: file generation mismatch`** → 같은 worker session에서 모델이 "Hmm, stale anchor. Re-read." 판단 후 `runtime_read({anchors:true})` 재호출 → fresh receipt/digest로 `runtime_edit` **"File edited" 성공**. transcript(JSONL)로 확인했다.
+  - 그러나 Run은 **BLOCKED**(self-check `FAIL exit 1`)로 끝났다. 주입한 `!!` punctuation을 모델이 보존해 최종 파일이 `Hello!!, ${name}!`이었고 fixture check(`greet("Ada") === "Hello, Ada!"`)가 실패했기 때문이다. 즉 실패 원인은 strict contract가 아니라 주입 내용의 모호성이다.
+  - 결과: strict stale→re-read→retry 실동작 **확인**, COMPLETED까지의 end-to-end는 **미확인(NOT VERIFIED)**. Provider transport/model interaction 오류는 0건, reported tokens 37,688(Developer 1 invocation, 9 turns, 9 tools).
+  - 다음 시도 제안(사용자 승인 필요): `Heelo,`처럼 교정 결과가 유일하게 `Hello,`가 되는 주입으로 1회 더 실행해 COMPLETED를 확인한다. 지시된 attempt 상한(2회)을 이미 사용했으므로 추가 실행은 승인 후 진행한다.
+- **NOT VERIFIED:** strict COMPLETED end-to-end, R2/R3에서의 strict smoke, GPT cross(지시대로 미실행), external TOCTOU의 완전 해소(주장하지 않음), remote GitHub Actions 실제 PASS. V0.4A는 권한을 늘리지 않았고 Policy/R2/R3/approval/Task Contract/Verifier/Budget/cleanup 경계는 그대로다.
+- **임시 파일:** smoke harness script(`packages/evals/smoke-v04a.mts`)와 진단용 keep-root 옵션은 smoke 종료 후 제거했고 커밋 대상이 아니다. 재사용 가능한 harness seam(`mutation`, `wrapAudit`)과 state.json 부재 시 오류 보존 수정만 남긴다.
 - **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---

@@ -111,7 +111,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.3D — Project Context** | 프로젝트 규칙·파일 탐색·JVM risk 보강 | FIX-03, FIX-06, FEAT-02 일부 | 구현·자동 검증; Provider 완료 smoke 실패/후속 미검증 |
 | **V0.3E — Task Contract** | 복합 요청을 검증 가능한 AC로 고정 | FIX-05, FEAT-01 | 높음 |
 | **V0.3F — Measurement & Evidence** | 실제 품질·비용·실패를 측정/설명 | FEAT-03, FEAT-04, FEAT-05, FIX-09 | 높음 |
-| **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | 후속 |
+| **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | 구현·자동 회귀 PASS(LOG-064); DeepSeek stale recovery 실동작 확인, COMPLETED fixture는 미확인 |
 | **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | 후속 |
 | **V0.4C — Verifier Sandbox** | 검증 프로세스 OS 경계 도입 | FEAT-07 | 후속 |
 | **Later** | Facts / Browser QA / Capability Broker / COMPLEX | FEAT-06, 08, 09, Team Mode | 수요 기반 |

@@ -90,6 +90,11 @@ export const RuntimeConfigSchema = Type.Object(
 				strict,
 			),
 		),
+		// Strict mutation is an opt-in freshness/precondition contract for existing-file changes.
+		// It never grants permission and is not human approval; Policy/R2/R3 authority is unchanged.
+		mutation: Type.Optional(
+			Type.Object({ mode: Type.Optional(Type.Union([Type.Literal("compatible"), Type.Literal("strict")])) }, strict),
+		),
 		code_intelligence: Type.Optional(Type.Object({ lsp: LspConfigSchema }, strict)),
 		verification: Type.Optional(
 			Type.Object(
@@ -196,6 +201,7 @@ export function parseRuntimeConfig(source: string) {
 		risk: { approval_required: ["R3"] as ["R3"] },
 		files: { allowed_paths: allowedPaths },
 		verification: { checks },
+		mutation: { mode: value.mutation?.mode ?? ("compatible" as const) },
 		...(value.project ? { project: structuredClone(value.project) } : {}),
 		...(value.code_intelligence
 			? { code_intelligence: { lsp: normalizeLspConfig(value.code_intelligence.lsp) } }

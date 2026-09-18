@@ -13,8 +13,8 @@ import {
 import { join } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ANCHORED_EDIT_GUIDANCE, StaleAnchorError } from "./anchored-edit.ts";
-import { editAnchoredFile, readAnchoredFile } from "./anchored-files.ts";
+import { ANCHORED_EDIT_GUIDANCE, mintReadReceipt, StaleAnchorError, StaleMutationError } from "./anchored-edit.ts";
+import { createAnchoredFile, editAnchoredFile, readAnchoredFile, replaceAnchoredFile } from "./anchored-files.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "./config.ts";
 import {
 	ExecutorHandoffSchema,
@@ -184,6 +184,16 @@ export function createWorkerTools(options: {
 	// Adapter-owned classification, never a model-supplied error label. Consumed once by the SDK event handler.
 	const submissionValidationErrors = new Map<string, "submit_handoff" | "submit_review">();
 	const staleAnchorErrors = new Set<string>();
+	// Strict mutation (FIX-07): invocation-scoped latest-read receipts. Freshness only, never permission.
+	const strictMutation = options.config.mutation.mode === "strict";
+	const readReceipts = new Map<string, { receipt: string; fileDigest: string }>();
+	const requireLatestReceipt = (path: string, token: string | undefined, digest: string | undefined): void => {
+		const registered = readReceipts.get(path);
+		if (!registered || !token || registered.receipt !== token)
+			throw new StaleMutationError(`${path} has no current read receipt; re-read the file with anchors:true`);
+		if (!digest || registered.fileDigest !== digest)
+			throw new StaleMutationError(`${path} read receipt does not match the supplied fileDigest`);
+	};
 	let submitted: AgentExecutionResult | undefined;
 	let policyDenial: string | undefined;
 	const assertActive = () => {
@@ -252,9 +262,16 @@ export function createWorkerTools(options: {
 			parameters: Type.Object({ path: pathSchema, anchors: Type.Optional(Type.Boolean()) }, strict),
 			execute: async (_id, input) => {
 				const params = structuredClone(input);
-				return fileAction("runtime_read", [params.path], params, () =>
-					params.anchors ? readAnchoredFile(options.cwd, params.path) : readText(join(options.cwd, params.path)),
-				);
+				return fileAction("runtime_read", [params.path], params, () => {
+					if (!params.anchors) return readText(join(options.cwd, params.path));
+					const snapshot = readAnchoredFile(options.cwd, params.path);
+					if (!strictMutation) return snapshot;
+					// The latest successful strict anchored read wins; any earlier receipt for this path is invalidated.
+					const digest = snapshot.split("\n", 1)[0].slice("fileDigest: ".length);
+					const receipt = mintReadReceipt();
+					readReceipts.set(params.path, { receipt, fileDigest: digest });
+					return `${snapshot}\nreadReceipt: ${receipt}`;
+				});
 			},
 		}),
 		defineTool({
@@ -289,17 +306,71 @@ export function createWorkerTools(options: {
 						defineTool({
 							name: "runtime_write",
 							label: "Runtime write",
-							description: "Write an allowed workspace text file. Parent directory must exist.",
+							description:
+								"Write an allowed workspace text file. Parent directory must exist." +
+								(strictMutation
+									? " Strict mutation mode: a new file requires operation=create with mustNotExist:true; an existing file requires operation=replace with readReceipt+fileDigest from runtime_read anchors:true. " +
+										"create never overwrites and replace never creates. Stale preconditions never write."
+									: ""),
 							executionMode: "sequential",
 							parameters: Type.Object(
-								{ path: pathSchema, content: Type.String({ maxLength: MAX_BYTES }) },
+								{
+									path: pathSchema,
+									content: Type.String({ maxLength: MAX_BYTES }),
+									operation: Type.Optional(Type.Union([Type.Literal("create"), Type.Literal("replace")])),
+									mustNotExist: Type.Optional(Type.Boolean()),
+									readReceipt: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+									fileDigest: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+								},
 								strict,
 							),
-							execute: async (_id, params) =>
-								fileAction("runtime_write", [params.path], params, () => {
-									writeText(join(options.cwd, params.path), params.content, signal);
-									return "File written";
-								}),
+							execute: async (id, input) => {
+								const params = structuredClone(input);
+								try {
+									return await fileAction("runtime_write", [params.path], params, () => {
+										if (!strictMutation) {
+											if (
+												params.operation !== undefined ||
+												params.mustNotExist !== undefined ||
+												params.readReceipt !== undefined ||
+												params.fileDigest !== undefined
+											)
+												throw new Error(
+													"operation, mustNotExist, readReceipt and fileDigest require mutation.mode: strict",
+												);
+											writeText(join(options.cwd, params.path), params.content, signal);
+											return "File written";
+										}
+										if (params.operation === "create") {
+											if (params.mustNotExist !== true)
+												throw new Error("strict create requires mustNotExist: true");
+											if (params.readReceipt !== undefined || params.fileDigest !== undefined)
+												throw new Error("strict create must not carry readReceipt or fileDigest");
+											createAnchoredFile(options.cwd, params.path, params.content, signal);
+											readReceipts.delete(params.path);
+											return "File created";
+										}
+										if (params.operation === "replace") {
+											if (params.mustNotExist !== undefined)
+												throw new Error("strict replace must not carry mustNotExist");
+											requireLatestReceipt(params.path, params.readReceipt, params.fileDigest);
+											replaceAnchoredFile(
+												options.cwd,
+												params.path,
+												params.content,
+												params.fileDigest as string,
+												signal,
+											);
+											readReceipts.delete(params.path);
+											return "File replaced";
+										}
+										throw new Error("strict mutation requires operation create or replace");
+									});
+								} catch (error) {
+									if (error instanceof StaleAnchorError) staleAnchorErrors.add(id);
+									throw error;
+								}
+							},
 						}),
 						defineTool({
 							name: "runtime_edit",
@@ -307,6 +378,9 @@ export function createWorkerTools(options: {
 							description:
 								"Replace one unique exact text occurrence in an allowed workspace file. Optionally supply BOTH anchor and fileDigest from runtime_read anchors:true. " +
 								"The exact oldText must start in the anchored line (may span later lines); duplicates elsewhere are allowed, multiple starts in that line are rejected. Stale preconditions never write. " +
+								(strictMutation
+									? "Strict mutation mode requires anchor, fileDigest and readReceipt from runtime_read anchors:true; there is no unanchored fallback. "
+									: "") +
 								(request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : ""),
 							executionMode: "sequential",
 							parameters: Type.Object(
@@ -316,15 +390,43 @@ export function createWorkerTools(options: {
 									newText: Type.String({ maxLength: MAX_BYTES }),
 									anchor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 									fileDigest: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
+									readReceipt: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 								},
 								strict,
 							),
 							execute: async (id, input) => {
 								const params = structuredClone(input);
-								if ((params.anchor === undefined) !== (params.fileDigest === undefined))
+								if (strictMutation) {
+									// Malformed input is fatal: never silently downgrade to the legacy unanchored path.
+									if (
+										params.anchor === undefined ||
+										params.fileDigest === undefined ||
+										params.readReceipt === undefined
+									)
+										throw new Error(
+											"strict mutation requires anchor, fileDigest and readReceipt from runtime_read anchors:true",
+										);
+								} else if ((params.anchor === undefined) !== (params.fileDigest === undefined))
 									throw new Error("anchor and fileDigest must be supplied together");
+								else if (params.readReceipt !== undefined)
+									throw new Error("readReceipt requires mutation.mode: strict");
 								try {
 									return await fileAction("runtime_edit", [params.path], params, () => {
+										if (strictMutation) {
+											requireLatestReceipt(params.path, params.readReceipt, params.fileDigest);
+											editAnchoredFile(
+												options.cwd,
+												params.path,
+												{
+													...params,
+													anchor: params.anchor as string,
+													fileDigest: params.fileDigest as string,
+												},
+												signal,
+											);
+											readReceipts.delete(params.path);
+											return "File edited";
+										}
 										if (params.anchor !== undefined && params.fileDigest !== undefined) {
 											editAnchoredFile(
 												options.cwd,
@@ -632,7 +734,7 @@ export function createWorkerTools(options: {
 		result: () => structuredClone(submitted),
 		policyDenial: () => policyDenial,
 		consumeStaleAnchorError: (toolName, toolCallId) =>
-			toolName === "runtime_edit" && staleAnchorErrors.delete(toolCallId),
+			(toolName === "runtime_edit" || toolName === "runtime_write") && staleAnchorErrors.delete(toolCallId),
 		consumeSubmissionValidationError: (toolName, toolCallId) =>
 			submissionValidationErrors.get(toolCallId) === toolName && submissionValidationErrors.delete(toolCallId),
 	};

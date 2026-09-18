@@ -327,6 +327,7 @@ export function registerCompanyRuntime(
 									checks: config.verification.checks,
 									projectInstructionPath: config.project?.instructions.path ?? null,
 									lspEnabled: config.code_intelligence?.lsp.enabled === true,
+									mutationMode: config.mutation.mode,
 								})}\n${executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);

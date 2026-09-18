@@ -201,6 +201,7 @@ describe("V0.3E acceptance criteria", () => {
 			],
 			projectInstructionPath: "AGENTS.md",
 			lspEnabled: false,
+			mutationMode: "compatible",
 		});
 		for (const term of [
 			"Goal:",

@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
 import { createWorkerTools, trustedReviewEvidenceRefs, WORKER_FILE_TOOLS, workerDigest } from "./agent-tools.ts";
-import { ANCHORED_EDIT_GUIDANCE } from "./anchored-edit.ts";
+import { ANCHORED_EDIT_GUIDANCE, STRICT_MUTATION_GUIDANCE } from "./anchored-edit.ts";
 import { type RuntimeConfig, RuntimeConfigSchema } from "./config.ts";
 import {
 	HandoffSchema,
@@ -442,6 +442,10 @@ export class PiAgentExecutor implements AgentExecutor {
 				assertActive,
 			});
 			const r3Developer = !!this.options.r3Scope && request.role === "Developer";
+			const mutationToolsAvailable =
+				request.role !== "Reviewer" &&
+				!this.options.r3Scope &&
+				!(request.role === "Executor" && request.scope.risk === "R0");
 			const resourceLoader = workerResources(
 				[
 					`You are the ${request.role} in a sequential Company Runtime.`,
@@ -469,6 +473,7 @@ export class PiAgentExecutor implements AgentExecutor {
 							"Do not invent references from filenames, diffDigest or descriptions. All verdicts require at least one top-level reference; PASS also requires every criterion MET with at least one reference per criterion. " +
 							"If submit_review returns a coverage or evidence validation error, correct it and resubmit alone in this same session.",
 					request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : "",
+					mutationToolsAvailable && this.options.config.mutation.mode === "strict" ? STRICT_MUTATION_GUIDANCE : "",
 					lsp
 						? "Use runtime_lsp_* for read-only diagnostics/navigation when useful. LSP AVAILABLE is not PASS; UNAVAILABLE/PARTIAL/STALE/ERROR never replace required process checks. Re-query stale results. No LSP mutation is available."
 						: "",

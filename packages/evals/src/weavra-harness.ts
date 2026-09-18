@@ -8,6 +8,7 @@ import { classifyRequest, selectWorkflow } from "../../company-runtime/src/class
 import { parseRuntimeConfig, type RuntimeConfig } from "../../company-runtime/src/config.ts";
 import { formatEvidencePack, projectEvidencePack } from "../../company-runtime/src/evidence.ts";
 import { proposeExecutionMode } from "../../company-runtime/src/execution-contract.ts";
+import type { ActionAudit } from "../../company-runtime/src/policy.ts";
 import { buildTaskContract } from "../../company-runtime/src/task-contract.ts";
 import { StandardWorkflow } from "../../company-runtime/src/workflow.ts";
 
@@ -47,6 +48,10 @@ export interface WeavraEvalOptions {
 	 * Injected executors still run inside the real StandardWorkflow/Kernel/Verifier/Evidence Pack path.
 	 */
 	createAgents?: (context: WeavraEvalAgentsContext) => ReturnType<WorkflowCreateAgents>;
+	/** Test/smoke seam: observe or wrap the durable audit boundary (e.g. one controlled external change). */
+	wrapAudit?: (audit: ActionAudit, context: { cwd: string; config: RuntimeConfig }) => ActionAudit;
+	/** Test/smoke fixture mutation mode; absent means the production default (compatible). */
+	mutation?: "compatible" | "strict";
 }
 
 export interface WeavraEvalResult {
@@ -82,7 +87,7 @@ function git(cwd: string, args: string[]): void {
 export function materializeFixture(
 	fixture: WeavraEvalFixture,
 	root: string,
-	options: { provider: string; model: string },
+	options: { provider: string; model: string; mutation?: "compatible" | "strict" },
 ): { cwd: string; config: RuntimeConfig } {
 	const cwd = join(root, fixture.id);
 	mkdirSync(join(cwd, ".ai"), { recursive: true });
@@ -101,6 +106,7 @@ export function materializeFixture(
 			},
 			runtime: { workflow: fixture.workflow },
 			files: { allowed_paths: fixture.allowedPaths },
+			...(options.mutation ? { mutation: { mode: options.mutation } } : {}),
 			verification: {
 				checks: fixture.checkIds.map((id) => ({
 					id,
@@ -121,6 +127,7 @@ export function materializeFixture(
 			`    reasoning: { provider: ${options.provider}, model: ${options.model} }`,
 			`runtime: { workflow: ${fixture.workflow} }`,
 			`files: { allowed_paths: [${fixture.allowedPaths.join(", ")}] }`,
+			...(options.mutation ? [`mutation: { mode: ${options.mutation} }`] : []),
 			"",
 		].join("\n"),
 	);
@@ -142,7 +149,11 @@ export async function runWeavraFixture(
 	const model = options.model ?? process.env.WEAVRA_EVAL_MODEL ?? "deepseek/deepseek-v4.1-flash";
 	const root = mkdtempSync(join(tmpdir(), `weavra-eval-${fixture.id}-`));
 	try {
-		const { cwd, config } = materializeFixture(fixture, root, { provider, model });
+		const { cwd, config } = materializeFixture(fixture, root, {
+			provider,
+			model,
+			...(options.mutation ? { mutation: options.mutation } : {}),
+		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
 		const { classification } = classifyRequest(fixture.goal);
@@ -177,7 +188,7 @@ export async function runWeavraFixture(
 					config,
 					timeoutMs: config.agents.worker_timeout_ms,
 					modelRuntime: models,
-					audit: store,
+					audit: options.wrapAudit ? options.wrapAudit(store, { cwd, config }) : store,
 					quickScope,
 					r2RunId,
 					r3Scope,
@@ -187,10 +198,18 @@ export async function runWeavraFixture(
 		});
 		const report = await workflow.execute();
 		const durationMs = Date.now() - startedAt;
-		const state = JSON.parse(readFileSync(join(cwd, ".ai/state.json"), "utf8")) as {
-			runs: Array<Parameters<typeof projectEvidencePack>[0]["run"]>;
-		};
-		const run = state.runs.at(-1);
+		// A run that failed before its first persist legitimately has no state file; keep the real error.
+		let runs: Array<Parameters<typeof projectEvidencePack>[0]["run"]> = [];
+		try {
+			runs = (
+				JSON.parse(readFileSync(join(cwd, ".ai/state.json"), "utf8")) as {
+					runs: Array<Parameters<typeof projectEvidencePack>[0]["run"]>;
+				}
+			).runs;
+		} catch {
+			runs = [];
+		}
+		const run = runs.at(-1);
 		const pack = run ? projectEvidencePack({ run, report }) : undefined;
 		const reportedTokens = pack
 			? pack.workers.reduce<number | null>(
