@@ -2232,35 +2232,11 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 				).length
 			: 0;
 		if (shouldUseKimiCodingFallback(liveKimiCodingModels)) {
+			// Emit the reviewed snapshot verbatim: it is the published generated provider data of this
+			// package version, so thinkingLevelMap/compat/cost stay byte-identical to the committed catalog.
 			const fallback = loadKimiCodingFallback();
 			if (!fallback.ok) throw new Error(`Kimi coding fallback invalid: ${fallback.reason}`);
-			for (const model of fallback.models) {
-				const normalizedId = model.id;
-				const isKimiK3 = normalizedId === "k3";
-				const allowEmptySignature = isKimiK3 || normalizedId === "kimi-for-coding";
-				const impliedCost = KIMI_CODING_IMPLIED_COSTS[normalizedId];
-				models.push({
-					id: normalizedId,
-					name: model.name || normalizedId,
-					api: "anthropic-messages",
-					provider: "kimi-coding",
-					baseUrl: "https://api.kimi.com/coding",
-					compat: {
-						...(allowEmptySignature ? { allowEmptySignature: true } : {}),
-						forceAdaptiveThinking: true,
-					},
-					reasoning: isKimiK3 || model.reasoning === true,
-					input: model.input.includes("image") ? ["text", "image"] : ["text"],
-					cost: {
-						input: model.cost.input || impliedCost?.input || 0,
-						output: model.cost.output || impliedCost?.output || 0,
-						cacheRead: model.cost.cacheRead || impliedCost?.cacheRead || 0,
-						cacheWrite: model.cost.cacheWrite || impliedCost?.cacheWrite || 0,
-					},
-					contextWindow: model.contextWindow || 4096,
-					maxTokens: model.maxTokens || 4096,
-				});
-			}
+			for (const model of fallback.models) models.push(model as unknown as Model<any>);
 		}
 		if (data["kimi-for-coding"]?.models && !shouldUseKimiCodingFallback(liveKimiCodingModels)) {
 			const kimiModels = data["kimi-for-coding"].models as Record<string, ModelsDevModel>;
