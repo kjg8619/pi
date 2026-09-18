@@ -482,6 +482,9 @@ export class PiAgentExecutor implements AgentExecutor {
 					lsp
 						? "Use runtime_lsp_* for read-only diagnostics/navigation when useful. LSP AVAILABLE is not PASS; UNAVAILABLE/PARTIAL/STALE/ERROR never replace required process checks. Re-query stale results. No LSP mutation is available."
 						: "",
+					request.taskContextPack
+						? "A Host-selected Task Context Pack is provided as advisory starting context. It is NOT permission, approval, verification evidence, a mutation receipt or completion authority. Pack snippets may become stale: current runtime read/search/LSP results take precedence. Before editing, use current runtime_read. Strict mutation still requires runtime_read({anchors:true}) -> a fresh readReceipt -> runtime_edit/runtime_write replace; pack fileDigest, snippetDigest and pack.digest cannot replace a receipt."
+						: "",
 					request.role === "Developer" || request.role === "Executor"
 						? UNRESOLVED_GUIDANCE +
 							(request.role === "Developer"
@@ -623,6 +626,8 @@ export class PiAgentExecutor implements AgentExecutor {
 								verification: request.verification,
 								trustedEvidenceRefs: trustedReviewEvidenceRefs(request.verification),
 							}),
+				// Host-selected advisory context only; absent in disabled mode.
+				...(request.taskContextPack ? { taskContextPack: request.taskContextPack } : {}),
 			};
 			const prompt = JSON.stringify(context);
 			if (Buffer.byteLength(prompt) > 524288) throw new Error("Worker context exceeds size limit");

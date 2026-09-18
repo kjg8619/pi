@@ -906,6 +906,89 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(store.snapshot.actions).toEqual([]);
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
+	it("carries a bounded task context pack into the worker prompt as advisory context", async () => {
+		const prompts: string[] = [];
+		const spy = vi.spyOn(AgentSession.prototype, "prompt");
+		const original = spy.getMockImplementation()!;
+		spy.mockImplementation(function (this: AgentSession, ...args) {
+			prompts.push(String(args[0]));
+			return original.apply(this, args);
+		});
+		const pack = {
+			version: 1,
+			digest: `sha256:${"a".repeat(64)}`,
+			mode: "bounded" as const,
+			targetSymbols: [],
+			relatedFiles: [{ path: "src/app.ts", reasons: ["acceptance-scope"] }],
+			projectRules: { kind: "none" as const, path: null, digest: null, bytes: null },
+			snippets: [
+				{
+					path: "src/app.ts",
+					startLine: 1,
+					endLine: 1,
+					fileDigest: `sha256:${"b".repeat(64)}`,
+					snippetDigest: `sha256:${"c".repeat(64)}`,
+					text: "original",
+				},
+			],
+			unknowns: [],
+			truncated: false,
+		};
+		let systemPrompt = "";
+		harness.setResponses([
+			(context) => {
+				systemPrompt = context.systemPrompt ?? "";
+				return submitHandoff();
+			},
+		]);
+		await executor.execute({ ...developer(), taskContextPack: pack });
+		const withPack = prompts.at(-1)!;
+		expect(withPack).toContain('"taskContextPack"');
+		expect(systemPrompt).toContain("advisory starting context");
+		expect(systemPrompt).toContain("cannot replace a receipt");
+		expect(withPack).not.toContain("onSessionCreated");
+		expect(withPack).not.toContain("AbortSignal");
+		expect(withPack).not.toContain('"lsp"');
+		expect(withPack).not.toContain("PROJECT_PRIVATE_MARKER");
+
+		systemPrompt = "";
+		harness.setResponses([
+			(context) => {
+				systemPrompt = context.systemPrompt ?? "";
+				return submitHandoff();
+			},
+		]);
+		await executor.execute(developer());
+		const withoutPack = prompts.at(-1)!;
+		expect(withoutPack).not.toContain("taskContextPack");
+		expect(systemPrompt).not.toContain("advisory starting context");
+	});
+
+	it("fails closed when a task context pack pushes the worker prompt past the limit", async () => {
+		harness.setResponses([submitHandoff()]);
+		const huge = {
+			version: 1,
+			digest: `sha256:${"a".repeat(64)}`,
+			mode: "bounded" as const,
+			targetSymbols: [],
+			relatedFiles: [],
+			projectRules: { kind: "none" as const, path: null, digest: null, bytes: null },
+			snippets: [
+				{
+					path: "src/app.ts",
+					startLine: 1,
+					endLine: 1,
+					fileDigest: "d",
+					snippetDigest: "e",
+					text: "x".repeat(600000),
+				},
+			],
+			unknowns: [],
+			truncated: false,
+		};
+		await expect(executor.execute({ ...developer(), taskContextPack: huge })).rejects.toThrow();
+	});
+
 	it("tells workers that verifier trust sources are protected oracle inputs", async () => {
 		mkdirSync(join(workspace, "test"), { recursive: true });
 		writeFileSync(join(workspace, "test/oracle.mjs"), "console.log('oracle');\n");
