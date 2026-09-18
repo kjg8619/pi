@@ -43,7 +43,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3B Read-only LSP | 완료 / 게시 | `a3eae0c86`에 반영. LOG-043 자동 47개 파일·1,565개 및 실제 TS/Provider smoke PASS |
 | V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
-| CommandCode/DeepSeek Worker Validation | 완료 / user-level 설정만, 제품 source 무변경 | `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
+| CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2551,6 +2551,18 @@ Cross validation:           codex-lb / GPT-6 Astra (1회)
 - QUICK/R0 handoff 처리(identity mismatch의 consumable 여부), QUICK Executor `unresolved` 안내, 보호된 지시 파일 read 안내는 제품 source/prompt 변경이 필요한 **미결정 사항**이며 이번에 코드를 바꾸지 않았다. `~/.weavra/cmd.env` 유지/삭제도 사용자 결정이다. 네 항목과 근거는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "열린 결정"에 기록했다.
 - V0.3E Task Contract 구현은 이번 작업에서 시작하지 않았다. DeepSeek로 dogfooding하려면 위 오류 처리·prompt 개선을 선행하는 편이 실효적이라는 판단만 기록하며, 착수는 별도 승인 대상이다.
 - **커밋:** 하지 않음 (LOG-052 포함 미커밋).
+
+---
+
+## LOG-054 — CommandCode smoke 문서 게시
+
+- **기록일:** 2026-09-18 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-052·LOG-053과 README·smoke 문서를 커밋하고 `origin/devlop`에 게시한다. 판정과 결과는 변경하지 않는다.
+- **변경 파일:** `README.md`, `docs/WORK_LOG.md`, 신규 `docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md` — LOG-052(하네스 전환 확인), LOG-053(CommandCode 구성·smoke), 현재 요약, README의 DeepSeek 표기. 제품 source/test/config/dependency 변경은 없다.
+- **이번 검증:** 게시 전 `npm run check:ci` 재실행 PASS(Biome 1,388 files, 자동 수정·warning/info/error 없음), `git diff --check` PASS, `bash -n packages/company-runtime/bin/weavra` PASS. 커밋 후 로컬/원격 HEAD 일치와 clean working tree, RC 태그 불변을 확인했다.
+- **과거 검증과 구분:** 실제 Provider smoke 결과·사용량·cleanup은 LOG-053 당시 결과다. 이번 게시 준비에서는 Provider/targeted tests/TUI/build를 재실행하지 않았다. 로컬 check를 원격 CI PASS로 주장하지 않는다.
+- **커밋·푸시:** `6c86bd5d6`(`332e90b8f` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-052·LOG-053 본문의 커밋 상태 표기는 작성 시점 기준이며 실제 게시 커밋은 `6c86bd5d6`다. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다. 강제 푸시는 사용하지 않았다.
+- **남은 제한·다음 작업:** [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "열린 결정" 4항목(identity mismatch consumable 처리, Executor `unresolved`·보호 파일 read 안내, `cmd.env` 유지/삭제, V0.3E 착수)은 여전히 사용자 승인 대상이다.
 
 ---
 
