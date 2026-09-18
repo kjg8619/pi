@@ -123,7 +123,10 @@ function assertVerification(
 		}
 		if (expected?.sandboxRequired === true && check.required) {
 			const sandbox = check.sandbox;
-			requireEvidence(sandbox?.status === "ENFORCED", "A required check is not sandbox enforced");
+			requireEvidence(
+				sandbox?.mode === "required" && sandbox.status === "ENFORCED",
+				"A required check is not sandbox enforced",
+			);
 			// ENFORCED alone is not authority: the policy digest must match the Host-frozen sandbox policy.
 			requireEvidence(
 				!!expected.sandboxPolicyDigest && sandbox?.policyDigest === expected.sandboxPolicyDigest,

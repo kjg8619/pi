@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { workerDigest } from "./agent-tools.ts";
 import type { RuntimeConfig } from "./config.ts";
 import type { CheckResult, VerificationResult } from "./contracts.ts";
@@ -13,9 +13,12 @@ import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnviron
 import {
 	buildSandboxPolicy,
 	canonicalHostPath,
+	probeSandboxBackend,
 	runSandboxedCheck,
 	type SandboxPolicySnapshot,
+	SandboxUnavailableError,
 	sandboxEvidence,
+	validateSandboxBackend,
 } from "./sandbox.ts";
 import {
 	executableIdentityDigest,
@@ -121,28 +124,43 @@ export class RegisteredVerifier implements Verifier {
 		});
 		// Sandbox preflight runs before any worker model interaction; required mode never falls back unsandboxed.
 		const sandboxMode = config.verification.sandbox?.mode ?? "disabled";
-		const sandbox =
-			sandboxMode === "required"
-				? buildSandboxPolicy({
-						workspace: canonicalHostPath(workspace.cwd),
-						trustedSources: [
-							...new Set(
-								config.verification.checks.flatMap((check) =>
-									resolveVerifierTrustSources(workspace.cwd, check),
-								),
-							),
-						],
-						protectedPaths: [
-							...new Set([
-								...(policy.protectedPaths ?? []),
-								...(policy.projectInstruction?.path ? [policy.projectInstruction.path] : []),
-								".git",
-								".ai",
-								".env",
-							]),
-						],
-					})
-				: undefined;
+		let sandbox: SandboxPolicySnapshot | undefined;
+		if (sandboxMode === "required") {
+			const trustedSources = [
+				...new Set(
+					config.verification.checks.flatMap((check) => resolveVerifierTrustSources(workspace.cwd, check)),
+				),
+			];
+			const canonicalTrust = trustedSources.map((path) => canonicalHostPath(join(workspace.cwd, path)));
+			const protectedCandidates = [
+				...new Set([
+					...(policy.protectedPaths ?? []),
+					...(policy.projectInstruction?.path ? [policy.projectInstruction.path] : []),
+					".git",
+					".ai",
+					".env",
+				]),
+			].map((path) => canonicalHostPath(join(workspace.cwd, path)));
+			// Worker protection is not the sandbox read boundary, but a trusted source nested inside a
+			// protected read region (or equal to it) would stop the verifier from reading its own oracle.
+			for (const source of canonicalTrust) {
+				for (const protectedPath of protectedCandidates) {
+					// Exact equality is a Worker-protection entry, not a read-boundary conflict.
+					if (source.startsWith(`${protectedPath}${sep}`))
+						throw new SandboxUnavailableError(
+							"trusted verifier source conflicts with sandbox protected read boundary",
+						);
+				}
+			}
+			sandbox = buildSandboxPolicy({
+				workspace: canonicalHostPath(workspace.cwd),
+				trustedSources,
+				// Trusted sources stay write-denied through trustedSources; they are not read-denied here.
+				protectedPaths: protectedCandidates.filter((path) => !canonicalTrust.includes(path)),
+			});
+			const probe = await probeSandboxBackend(sandbox);
+			if (!probe.ok) throw new SandboxUnavailableError(probe.reason ?? "OS sandbox backend preflight failed");
+		}
 		return new RegisteredVerifier(
 			config,
 			structuredClone(policy),
@@ -475,6 +493,16 @@ export class RegisteredVerifier implements Verifier {
 				final = { ...final, safe: false };
 			}
 			markStaleLspEvidence(lspEvidence, final.diffDigest, final.safe);
+		}
+		if (this.sandbox) {
+			const backendState = validateSandboxBackend(this.sandbox.backend);
+			if (!backendState.ok)
+				for (const check of checks)
+					if (check.status === "PASS" && check.sandbox) {
+						check.status = "FAIL";
+						check.reason = backendState.reason ?? "Verifier sandbox backend changed";
+						check.sandbox = sandboxEvidence(this.sandbox, "STALE");
+					}
 		}
 		for (const [index, check] of checks.entries())
 			if (check.status === "PASS" && this.trustSnapshots[index]?.mode === "strict") {

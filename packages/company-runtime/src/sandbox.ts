@@ -24,6 +24,12 @@ export interface SandboxBackend {
 	cliPath: string;
 	packageRoot: string;
 	version: string;
+	dev: string;
+	ino: string;
+	mode: string;
+	size: string;
+	mtimeNs: string;
+	ctimeNs: string;
 	identityDigest: string;
 }
 
@@ -65,20 +71,80 @@ function sha256Of(value: unknown, domain: string): string {
 	return createHash("sha256").update(JSON.stringify({ domain, value })).digest("hex");
 }
 
-function identityDigest(path: string, domain: string): string {
+function identityOf(path: string) {
 	const stat = statSync(path, { bigint: true });
-	return `sha256:${sha256Of(
-		{
-			path,
-			dev: stat.dev.toString(),
-			ino: stat.ino.toString(),
-			mode: stat.mode.toString(),
-			size: stat.size.toString(),
-			mtimeNs: stat.mtimeNs.toString(),
-			ctimeNs: stat.ctimeNs.toString(),
-		},
-		domain,
-	)}`;
+	return {
+		dev: stat.dev.toString(),
+		ino: stat.ino.toString(),
+		mode: stat.mode.toString(),
+		size: stat.size.toString(),
+		mtimeNs: stat.mtimeNs.toString(),
+		ctimeNs: stat.ctimeNs.toString(),
+	};
+}
+
+function identityDigest(path: string, identity: ReturnType<typeof identityOf>): string {
+	return `sha256:${sha256Of({ path, ...identity }, BACKEND_DOMAIN)}`;
+}
+
+/** Identity digest of a CLI path; the Host reuses this to freeze and to revalidate the backend. */
+export function sandboxBackendIdentity(path: string): string {
+	return identityDigest(path, identityOf(path));
+}
+
+/** Full backend fingerprint for a CLI path (test/composition seam; no production bypass). */
+export function sandboxBackendFingerprint(path: string) {
+	const identity = identityOf(path);
+	return { ...identity, identityDigest: identityDigest(path, identity) };
+}
+
+/** Backend freshness: the same CLI filesystem object must still exist. Recreate/replace is STALE. */
+export function validateSandboxBackend(snapshot: SandboxBackend): { ok: boolean; reason?: string } {
+	try {
+		const current = identityOf(snapshot.cliPath);
+		for (const key of ["dev", "ino", "mode", "size", "mtimeNs", "ctimeNs"] as const)
+			if (current[key] !== snapshot[key]) return { ok: false, reason: `Verifier sandbox backend ${key} changed` };
+		if (identityDigest(snapshot.cliPath, current) !== snapshot.identityDigest)
+			return { ok: false, reason: "Verifier sandbox backend identity digest changed" };
+		return { ok: true };
+	} catch {
+		return { ok: false, reason: "Verifier sandbox backend is unavailable" };
+	}
+}
+
+export interface SandboxBackendProbe {
+	ok: boolean;
+	reason?: string;
+}
+
+/**
+ * Host-owned no-op probe: proves the OS backend really initializes before any worker model interaction.
+ * It never runs project code or oracle files and never falls back to an unsandboxed process.
+ */
+export async function probeSandboxBackend(snapshot: SandboxPolicySnapshot): Promise<SandboxBackendProbe> {
+	const directory = mkdtempSync(join(tmpdir(), "weavra-sandbox-probe-"));
+	const settingsPath = join(directory, "settings.json");
+	try {
+		writeFileSync(settingsPath, JSON.stringify(snapshot.settings), { mode: 0o600 });
+		// argv-only no-op: no file outside the workspace is read, no shell string is used.
+		const result = await runProcess({
+			executable: process.execPath,
+			argv: [snapshot.backend.cliPath, "-s", settingsPath, "--", process.execPath, "-e", "process.exit(0)"],
+			cwd: directory,
+			env: { PATH: "/usr/bin:/bin" },
+			timeoutMs: 30000,
+		});
+		if (result.reason !== "exited" || result.exitCode !== 0)
+			return { ok: false, reason: `Verifier sandbox backend probe failed (${result.reason})` };
+		if (!result.cleanupConfirmed) return { ok: false, reason: "Verifier sandbox backend probe cleanup unconfirmed" };
+		if (!validateSandboxBackend(snapshot.backend).ok)
+			return { ok: false, reason: "Verifier sandbox backend changed during the probe" };
+		return { ok: true };
+	} catch (error) {
+		return { ok: false, reason: error instanceof Error ? error.message : "Verifier sandbox probe failed" };
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 }
 
 /**
@@ -105,11 +171,13 @@ export function resolveSandboxBackend(): SandboxBackend {
 	const entry = metadata.bin?.srt;
 	if (!entry) throw new SandboxUnavailableError(`${SRT_PACKAGE} exposes no srt CLI entry`);
 	const cliPath = realpathSync(join(packageRoot, entry));
+	const identity = identityOf(cliPath);
 	return {
 		cliPath,
 		packageRoot,
 		version: metadata.version,
-		identityDigest: identityDigest(cliPath, BACKEND_DOMAIN),
+		...identity,
+		identityDigest: identityDigest(cliPath, identity),
 	};
 }
 
@@ -140,6 +208,8 @@ export function buildSandboxPolicy(input: {
 	trustedSources: readonly string[];
 	/** Canonical workspace-relative paths denied for read+write (project instruction, .git/.ai, .env, credentials). */
 	protectedPaths: readonly string[];
+	/** Test seam: replace the frozen backend identity so digest binding can be verified without touching node_modules. */
+	identityOverrideForTest?: string;
 }): SandboxPolicySnapshot {
 	const workspace = canonicalHostPath(input.workspace);
 	// Workspace-relative policy entries resolve against the canonical workspace root; absolute entries stay as-is.
@@ -158,23 +228,32 @@ export function buildSandboxPolicy(input: {
 		},
 		network: { allowedDomains: [] as string[], deniedDomains: [] as string[] },
 	};
+	const resolvedBackend = resolveSandboxBackend();
+	const backend = input.identityOverrideForTest
+		? { ...resolvedBackend, identityDigest: input.identityOverrideForTest }
+		: resolvedBackend;
+	// The digest binds the exact canonical settings and the backend identity, not a summary of them.
 	const policyDigest = `sha256:${sha256Of(
 		{
-			backend: SRT_PACKAGE,
-			version: SRT_VERSION,
-			networkMode: "deny-all",
-			workspaceRead: true,
-			workspaceWrite: true,
-			denyRead: settings.filesystem.denyRead.length,
-			allowRead: settings.filesystem.allowRead.length,
-			denyWrite: settings.filesystem.denyWrite.length,
-			protectedDigest: sha256Of(protect, SANDBOX_POLICY_DOMAIN),
-			trustedDigest: sha256Of([...input.trustedSources].sort(), SANDBOX_POLICY_DOMAIN),
+			schema: "v1",
+			backend: { package: SRT_PACKAGE, version: backend.version, identityDigest: backend.identityDigest },
+			canonicalSettings: {
+				filesystem: {
+					denyRead: [...settings.filesystem.denyRead].sort(),
+					allowRead: [...settings.filesystem.allowRead].sort(),
+					allowWrite: [...settings.filesystem.allowWrite].sort(),
+					denyWrite: [...settings.filesystem.denyWrite].sort(),
+				},
+				network: {
+					allowedDomains: [...settings.network.allowedDomains].sort(),
+					deniedDomains: [...settings.network.deniedDomains].sort(),
+				},
+			},
 		},
 		SANDBOX_POLICY_DOMAIN,
 	)}`;
 	return {
-		backend: resolveSandboxBackend(),
+		backend,
 		settings,
 		policyDigest,
 		networkMode: "deny-all",
@@ -209,6 +288,20 @@ export async function runSandboxedCheck(input: {
 	timeoutMs: number;
 	signal?: AbortSignal;
 }): Promise<{ result: ProcessResult; status: SandboxStatus }> {
+	const backendState = validateSandboxBackend(input.snapshot.backend);
+	if (!backendState.ok)
+		return {
+			result: {
+				reason: "unavailable" as const,
+				exitCode: null,
+				stdout: "",
+				stderr: "",
+				startedAt: Date.now(),
+				finishedAt: Date.now(),
+				cleanupConfirmed: true,
+			},
+			status: "UNAVAILABLE" as SandboxStatus,
+		};
 	const directory = mkdtempSync(join(tmpdir(), "weavra-sandbox-"));
 	const settingsPath = join(directory, "settings.json");
 	try {
@@ -224,9 +317,11 @@ export async function runSandboxedCheck(input: {
 		const status: SandboxStatus =
 			result.reason === "unavailable" || !result.cleanupConfirmed
 				? "UNAVAILABLE"
-				: result.reason === "exited"
-					? "ENFORCED"
-					: "STALE";
+				: !validateSandboxBackend(input.snapshot.backend).ok
+					? "STALE"
+					: result.reason === "exited"
+						? "ENFORCED"
+						: "STALE";
 		return { result, status };
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

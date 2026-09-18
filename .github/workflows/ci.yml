@@ -5,6 +5,7 @@ on:
     branches: [main, devlop]
   pull_request:
     branches: [main, devlop]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -26,7 +27,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          # bubblewrap + socat are required by the verifier sandbox (V0.4C) Linux backend; ripgrep is already listed.
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep bubblewrap socat
           sudo ln -s $(which fdfind) /usr/local/bin/fd
 
       - name: Install dependencies
@@ -41,6 +43,11 @@ jobs:
 
       - name: Check (non-mutating)
         run: npm run check:ci
+
+      - name: Verifier sandbox Linux actual
+        run: |
+          cd packages/company-runtime
+          node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run --maxWorkers=2 test/sandbox.test.ts
 
       - name: Test (isolated, no Provider credentials)
         run: bash ./test.sh

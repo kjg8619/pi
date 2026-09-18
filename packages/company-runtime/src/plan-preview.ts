@@ -31,7 +31,7 @@ export function formatPlanPreview(plan: PlanPreview): string {
 				`  ${criterion.id} ${criterion.statement} [checks: ${criterion.verification.checkIds.join(", ") || "none"}; review: ${criterion.verification.reviewRequired ? "required" : "not required"}]`,
 		),
 		`Allowed paths: ${plan.allowedPaths.length ? plan.allowedPaths.join(", ") : "(none configured)"}`,
-		"Planned checks (trusted local programs; may mutate files; not sandboxed):",
+		`Planned checks (trusted local programs; may mutate files; ${plan.verifierSandboxMode === "required" ? "verifier OS sandbox required" : "not sandboxed"}):`,
 		...plan.checks.map(
 			(check) =>
 				`  ${check.id} (${check.kind})${check.required ? " required" : " optional"}: ${check.executable} ${check.args.join(" ")}`,

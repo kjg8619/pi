@@ -14,6 +14,8 @@ import {
 	resolveSandboxBackend,
 	runSandboxedCheck,
 	SRT_VERSION,
+	sandboxBackendFingerprint,
+	validateSandboxBackend,
 } from "../src/sandbox.ts";
 import { RegisteredVerifier } from "../src/verification.ts";
 import { GitWorkspace } from "../src/workspace.ts";
@@ -60,7 +62,8 @@ const policyOf = (config: RuntimeConfig): PolicyContext => ({
 	executionRunId: "run-1",
 	tools: [],
 	allowedPaths: [...config.files.allowed_paths],
-	protectedPaths: [".env", ".git", ".ai"],
+	// Production-shaped: worker protection includes the trusted oracle; the sandbox read boundary must not.
+	protectedPaths: [...config.verification.checks.flatMap((check) => check.trust.files), ".env", ".git", ".ai"],
 	configDigest: "frozen-config",
 });
 
@@ -380,5 +383,174 @@ describe("V0.4C kernel sandbox guard", () => {
 			policyDigest: "sha256:not-a-hash",
 		});
 		expect(error).toContain("Invalid runtime contract");
+	});
+});
+
+describe("V0.4C closure: oracle read boundary, digest contract and freshness", () => {
+	it("keeps the trusted oracle readable for the verifier while the worker is denied", async () => {
+		const config = configOf("required", [ORACLE]);
+		const { evaluatePolicy } = await import("../src/policy.ts");
+		const policy = policyOf(config);
+		expect(policy.protectedPaths).toContain(ORACLE);
+		const readDecision = evaluatePolicy(
+			{
+				runId: "run-1",
+				actionId: "a1",
+				role: "Developer",
+				tool: "runtime_read",
+				risk: "R0",
+				paths: [ORACLE],
+				actionDigest: "digest",
+			},
+			policy,
+			[{ path: ORACLE, safe: true, kind: "file" }],
+			Date.now(),
+		);
+		expect(readDecision.decision).toBe("DENY");
+		const verifier = await verifierOf(config);
+		const result = await verifier.verify(requestOf(verifier) as never);
+		expect(result.checks[0].status).toBe("PASS");
+		expect(result.checks[0].sandbox?.status).toBe("ENFORCED");
+		expect(result.checks[0].stdout).toContain("oracleWrite: BLOCKED");
+	});
+
+	it("fails closed when a trusted source sits under a protected read boundary", async () => {
+		const config = configOf("required", [ORACLE]);
+		const policy = { ...policyOf(config), protectedPaths: ["test", ".env"] };
+		const workspace = await GitWorkspace.open(cwd, policy);
+		await expect(RegisteredVerifier.create(config, policy, audit, workspace)).rejects.toThrow(
+			"conflicts with sandbox protected read boundary",
+		);
+	});
+
+	it("binds the exact canonical settings and backend identity in the policy digest", () => {
+		const base = {
+			workspace: cwd,
+			trustedSources: [ORACLE],
+			protectedPaths: [".env", ".git"],
+		};
+		const a = buildSandboxPolicy(base);
+		const b = buildSandboxPolicy({ ...base, protectedPaths: [".git", ".env"] });
+		expect(a.policyDigest).toBe(b.policyDigest);
+		const otherWorkspace = realpathSync(mkdtempSync(join(tmpdir(), "weavra-other-")));
+		expect(buildSandboxPolicy({ ...base, workspace: otherWorkspace }).policyDigest).not.toBe(a.policyDigest);
+		expect(buildSandboxPolicy({ ...base, protectedPaths: [".env"] }).policyDigest).not.toBe(a.policyDigest);
+		expect(buildSandboxPolicy({ ...base, trustedSources: [] }).policyDigest).not.toBe(a.policyDigest);
+		expect(
+			buildSandboxPolicy({ ...base, identityOverrideForTest: `sha256:${"e".repeat(64)}` } as never).policyDigest,
+		).not.toBe(a.policyDigest);
+		rmSync(otherWorkspace, { recursive: true, force: true });
+	});
+
+	it("treats a replaced or recreated backend CLI as stale", () => {
+		const backend = resolveSandboxBackend();
+		expect(validateSandboxBackend(backend).ok).toBe(true);
+		const copyDir = realpathSync(mkdtempSync(join(tmpdir(), "weavra-backend-")));
+		const copy = join(copyDir, "cli.js");
+		writeFileSync(copy, readFileSync(backend.cliPath));
+		const fake = { ...backend, cliPath: copy, ...sandboxBackendFingerprint(copy) };
+		expect(validateSandboxBackend(fake).ok).toBe(true);
+		rmSync(copy);
+		writeFileSync(copy, readFileSync(backend.cliPath));
+		expect(validateSandboxBackend(fake).ok).toBe(false);
+		rmSync(copyDir, { recursive: true, force: true });
+	});
+
+	it("rejects ENFORCED evidence whose mode is not required", async () => {
+		const TRUST = `sha256:${"a".repeat(64)}`;
+		const POLICY = `sha256:${"b".repeat(64)}`;
+		const { CompanyKernel } = await import("../src/kernel.ts");
+		const { classifyRequest } = await import("../src/classification.ts");
+		const checks = [
+			{
+				id: "acceptance",
+				kind: "test" as const,
+				required: true,
+				trustRequired: true,
+				trustRegistrationDigest: TRUST,
+				sandboxRequired: true,
+				sandboxPolicyDigest: POLICY,
+			},
+		];
+		const kernel = await CompanyKernel.create(
+			{
+				executionMode: "EDIT",
+				runId: "mode-run",
+				task: testContract("Fix", { taskId: "task-1", checkIds: ["acceptance"] }),
+				classification: classifyRequest("Fix").classification,
+				checks,
+			},
+			{
+				agents: {
+					execute: async (input: { runId: string; revision: number; task: { id: string } }) => ({
+						role: "Developer",
+						handoff: {
+							runId: input.runId,
+							revision: input.revision,
+							role: "Developer",
+							task: input.task.id,
+							changed_files: [],
+							summary: "fixture",
+							assumptions: [],
+							tests_run: [],
+							known_risks: [],
+							unresolved: [],
+						},
+					}),
+				},
+				verifier: {
+					verify: async (input: { runId: string; revision: number; step: unknown }) =>
+						({
+							runId: input.runId,
+							revision: input.revision,
+							step: input.step,
+							diffDigest: "digest",
+							evidenceRefs: ["diff:digest"],
+							changedFiles: [],
+							checks: checks.map((check) => ({
+								id: check.id,
+								kind: check.kind,
+								required: check.required,
+								runId: input.runId,
+								revision: input.revision,
+								step: input.step,
+								status: "PASS" as const,
+								exitCode: 0,
+								reason: "forged",
+								evidenceRefs: [`check:${check.id}`],
+								diffDigest: "digest",
+								trust: {
+									mode: "strict",
+									status: "VERIFIED",
+									registrationDigest: TRUST,
+									executableDigest: `sha256:${"c".repeat(64)}`,
+									sources: [],
+								},
+								sandbox: {
+									mode: "disabled",
+									status: "ENFORCED",
+									backend: "srt",
+									backendVersion: "0.0.76",
+									policyDigest: POLICY,
+								},
+							})),
+						}) as never,
+					inspect: async () => ({
+						diffDigest: "digest",
+						changedFiles: [],
+						evidenceRefs: ["diff:digest"],
+						safe: true,
+					}),
+				},
+				store: { load: async () => undefined, save: async () => {} },
+			} as never,
+		);
+		await kernel.start();
+		for (let guard = 0; guard < 16 && kernel.snapshot.status === "RUNNING"; guard += 1) {
+			const step = kernel.snapshot.currentStep?.stepId;
+			if (!step) break;
+			await kernel.advance(step);
+		}
+		expect(kernel.snapshot.lastError ?? "").toContain("not sandbox enforced");
 	});
 });
