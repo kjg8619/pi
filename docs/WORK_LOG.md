@@ -45,19 +45,25 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
-| V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
-| V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 게시 `c95993b9f` | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS | LOG-061. 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
+| V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
+| V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 게시 `c95993b9f` | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS. 선행 LOG-061 Measurement Hardening: 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
-현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. Attempt 1은 `path:"."` DENY/FAILED·무변경으로 끝났다. 별도 승인된 LOG-050의 Attempt 2는 커밋 `6da0c5ce5`에서 snapshot/list filtering·anchored edit·독립 Reviewer·두 required checks·fresh evidence·cleanup과 실제 COMPLETED를 확인했다. 다만 두 역할 모두 `runtime_list_files({path:"src",maxDepth:1})`를 사용하여 요청한 path omission은 NOT VERIFIED이며, Attempt 2 acceptance는 FAILED로 유지한다. 전체 V0.3D Provider smoke PASS로 변경하지 않고 추가 Provider 호출/제품 수정도 하지 않았다. 이후 별도 사용자 요청에 따라 같은 판정의 evidence 문서만 커밋·푸시한다(LOG-051). 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
+현재 상태는 다음과 같다. 상세 history는 각 LOG와 [V0.3D smoke 문서](WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)에 그대로 보존한다.
+
+- V0.3A Hash-Anchored Edit, V0.3B Read-only LSP, V0.3C Trust Baseline, V0.3D Project Context는 완료다. V0.3D의 역사적 판정은 소급 수정하지 않는다(Attempt 1 `path:"."` DENY/FAILED·무변경, LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission은 NOT VERIFIED, default-root `{}` 후속 evidence 포함).
+- Provider Compatibility Hardening(LOG-055·LOG-056), V0.3E Task Contract(LOG-057·LOG-058), V0.3F Measurement & Evidence(LOG-059), V0.3F Measurement Hardening(LOG-061), V0.3F Final Micro Hardening(LOG-062)까지 완료·게시했다. V0.3F는 LOG-062로 종료한다.
+- 다음 개발 단계는 **V0.4A — Strict Mutation Hardening**이다.
+- 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
+- 아직 NOT VERIFIED: 최신 HEAD의 remote GitHub Actions 실제 PASS, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, verifier sandbox, COMPLEX/parallel, browser/MCP/memory.
 
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
-이어서 LOG-055에서 structured submission identity mismatch를 같은 worker session에서 정정할 수 있게 하고(거부·무결성 유지, host 자동 교정 없음), QUICK Executor의 `unresolved` 의미와 configured project instruction 보호 안내를 보강했다. before/after는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "Provider Compatibility Hardening" 절에 기록한다. V0.3E Task Contract는 별도 승인 전까지 시작하지 않는다.
+이어서 LOG-055에서 structured submission identity mismatch를 같은 worker session에서 정정할 수 있게 하고(거부·무결성 유지, host 자동 교정 없음), QUICK Executor의 `unresolved` 의미와 configured project instruction 보호 안내를 보강했다. before/after는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "Provider Compatibility Hardening" 절에 기록한다.
 
-LOG-057에서 V0.3E Task Contract를 구현했다: Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen task contract digest·AC 기반 완료 guard와 evidence mapping. 실제 Provider smoke는 DeepSeek STANDARD/EDIT 1회와 GPT 교차 1회 모두 COMPLETED(2 AC MET)이며, R2/R3·미충족 AC 부정 경로의 live smoke는 NOT VERIFIED다. 구현·문서는 **미커밋**이며 사용자 승인 후 게시한다.
+LOG-057에서 V0.3E Task Contract를 구현했다: Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen task contract digest·AC 기반 완료 guard와 evidence mapping. 실제 Provider smoke는 DeepSeek STANDARD/EDIT 1회와 GPT 교차 1회 모두 COMPLETED(2 AC MET)이며, R2/R3·미충족 AC 부정 경로의 live smoke는 NOT VERIFIED다. 구현·문서는 `5bc7f8a43`로 게시했다(LOG-058).
 
 ---
 
@@ -2916,6 +2922,23 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - 이번 micro hardening은 cancellation race와 telemetry 반환값 격리만 다룬다. telemetry 외부 exporter, 실제 가격/비용, R2/R3 measurement·evidence, Plain Pi 비교, eval corpus 확장, verifier sandbox, Planner/병렬/COMPLEX는 여전히 NOT VERIFIED다.
 - **다음 단계:** 이 작업이 clean하게 끝나면 V0.4A — Strict Mutation Hardening으로 넘어간다.
 - **커밋·푸시:** 사용자 승인 후 `c95993b9f`(`eea796117` 위)로 게시했다. 강제 push는 하지 않았고 `weavra-v0.1-rc1` 태그는 불변이다. V0.3F는 이 커밋으로 종료되며 다음 단계는 V0.4A — Strict Mutation Hardening이다.
+
+---
+
+## LOG-063 — WORK_LOG current-state cleanup
+
+- **기록일:** 2026-09-18 (KST)
+- **기준 SHA:** `0ee163a3f64d0a019454660e9ca6d98561ece754`(clean, `origin/devlop` 일치, rebase 불필요). 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **상태·목적:** docs-only 정리. `docs/WORK_LOG.md`만 수정했고 Runtime/source/test/config/package/lockfile은 건드리지 않았다. Provider 호출도 없다.
+- **변경 내용:**
+  - 현재 요약 표의 `V0.3F Final Micro Hardening` 행에 `|`가 하나 더 있어 4열처럼 깨져 있었다. LOG-062 결과와 선행 LOG-061 결과를 한 셀에 담아 정상 3열 행으로 복구했다. 수치(53개 파일·1,640개 / 1,636개)와 게시 SHA(`c95993b9f`)는 변경하지 않았다.
+  - 표에서 `V0.3E Task Contract` 행을 `V0.3F Measurement & Evidence` 행 앞으로 옮겨 개발 순서(V0.3C → V0.3D → Provider Validation → Provider Compatibility Hardening → V0.3E → V0.3F → V0.3F hardening)로 읽히게 했다. 행 내용과 수치는 그대로다.
+  - 표 아래의 stale 문단 "현재 작업은 **V0.3D — Project Context**…"를 현재 상태 요약으로 교체했다: V0.3A~V0.3F 완료, 다음 단계 V0.4A — Strict Mutation Hardening, RC 태그 불변, NOT VERIFIED 목록(remote GitHub Actions 실제 PASS·Plain Pi 반복 비교·20 fixture corpus·R2/R3 measurement/evidence smoke·OS/Node matrix·verifier sandbox·COMPLEX/parallel·browser/MCP/memory).
+  - 같은 위치의 stale 계획 문장 2개만 정정했다. LOG-055 문단의 "V0.3E Task Contract는 별도 승인 전까지 시작하지 않는다"는 문장을 제거했고(이후 LOG-057·LOG-058에서 완료·게시), LOG-057 문단의 "구현·문서는 **미커밋**이며 사용자 승인 후 게시한다"는 실제 게시 커밋 `5bc7f8a43` 참조로 바꿨다.
+- **보존:** LOG-001~062 본문과 판정·수치, V0.3D historical evidence(Attempt 1/2·acceptance FAILED·path omission NOT VERIFIED·default-root `{}` 후속 evidence), LOG-059~062 내용, RC 태그 사실은 삭제·재작성하지 않았다.
+- **검증:** `git diff --check` clean, `git status --short`는 `docs/WORK_LOG.md`만, `git diff -- docs/WORK_LOG.md`로 변경 확인, `npm run check:ci`는 non-mutating으로 실행(exit 0). docs-only이므로 Runtime/Provider test suite는 재실행하지 않았다.
+- **남은 제한·다음 작업:** 문서 표기 정리만 수행했으므로 코드·검증 상태는 LOG-062와 동일하다. 다음 단계는 V0.4A — Strict Mutation Hardening이다.
+- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 
