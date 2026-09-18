@@ -135,7 +135,10 @@ export async function probeSandboxBackend(snapshot: SandboxPolicySnapshot): Prom
 			timeoutMs: 30000,
 		});
 		if (result.reason !== "exited" || result.exitCode !== 0)
-			return { ok: false, reason: `Verifier sandbox backend probe failed (${result.reason})` };
+			return {
+				ok: false,
+				reason: `Verifier sandbox backend probe failed (${result.reason} exit ${result.exitCode ?? "none"}): ${(result.stderr || result.stdout || "").trim().slice(0, 300)}`,
+			};
 		if (!result.cleanupConfirmed) return { ok: false, reason: "Verifier sandbox backend probe cleanup unconfirmed" };
 		if (!validateSandboxBackend(snapshot.backend).ok)
 			return { ok: false, reason: "Verifier sandbox backend changed during the probe" };
