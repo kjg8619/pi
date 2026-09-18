@@ -587,6 +587,16 @@ Host-owned acceptance test
 
 # 10. V0.4C — Verifier Sandbox
 
+## 구현 상태 (LOG-069 · LOG-070)
+
+등록된 verification check process만 OS 경계로 감싼다. Worker/LSP/Git/launcher는 기존 경로를 유지한다.
+
+- `verification.sandbox.mode: disabled | required`(기본 disabled), backend는 `@anthropic-ai/sandbox-runtime@0.0.76` exact pin(company-runtime runtime dependency; root legacy 0.0.26 유지).
+- Host-owned fixed policy: network deny-all, workspace read/write 허용, trusted oracle read 허용·write deny, `.git`/`.ai`/`.env`/project instruction read·write deny, Host 외부 read/write deny, symlink escape deny. `required`는 backend preflight 실패 시 unsandboxed fallback 없이 fail closed다.
+- `sandboxPolicyDigest`(canonical settings + backend identity)를 Host가 freeze하고 Kernel guard가 `mode required` + `ENFORCED` + digest 일치를 요구한다.
+- **CLOSED 기준(option 3):** macOS actual **PASS** / Linux actual **NOT VERIFIED**(runner 외부 blocker 2건: ubuntu-latest unprivileged userns의 `bwrap RTM_NEWADDR` 거부, ubuntu-22.04 SRT 패키지의 vendored seccomp helper 부재) / deterministic cross-platform contract PASS / remote CI PASS / DeepSeek strict+trust+sandbox actual COMPLETED.
+- 한계: SRT Beta Research Preview, container/VM 아님, transitive dependency graph는 boundary 아님, 비협조 외부 process TOCTOU 미제거, Windows 미지원.
+
 ## 목표
 
 등록된 검증 프로그램의 파일/네트워크/process 접근을 OS 수준에서 제한한다.
@@ -783,7 +793,7 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**현재 다음 작업은 V0.4C — Verifier Sandbox(FEAT-07)다.** V0.4B Verifier Trust는 LOG-066 구현 + LOG-067 closure 및 실제 DeepSeek strict-trust COMPLETED로 닫혔다.
+**현재 다음 작업은 V0.5A — C01 Task Context Pack / Repo Map이다.** V0.4C Verifier Sandbox는 LOG-069 구현 + LOG-070 closure로 option 3 기준 CLOSED다(macOS actual PASS, Linux actual NOT VERIFIED, remote CI PASS, DeepSeek strict+trust+sandbox COMPLETED).
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 
