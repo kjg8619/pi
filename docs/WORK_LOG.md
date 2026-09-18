@@ -47,7 +47,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
 | V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
-| V0.3F Measurement Hardening | 구현·자동 회귀 PASS / 커밋 보류 | LOG-061. 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
+| V0.3F Measurement Hardening | 구현·자동 회귀 PASS / 게시 `6eb9c535b` | LOG-061. 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2866,7 +2866,7 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
   합계 53개 파일·1,636개 PASS(실패·skip 0). 이번 작업에서 추가된 테스트는 Runtime hardening 9건, coding-agent telemetry 2건, evals faux E2E 1건이다. pre-fix 재현은 위 "실패 measurement" 항목에 기록했다.
 - **Provider 재실행:** NOT RUN. 이번 범위는 Provider 호출 없이 deterministic하게 검증했고(§32/§33), DeepSeek·GPT quota를 사용하지 않았다. 실제 Provider 재검증이 필요한 새 문제는 발견하지 않았다.
 - **남은 제한·다음 작업:** V1.0 release candidate polish, Plain Pi vs Weavra 실제 비교, 20개 corpus 확장, repetition 반복, telemetry 외부 exporter, 실제 가격/비용, R2/R3 measurement·evidence, verifier sandbox, Planner/병렬/COMPLEX, strict edit, browser/MCP/memory는 이번 범위 밖이며 NOT VERIFIED다. 실패 measurement는 provider-reported token 한도이며 billing 정확도가 아니다. `package.json`/`package-lock.json`은 변경하지 않았다.
-- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
+- **커밋·푸시:** 사용자 승인 후 `6eb9c535b`(`9f80f0070` 위)로 게시했다. 이 항목의 게시 SHA 정정은 후속 문서 커밋으로 남긴다. 강제 push는 하지 않았고 `weavra-v0.1-rc1` 태그는 불변이다.
 
 ---
 
