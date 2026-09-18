@@ -6,6 +6,7 @@ import { BudgetController, BudgetDenied, budgetLimitsFromConfig } from "../src/b
 import { type Run, RunSchema, validateContract } from "../src/contracts.ts";
 import { formatEvidencePack, projectEvidencePack } from "../src/evidence.ts";
 import { WorkerMeasurementAccumulator } from "../src/measurement.ts";
+import { WorkerMeasurementSchema } from "../src/measurement-types.ts";
 import { captureProvenance } from "../src/provenance.ts";
 import { graphRun } from "./graph-fixtures.ts";
 
@@ -14,7 +15,7 @@ function measurement(overrides: { totalTokens?: number; source?: "provider" | "u
 		role: "Developer",
 		profile: "coding",
 		revision: 0,
-		step: { stepId: "implement", attempt: 1 },
+		step: { stepId: "implement" as const, attempt: 1 },
 		requestedProvider: "requested-provider",
 		requestedModel: "requested-model",
 	});
@@ -297,5 +298,50 @@ describe("V0.3F evidence pack", () => {
 		expect(pack.cleanup).toBe("uncertain");
 		expect(pack.partialChanges).toBe(true);
 		expect(formatEvidencePack(pack)).toContain("cleanup: uncertain");
+	});
+});
+
+describe("V0.5A context pack measurement summary", () => {
+	const identity = {
+		role: "Developer" as const,
+		profile: "coding",
+		revision: 0,
+		step: { stepId: "implement" as const, attempt: 1 },
+		requestedProvider: "faux",
+		requestedModel: "coding",
+	};
+	const summary = {
+		mode: "bounded" as const,
+		digest: `sha256:${"a".repeat(64)}`,
+		bytes: 8120,
+		relatedFileCount: 4,
+		symbolCount: 2,
+		snippetCount: 3,
+		unknownCount: 1,
+		truncated: false,
+	};
+
+	it("preserves the delivered pack summary for every outcome", () => {
+		for (const outcome of ["SUCCEEDED", "FAILED", "CANCELLED"] as const) {
+			const accumulator = new WorkerMeasurementAccumulator(identity, Date.now, summary);
+			const measurement = accumulator.finish(outcome);
+			expect(measurement.outcome).toBe(outcome);
+			expect(measurement.contextPack).toEqual(summary);
+			// Bounded metadata only: no snippet text, source text or path lists.
+			expect(JSON.stringify(measurement)).not.toContain("src/");
+		}
+	});
+
+	it("omits the summary when no pack was delivered and accepts legacy measurements", () => {
+		const measurement = new WorkerMeasurementAccumulator(identity).finish("SUCCEEDED");
+		expect(measurement.contextPack).toBeUndefined();
+		const legacy = structuredClone(measurement);
+		expect(validateContract(WorkerMeasurementSchema, legacy)).toEqual(legacy);
+		const withContext = structuredClone(measurement);
+		withContext.contextPack = summary;
+		expect(validateContract(WorkerMeasurementSchema, withContext).contextPack).toEqual(summary);
+		expect(() =>
+			validateContract(WorkerMeasurementSchema, { ...withContext, contextPack: { ...summary, mode: "disabled" } }),
+		).toThrow();
 	});
 });

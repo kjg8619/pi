@@ -38,6 +38,7 @@ import { type ActionAudit, isPolicyPath, type PolicyContext } from "./policy.ts"
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, AgentExecutor } from "./ports.ts";
 import { snapshotProjectInstructions } from "./project-instructions.ts";
+import { summarizeTaskContextPack } from "./task-context.ts";
 import { NOOP_TELEMETRY_CONTEXT, withSpan } from "./telemetry.ts";
 import { resolveVerifierTrustSources } from "./verifier-trust.ts";
 
@@ -584,14 +585,19 @@ export class PiAgentExecutor implements AgentExecutor {
 				if (failure) cancellation.abort();
 			});
 			if (!session.sessionFile) throw new Error("Worker session reference unavailable");
-			measurement = new WorkerMeasurementAccumulator({
-				role: request.role,
-				profile: request.profile,
-				revision: request.revision,
-				step: request.step,
-				requestedProvider: this.options.config.models.profiles[request.profile].provider,
-				requestedModel: this.options.config.models.profiles[request.profile].model,
-			});
+			measurement = new WorkerMeasurementAccumulator(
+				{
+					role: request.role,
+					profile: request.profile,
+					revision: request.revision,
+					step: request.step,
+					requestedProvider: this.options.config.models.profiles[request.profile].provider,
+					requestedModel: this.options.config.models.profiles[request.profile].model,
+				},
+				undefined,
+				// Bounded summary of the pack this invocation actually received; never rebuilt here.
+				request.taskContextPack ? summarizeTaskContextPack(request.taskContextPack) : undefined,
+			);
 			stage = "session reference persistence";
 			await onSessionCreated!({
 				role: request.role,

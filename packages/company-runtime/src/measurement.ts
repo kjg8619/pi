@@ -51,7 +51,11 @@ export class WorkerMeasurementAccumulator {
 	private usageComplete = true;
 	private actual: { provider?: string; model?: string; responseModel?: string; thinking?: string } = {};
 
-	constructor(identity: WorkerIdentity, now: () => number = Date.now) {
+	/** Summary of the pack actually delivered to this invocation; never rebuilt or enriched here. */
+	private readonly contextPack?: WorkerMeasurement["contextPack"];
+
+	constructor(identity: WorkerIdentity, now: () => number = Date.now, contextPack?: WorkerMeasurement["contextPack"]) {
+		this.contextPack = contextPack;
 		this.identity = structuredClone(identity);
 		this.startedAt = now();
 	}
@@ -111,6 +115,8 @@ export class WorkerMeasurementAccumulator {
 				...(this.reasoningComplete && this.reasoning !== undefined ? { reasoning: this.reasoning } : {}),
 			},
 			outcome,
+			// Preserved for SUCCEEDED, FAILED and CANCELLED alike: the pack was delivered either way.
+			...(this.contextPack ? { contextPack: this.contextPack } : {}),
 		};
 	}
 }

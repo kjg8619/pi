@@ -577,6 +577,26 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 }
 
 /** Bounded observation summary; contains no snippet text and no absolute paths. */
+export function summarizeTaskContextPack(pack: TaskContextPack): {
+	mode: "bounded";
+	digest: string;
+	bytes: number;
+	relatedFileCount: number;
+	symbolCount: number;
+	snippetCount: number;
+	unknownCount: number;
+	truncated: boolean;
+};
+export function summarizeTaskContextPack(pack: undefined): {
+	mode: "disabled";
+	digest: null;
+	bytes: number;
+	relatedFileCount: number;
+	symbolCount: number;
+	snippetCount: number;
+	unknownCount: number;
+	truncated: boolean;
+};
 export function summarizeTaskContextPack(pack: TaskContextPack | undefined): {
 	mode: TaskContextMode;
 	digest: string | null;

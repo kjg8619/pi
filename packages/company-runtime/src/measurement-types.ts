@@ -56,6 +56,22 @@ export const WorkerMeasurementSchema = Type.Object(
 		toolCallsByName: Type.Record(text, counter),
 		usage: WorkerUsageSchema,
 		outcome: Type.Enum(["SUCCEEDED", "FAILED", "CANCELLED"]),
+		// Bounded advisory-context summary only; never snippet text, source text or path lists.
+		contextPack: Type.Optional(
+			Type.Object(
+				{
+					mode: Type.Literal("bounded"),
+					digest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+					bytes: Type.Integer({ minimum: 0 }),
+					relatedFileCount: Type.Integer({ minimum: 0, maximum: 24 }),
+					symbolCount: Type.Integer({ minimum: 0, maximum: 32 }),
+					snippetCount: Type.Integer({ minimum: 0, maximum: 12 }),
+					unknownCount: Type.Integer({ minimum: 0, maximum: 32 }),
+					truncated: Type.Boolean(),
+				},
+				strict,
+			),
+		),
 	},
 	strict,
 );
