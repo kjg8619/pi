@@ -52,6 +52,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.4A Strict Mutation Closure | 구현·자동 회귀 PASS / DeepSeek strict actual COMPLETED / 게시 `5c15317c9` | LOG-065. read-time filesystem identity binding(같은 read snapshot에서 capture)·deletion/재생성 typed stale(ENOENT만 변환)·strict create/replace NUL·lossy text 거부. 자동 53개 파일·1,676개 PASS. DeepSeek `standard-2ac` strict smoke: Helo→Heelo 주입 1회 → STALE_ANCHOR → 재-read → fresh receipt로 edit 성공 → checks PASS×2 → 독립 Reviewer PASS → **COMPLETED**(37,829 tokens) |
 | V0.4B Verifier Trust | 구현·자동 회귀 PASS / DeepSeek strict trust VERIFIED / smoke COMPLETED 미확인 / 게시 `b41843e68` | LOG-066. opt-in `verification.trust.mode`(기본 compatible)·`checks[].trust.files`, registration digest·executable identity·source digest+generation freeze, pre/post process + settle 재검증, Worker protected source, Kernel `trustRequired` guard, bounded trust evidence. 자동 53개 파일·1,689개 PASS. DeepSeek strict run에서 self-check `PASS`+`VERIFIED (strict)`, Reviewer protected-read Policy DENY로 FAILED |
 | V0.4B Verifier Trust Closure | 구현·자동 회귀 PASS / DeepSeek strict-trust run **COMPLETED** / 게시 `96b1d8366` | LOG-067. registration digest가 실제 filtered env(canonical)를 bind, executableDigest는 real SHA-256 identity digest, digest schema 강화(`^sha256:[0-9a-f]{64}$`), Kernel이 Host-frozen registration digest까지 비교(wrong/malformed VERIFIED 거부), Reviewer/Worker protected-oracle 비열람 guidance. 자동 53개 파일·1,696개 PASS. DeepSeek: self-check·test `PASS`+`VERIFIED` 동일 digest, Reviewer PASS(독립)·oracle 직접 접근 0회, oraclePass true, 22,515 tokens |
+| V0.4C Verifier Sandbox | 구현·자동 회귀 PASS / macOS actual PASS / 커밋 보류 | LOG-069. `verification.sandbox.mode`(기본 disabled), SRT 0.0.76 exact pin(company-runtime runtime dep; root/example 0.0.26 유지), SandboxPort(argv·canonical path·0600 temp settings), fixed deny-all network + workspace write allow + oracle/protected write·read deny, `sandboxPolicyDigest` Host-frozen Kernel guard. 자동 53개 파일·1,705개 PASS(macOS real sandbox fixtures 포함) |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -3085,6 +3086,34 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - **게시:** Roadmap 통합 `f1e66f7288c7a33984e050fe5ab9af4849e87c40`, Agent Landscape 보정 `26815b6c83a92c419e8f336319da02fad41f2137`. Provider 호출·자동 regression은 docs-only 변경이라 실행하지 않았다.
 - **남은 제한:** remote GitHub Actions 실제 PASS는 계속 NOT VERIFIED다. V0.4C 및 C01~C08은 이 문서 갱신만으로 구현/검증된 것이 아니다. 각 단계 착수 시 실제 HEAD·계약·지원 OS/Provider를 다시 확인한다.
 - **다음 작업:** V0.4C — Verifier Sandbox(FEAT-07).
+
+---
+
+## LOG-069 — V0.4C Verifier Sandbox (FEAT-07)
+
+- **기록일:** 2026-09-18 (KST)
+- **기준 SHA:** `48fc6fb508414684a73171dee8209e2ca8d6b33c`(clean, `origin/devlop` 일치; 로컬은 `git rebase origin/devlop`으로 fast-forward). 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **상태:** 구현·자동 회귀 완료, macOS actual sandbox 경계 PASS. Linux·DeepSeek sandbox smoke는 NOT VERIFIED. 커밋·푸시: 하지 않음.
+- **backend 선택 근거:** `@anthropic-ai/sandbox-runtime`는 macOS에서 Seatbelt(sandbox-exec), Linux에서 bubblewrap을 쓰고 npm 기반이라 Node Runtime에 통합 가능하다. 실측으로 CLI(`bin.srt` → `dist/cli.js`), `-s/--settings`, argv 형태(`--`)를 확인했고 `-c`(shell string)는 사용하지 않는다. SRT 0.0.76은 Beta Research Preview이므로 Kernel/Verifier가 SRT API에 직접 의존하지 않고 **CLI argv + process supervision** 경계로만 통합했다.
+- **dependency placement:** V0.4C production 주체는 `packages/company-runtime`이므로 그 패키지의 **runtime dependency**로 `"@anthropic-ai/sandbox-runtime": "0.0.76"`을 exact pin 했다(root devDependency `0.0.26`과 `packages/coding-agent/examples/extensions/sandbox`의 `0.0.26`은 Pi legacy example/tooling 용도로 **의도적 dual-version 유지**, 이번 scope에서 migration하지 않음). `package-lock.json`만 변경됐고(1 package added, 2 changed) `npm run check:shrinkwrap`·`npm run check:install-lock:coding-agent`는 **변경 없이 PASS**였다. license Apache-2.0, engines `node>=20.11.0`(현재 v26.7.0), lifecycle script 없음(`--ignore-scripts`로 설치).
+- **SandboxPort 구조:** `packages/company-runtime/src/sandbox.ts` — ① `resolveSandboxBackend()`: 설치된 package.json에서 CLI entry를 resolve하고 **정확한 version(0.0.76)** 과 identity digest(`weavra-verifier-sandbox-backend-v1`)를 freeze. 불일치/missing은 `SandboxUnavailableError`. ② `canonicalHostPath()`: policy path를 realpath 기준 canonical로 고정(없는 tail은 가장 가까운 ancestor 기준). ③ `buildSandboxPolicy()`: Host-owned 고정 settings와 `policyDigest`(`weavra-verifier-sandbox-v1`) 생성. ④ `runSandboxedCheck()`: settings를 workspace 밖 Runtime temp에 0600으로 쓰고 `node <srt cli> -s <settings> -- <exe> <argv...>`를 기존 `runProcess`로 감싸 실행한 뒤 settings를 제거. Kernel/Policy/Task Contract 로직은 이 모듈에 없다.
+- **config:** `verification.sandbox.mode: disabled | required`(기본 `disabled`, schema는 `additionalProperties:false`로 project가 network allowlist·backend path·profile을 설정할 수 없다). trust와 독립이며 기존 config는 동작 변화가 없다.
+- **fixed policy:** network `{allowedDomains: [], deniedDomains: []}` = deny-all(loopback 포함), 파일시스템은 `denyRead`(HOME·protected·temp) → `allowRead`(workspace carve-out) → workspace 내부 protected(project instruction·`.git`·`.ai`·`.env`)은 더 구체적인 denyRead로 유지, `allowWrite`(workspace) + `denyWrite`(protected + **trusted oracle**) — SRT 문서 기준 denyWrite가 우선한다. 0.0.76에는 `allowAppleEvents`/`allowUnixSockets`/weaker-isolation 키가 없어 해당 완화 옵션 자체가 존재하지 않는다(없는 키를 발명하지 않았다).
+- **canonical path 실측 조건:** `/tmp/...`(symlink) 경로를 settings에 넣으면 allowRead가 매칭되지 않아 workspace read까지 ENOENT로 차단됐고, `pwd -P`(`/private/tmp/...`)로 canonicalize하자 의도대로 동작했다. SandboxPort가 policy path를 Host에서 realpath로 freeze하는 이유이며, textual symlink path를 authority로 쓰지 않는다.
+- **Kernel guard:** CheckRequirement에 Host-frozen `sandboxRequired` + `sandboxPolicyDigest`를 추가하고 `assertVerification`이 required check에 대해 `status === "ENFORCED"` + **digest 정확 일치**를 요구한다. ENFORCED 문자열만으로는 완료 불가이며, forged ENFORCED(wrong digest)·누락·malformed digest는 모두 거부된다(전용 test 4건).
+- **자동 회귀:**
+  ```sh
+  packages/company-runtime        node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2      # 37개 파일·1,222개 PASS
+  packages/coding-agent           node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-*.test.ts  # 11개 파일·450개 PASS
+  packages/evals                  node ../../node_modules/vitest/dist/cli.js run --config vitest.test.config.ts   # 6개 파일·33개 PASS
+  root                            npm run check / npm run check:ci / git diff --check / bash -n / check:shrinkwrap / check:install-lock:coding-agent   # 모두 exit 0
+  ```
+  합계 54개 파일·1,705개 PASS. 신규 `test/sandbox.test.ts` 9건(config 2·backend/policy digest 2·**macOS real boundary 2**·Kernel guard 4).
+- **macOS actual 결과(darwin 27, sandbox-exec):** RegisteredVerifier를 sandbox required로 실제 실행한 integration test에서 `sandbox.status === "ENFORCED"` + Host-frozen digest 일치, 그리고 검증 대상 oracle 자신의 probe 출력으로 ① workspace source read 허용 ② `.env` read BLOCKED ③ Host 외부 sentinel read BLOCKED ④ symlink 경유 read BLOCKED(secret bytes 미출력) ⑤ **trusted oracle write BLOCKED**(bytes 불변) ⑥ Host 외부 write BLOCKED(파일 미생성) ⑦ `fetch`·raw `net.Socket`·child process 네트워크 **모두 BLOCKED**(loopback test server 요청 수 **0**)를 확인했다. 별도 symlink escape test도 통과했다. settings 파일은 실행 후 제거되며 기존 process cleanup/`cleanupConfirmed` semantics를 유지한다.
+- **Linux:** bubblewrap backend는 이번 Host에서 실행하지 않았다 → **Linux actual sandbox NOT VERIFIED**(macOS 결과에서 추론하지 않음). Windows는 기존대로 미지원이다.
+- **남은 제한:** ① SRT는 Beta Research Preview이고 이 단계는 container/VM 수준 격리가 아니다. ② transitive dependency·plugin·package script graph는 sandbox boundary가 아니다. ③ 마지막 검증 syscall과 execute 사이의 비협조 외부 process race 한계는 그대로다. ④ DeepSeek strict+sandbox normal smoke는 이번 increment에서 실행하지 않았다(NOT VERIFIED) — 다음 작업에서 1회 수행한다. ⑤ remote GitHub Actions 실제 PASS는 여전히 NOT VERIFIED다.
+- **임시 파일:** 실측/탐침용 scratch(`/tmp/srtprobe*`)는 제거했고 저장소에는 남기지 않았다. `git status`는 의도한 변경만 포함한다.
+- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 

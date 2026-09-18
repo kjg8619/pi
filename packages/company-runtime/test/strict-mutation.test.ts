@@ -165,6 +165,7 @@ describe("V0.4A config and plan preview", () => {
 				mutationMode: "compatible",
 				verifierTrustMode: "compatible",
 				verifierTrustSources: [],
+				verifierSandboxMode: "disabled",
 			}),
 		).toContain("Mutation mode: compatible");
 		const strict = formatPlanPreview({
@@ -172,6 +173,7 @@ describe("V0.4A config and plan preview", () => {
 			mutationMode: "strict",
 			verifierTrustMode: "strict",
 			verifierTrustSources: ["test/acceptance.test.mjs"],
+			verifierSandboxMode: "required",
 		});
 		expect(strict).toContain("Mutation mode: strict (strict freshness/precondition enforcement");
 		expect(strict).toContain("not a permission and not approval");

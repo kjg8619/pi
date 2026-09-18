@@ -121,6 +121,15 @@ function assertVerification(
 				"A required check does not match the frozen verifier registration",
 			);
 		}
+		if (expected?.sandboxRequired === true && check.required) {
+			const sandbox = check.sandbox;
+			requireEvidence(sandbox?.status === "ENFORCED", "A required check is not sandbox enforced");
+			// ENFORCED alone is not authority: the policy digest must match the Host-frozen sandbox policy.
+			requireEvidence(
+				!!expected.sandboxPolicyDigest && sandbox?.policyDigest === expected.sandboxPolicyDigest,
+				"A required check does not match the frozen verifier sandbox policy",
+			);
+		}
 		requireEvidence(!check.required || check.status === "PASS", "A required verification check was not performed");
 		if (check.status === "PASS") {
 			requireEvidence(

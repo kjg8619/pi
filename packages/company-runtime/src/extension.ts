@@ -329,6 +329,7 @@ export function registerCompanyRuntime(
 									lspEnabled: config.code_intelligence?.lsp.enabled === true,
 									mutationMode: config.mutation.mode,
 									verifierTrustMode: config.verification.trust.mode,
+									verifierSandboxMode: config.verification.sandbox.mode,
 									verifierTrustSources: [
 										...new Set(config.verification.checks.flatMap((check) => check.trust.files)),
 									].sort(),

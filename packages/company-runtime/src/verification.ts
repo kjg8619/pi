@@ -11,6 +11,13 @@ import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { VerificationRequest, Verifier } from "./ports.ts";
 import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
 import {
+	buildSandboxPolicy,
+	canonicalHostPath,
+	runSandboxedCheck,
+	type SandboxPolicySnapshot,
+	sandboxEvidence,
+} from "./sandbox.ts";
+import {
 	executableIdentityDigest,
 	registrationDigestOf,
 	resolveVerifierTrustSources,
@@ -34,6 +41,7 @@ export class RegisteredVerifier implements Verifier {
 	private readonly paths: FilePolicyPathInspector;
 	private readonly registrations: Array<RegisteredCheck | undefined>;
 	private readonly trustSnapshots: Array<VerifierTrustSnapshot | undefined>;
+	private readonly sandbox?: SandboxPolicySnapshot;
 	private readonly lsp?: LspPort;
 	private constructor(
 		config: RuntimeConfig,
@@ -43,9 +51,11 @@ export class RegisteredVerifier implements Verifier {
 		paths: FilePolicyPathInspector,
 		registrations: Array<RegisteredCheck | undefined>,
 		trustSnapshots: Array<VerifierTrustSnapshot | undefined>,
+		sandbox: SandboxPolicySnapshot | undefined,
 		lsp?: LspPort,
 	) {
 		this.trustSnapshots = trustSnapshots;
+		this.sandbox = sandbox;
 		this.lsp = lsp;
 		this.config = config;
 		this.policy = policy;
@@ -109,6 +119,30 @@ export class RegisteredVerifier implements Verifier {
 				return undefined;
 			}
 		});
+		// Sandbox preflight runs before any worker model interaction; required mode never falls back unsandboxed.
+		const sandboxMode = config.verification.sandbox?.mode ?? "disabled";
+		const sandbox =
+			sandboxMode === "required"
+				? buildSandboxPolicy({
+						workspace: canonicalHostPath(workspace.cwd),
+						trustedSources: [
+							...new Set(
+								config.verification.checks.flatMap((check) =>
+									resolveVerifierTrustSources(workspace.cwd, check),
+								),
+							),
+						],
+						protectedPaths: [
+							...new Set([
+								...(policy.protectedPaths ?? []),
+								...(policy.projectInstruction?.path ? [policy.projectInstruction.path] : []),
+								".git",
+								".ai",
+								".env",
+							]),
+						],
+					})
+				: undefined;
 		return new RegisteredVerifier(
 			config,
 			structuredClone(policy),
@@ -117,6 +151,7 @@ export class RegisteredVerifier implements Verifier {
 			await FilePolicyPathInspector.open(workspace.cwd),
 			registrations,
 			trustSnapshots,
+			sandbox,
 			lsp,
 		);
 	}
@@ -130,6 +165,8 @@ export class RegisteredVerifier implements Verifier {
 		required: boolean;
 		trustRequired: boolean;
 		trustRegistrationDigest: string;
+		sandboxRequired: boolean;
+		sandboxPolicyDigest: string;
 	}> {
 		return this.config.verification.checks.map((check, index) => ({
 			id: check.id,
@@ -137,6 +174,8 @@ export class RegisteredVerifier implements Verifier {
 			required: check.required,
 			trustRequired: this.trustSnapshots[index]?.mode === "strict",
 			trustRegistrationDigest: this.trustSnapshots[index]?.registrationDigest ?? "",
+			sandboxRequired: this.sandbox !== undefined,
+			sandboxPolicyDigest: this.sandbox?.policyDigest ?? "",
 		}));
 	}
 
@@ -167,12 +206,16 @@ export class RegisteredVerifier implements Verifier {
 			required: boolean;
 			trustRequired?: boolean;
 			trustRegistrationDigest?: string;
+			sandboxRequired?: boolean;
+			sandboxPolicyDigest?: string;
 		}) => ({
 			id: check.id,
 			kind: check.kind,
 			required: check.required,
 			...(check.trustRequired === true ? { trustRequired: true } : {}),
 			...(check.trustRegistrationDigest ? { trustRegistrationDigest: check.trustRegistrationDigest } : {}),
+			...(check.sandboxRequired === true ? { sandboxRequired: true } : {}),
+			...(check.sandboxPolicyDigest ? { sandboxPolicyDigest: check.sandboxPolicyDigest } : {}),
 		});
 		const strictTrust = (this.config.verification.trust?.mode ?? "compatible") === "strict";
 		if (
@@ -186,6 +229,12 @@ export class RegisteredVerifier implements Verifier {
 						...(strictTrust ? { trustRequired: true } : {}),
 						...(strictTrust && this.trustSnapshots[index]?.registrationDigest
 							? { trustRegistrationDigest: this.trustSnapshots[index]!.registrationDigest }
+							: {}),
+						...(this.sandbox
+							? {
+									sandboxRequired: true,
+									sandboxPolicyDigest: this.sandbox.policyDigest,
+								}
 							: {}),
 					}),
 				),
@@ -289,14 +338,27 @@ export class RegisteredVerifier implements Verifier {
 				}
 				request.signal?.throwIfAborted();
 				this.processCleanupConfirmed = false;
-				const result = await runProcess({
-					executable: action.executable,
-					argv: action.argv,
-					cwd,
-					env: action.env,
-					timeoutMs: action.timeoutMs,
-					signal: request.signal,
-				});
+				const sandboxRun = this.sandbox
+					? await runSandboxedCheck({
+							snapshot: this.sandbox,
+							executable: action.executable,
+							argv: action.argv,
+							cwd,
+							env: action.env,
+							timeoutMs: action.timeoutMs,
+							signal: request.signal,
+						})
+					: undefined;
+				const result =
+					sandboxRun?.result ??
+					(await runProcess({
+						executable: action.executable,
+						argv: action.argv,
+						cwd,
+						env: action.env,
+						timeoutMs: action.timeoutMs,
+						signal: request.signal,
+					}));
 				this.processCleanupConfirmed = result.cleanupConfirmed;
 				if (!this.safeToRelease) {
 					intentOpen = false;
@@ -352,6 +414,11 @@ export class RegisteredVerifier implements Verifier {
 									trustSnapshot,
 									post?.ok ? (trustSnapshot.mode === "strict" ? "VERIFIED" : "UNVERIFIED") : "STALE",
 								),
+							}
+						: {}),
+					...(this.sandbox && sandboxRun
+						? {
+								sandbox: sandboxEvidence(this.sandbox, sandboxRun.status),
 							}
 						: {}),
 				});

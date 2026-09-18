@@ -15,6 +15,7 @@ export interface PlanPreview {
 	mutationMode: "compatible" | "strict";
 	verifierTrustMode: "compatible" | "strict";
 	verifierTrustSources: readonly string[];
+	verifierSandboxMode: "disabled" | "required";
 }
 
 /** Host-side display only. Confirming this plan is neither an approval nor a permission token. */
@@ -40,6 +41,7 @@ export function formatPlanPreview(plan: PlanPreview): string {
 		`LSP: ${plan.lspEnabled ? "enabled (trusted local program, not sandboxed)" : "disabled"}`,
 		`Mutation mode: ${plan.mutationMode}${plan.mutationMode === "strict" ? " (strict freshness/precondition enforcement for existing files; not a permission and not approval)" : ""}`,
 		`Verifier trust: ${plan.verifierTrustMode}${plan.verifierTrustMode === "strict" ? " (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)" : " (not strictly pinned)"}`,
+		`Verifier sandbox: ${plan.verifierSandboxMode === "required" ? "required (network denied; Host-owned fixed policy; not a sandbox for workers and not approval)" : "disabled"}`,
 		...(plan.verifierTrustSources.length
 			? ["Trusted verifier sources:", ...plan.verifierTrustSources.map((path) => `  ${path}`)]
 			: []),

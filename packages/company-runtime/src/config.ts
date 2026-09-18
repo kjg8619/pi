@@ -99,6 +99,13 @@ export const RuntimeConfigSchema = Type.Object(
 		verification: Type.Optional(
 			Type.Object(
 				{
+					// Verifier sandbox is an OS boundary for registered check processes; not permission or approval.
+					sandbox: Type.Optional(
+						Type.Object(
+							{ mode: Type.Optional(Type.Union([Type.Literal("disabled"), Type.Literal("required")])) },
+							strict,
+						),
+					),
 					// Verifier trust pins the frozen registration and direct oracle sources; it is not a sandbox.
 					trust: Type.Optional(
 						Type.Object(
@@ -220,6 +227,7 @@ export function parseRuntimeConfig(source: string) {
 		verification: {
 			checks,
 			trust: { mode: value.verification?.trust?.mode ?? ("compatible" as const) },
+			sandbox: { mode: value.verification?.sandbox?.mode ?? ("disabled" as const) },
 		},
 		mutation: { mode: value.mutation?.mode ?? ("compatible" as const) },
 		...(value.project ? { project: structuredClone(value.project) } : {}),

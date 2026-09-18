@@ -75,6 +75,13 @@ export interface EvidencePack {
 			executableDigest: string;
 			sources: Array<{ path: string; digest: string }>;
 		} | null;
+		sandbox: {
+			mode: string;
+			status: string;
+			backend: string;
+			backendVersion: string;
+			policyDigest: string;
+		} | null;
 	}>;
 	lsp: { available: boolean; stale: boolean } | null;
 	review: {
@@ -199,6 +206,15 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 						sources: check.trust.sources.map((source) => ({ path: source.path, digest: source.digest })),
 					}
 				: null,
+			sandbox: check.sandbox
+				? {
+						mode: check.sandbox.mode,
+						status: check.sandbox.status,
+						backend: check.sandbox.backend,
+						backendVersion: check.sandbox.backendVersion,
+						policyDigest: check.sandbox.policyDigest,
+					}
+				: null,
 		})),
 		lsp: lspChecks.length
 			? { available: true, stale: (run.workspace?.evidenceRefs ?? []).some((ref) => ref.startsWith("stale:")) }
@@ -292,6 +308,11 @@ export function formatEvidencePack(pack: EvidencePack): string {
 	for (const check of pack.checks) {
 		lines.push(
 			`Check ${displayText(check.id)} (${check.step}${check.required ? ", required" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
+		);
+		lines.push(
+			check.sandbox
+				? `  Verifier sandbox: ${check.sandbox.status} (${check.sandbox.backend} ${check.sandbox.backendVersion}); policy ${check.sandbox.policyDigest.slice(0, 20)}…; network denied`
+				: "  Verifier sandbox: UNKNOWN (disabled or legacy)",
 		);
 		lines.push(
 			check.trust

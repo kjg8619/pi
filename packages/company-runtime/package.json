@@ -2,7 +2,7 @@
 	"name": "@earendil-works/pi-company-runtime",
 	"version": "0.85.1",
 	"private": true,
-	"description": "Weavra \u2014 Adaptive Agent Workflow Runtime (v0.1 RC1 development)",
+	"description": "Weavra — Adaptive Agent Workflow Runtime (v0.1 RC1 development)",
 	"type": "module",
 	"bin": {
 		"weavra": "bin/weavra"
@@ -17,6 +17,7 @@
 		"test": "vitest --run"
 	},
 	"dependencies": {
+		"@anthropic-ai/sandbox-runtime": "0.0.76",
 		"typebox": "1.3.27",
 		"yaml": "2.9.0"
 	},

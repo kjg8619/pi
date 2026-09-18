@@ -267,6 +267,18 @@ registered process checks (기존 required/PASS/FAIL)
 
 ## V0.3D Project Context
 
+### FEAT-07 — verifier sandbox (V0.4C)
+
+`verification.sandbox: { mode: disabled | required }`(기본 `disabled`)는 **registered verification check process에만** 적용되는 OS 경계다. worker/LSP/Git/launcher는 기존 경로를 그대로 쓴다. 이는 permission·approval·review·completion authority가 아니며 Kernel이 완료를 결정한다.
+
+- backend: `@anthropic-ai/sandbox-runtime@0.0.76`(Apache-2.0, `packages/company-runtime`의 runtime dependency로 exact pin; macOS `sandbox-exec`, Linux `bubblewrap`). root `0.0.26` devDependency와 Pi sandbox example은 legacy로 유지된다(intentional dual-version).
+- 실행: `node <pinned srt cli> -s <host-owned settings> -- <resolved verifier executable> <argv...>` — argv 전달만 사용하고 `shell:true`, `-c`, `bash -c`, `exec`를 쓰지 않는다. settings는 workspace 밖 Runtime temp(0600, 불규칙 이름)에 만들고 해당 check 종료 후 제거한다. `~/.srt-settings.json`은 상속하지 않는다.
+- 고정 정책(Host-owned, project config로 완화 불가): network **deny-all**(allowlist 없음), workspace read/write 허용, trusted oracle read 허용, **oracle write deny**, `.git`/`.ai`/`.env`/project instruction/credential path read+write deny, Host 외부 read/write deny, symlink 경유 escape deny. SRT settings의 path는 **canonical(realpath)** 이어야 하며 textual symlink path를 authority로 쓰지 않는다.
+- `required`는 fail closed다: backend package/CLI/version/platform을 Run 시작(preflight, worker model 호출 전)에 확인하고, 불가하면 unsandboxed로 fallback하지 않고 실행을 중단한다. auto install은 하지 않는다.
+- policy digest: `weavra-verifier-sandbox-v1` 도메인으로 freeze하고 CheckRequirement에 `sandboxRequired`/`sandboxPolicyDigest`로 고정한다. Kernel guard는 `status === "ENFORCED"` + digest 정확 일치를 요구하며 ENFORCED 문자열만으로 완료될 수 없다.
+- bounded evidence: `sandbox {mode,status,backend,backendVersion,policyDigest}`만 CheckResult/Evidence Pack에 담고 settings JSON·HOME·절대 protected path·env·credential은 넣지 않는다.
+- 한계: SRT는 Beta Research Preview이고, 이 단계는 container/VM/network namespace 수준 격리가 아니다. transitive dependency·plugin graph는 sandbox boundary가 아니며, 마지막 검증 syscall과 execute 사이의 비협조 외부 process race 한계는 그대로다. Linux bubblewrap 실제 검증은 아직 NOT VERIFIED다.
+
 ### FIX-08 — verifier trust (V0.4B)
 
 `verification.trust: { mode: compatible | strict }`(기본 `compatible`)는 **특정 verifier registration과 oracle source를 고정**하는 integrity 계약이다. sandbox가 아니고 permission/approval도 아니며 Policy·R2/R3·Approval을 대체하지 않는다.

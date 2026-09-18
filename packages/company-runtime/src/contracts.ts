@@ -140,6 +140,17 @@ export const VerifierTrustEvidenceSchema = Type.Object(
 	strict,
 );
 
+export const SandboxEvidenceSchema = Type.Object(
+	{
+		mode: Type.Enum(["disabled", "required"]),
+		status: Type.Enum(["ENFORCED", "UNAVAILABLE", "STALE", "UNKNOWN"]),
+		backend: text,
+		backendVersion: text,
+		policyDigest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+	},
+	strict,
+);
+
 export const CheckResultSchema = Type.Object(
 	{
 		id: text,
@@ -159,6 +170,8 @@ export const CheckResultSchema = Type.Object(
 		stderr: Type.Optional(Type.String({ maxLength: 16384 })),
 		// Bounded verifier-trust metadata only: no raw source contents, env or credentials.
 		trust: Type.Optional(VerifierTrustEvidenceSchema),
+		// Bounded sandbox metadata only: no settings JSON, env, HOME or absolute protected paths.
+		sandbox: Type.Optional(SandboxEvidenceSchema),
 	},
 	strict,
 );
@@ -172,6 +185,9 @@ export const CheckRequirementSchema = Type.Object(
 		trustRequired: Type.Optional(Type.Boolean()),
 		// Host-frozen expected registration digest from the verifier's Run-start snapshot; never taken from a result.
 		trustRegistrationDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
+		// Host-frozen sandbox requirement and policy digest; ENFORCED alone is never authority.
+		sandboxRequired: Type.Optional(Type.Boolean()),
+		sandboxPolicyDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
 	},
 	strict,
 );
