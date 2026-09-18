@@ -47,7 +47,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
 | V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
-| V0.3F Measurement Hardening | 구현·자동 회귀 PASS / 게시 `6eb9c535b` | LOG-061. 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
+| V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 커밋 보류 | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS | LOG-061. 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -2867,6 +2867,55 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - **Provider 재실행:** NOT RUN. 이번 범위는 Provider 호출 없이 deterministic하게 검증했고(§32/§33), DeepSeek·GPT quota를 사용하지 않았다. 실제 Provider 재검증이 필요한 새 문제는 발견하지 않았다.
 - **남은 제한·다음 작업:** V1.0 release candidate polish, Plain Pi vs Weavra 실제 비교, 20개 corpus 확장, repetition 반복, telemetry 외부 exporter, 실제 가격/비용, R2/R3 measurement·evidence, verifier sandbox, Planner/병렬/COMPLEX, strict edit, browser/MCP/memory는 이번 범위 밖이며 NOT VERIFIED다. 실패 measurement는 provider-reported token 한도이며 billing 정확도가 아니다. `package.json`/`package-lock.json`은 변경하지 않았다.
 - **커밋·푸시:** 사용자 승인 후 `6eb9c535b`(`9f80f0070` 위)로 게시했다. 이 항목의 게시 SHA 정정은 후속 문서 커밋으로 남긴다. 강제 push는 하지 않았고 `weavra-v0.1-rc1` 태그는 불변이다.
+
+---
+
+## LOG-062 — V0.3F Final Micro Hardening: cancellation race·telemetry return-value 격리
+
+- **기록일:** 2026-09-18 (KST)
+- **상태:** 구현·자동 회귀 완료. 실제 Provider 재실행 없음(NOT RUN). 커밋·푸시: 하지 않음(보고 후 승인 대기).
+- **기준 SHA:** `eea796117ef44231a3c657f35d827992a759207c`(clean, `origin/devlop` 일치, rebase 불필요). 구현 기준은 `6eb9c535b`. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **목적:** V0.3F에 남은 edge case 2개만 닫는다. 이번 작업은 V0.4A가 아니다.
+- **변경 파일:** `packages/company-runtime/src/kernel.ts`, `src/telemetry.ts`, `test/measurement-hardening.test.ts`(테스트 4건 추가), 본 항목과 [V0.3F smoke 문서](WEAVRA_V03F_MEASUREMENT_EVIDENCE_2026-09-18.md) 후속 한 절.
+
+### A. result 반환 직후 cancellation race
+
+- **before:** implement/review worker path가 `execute()` → `signal.throwIfAborted()` → `settleBudget(result.measurement)` 순서였다. Agent가 실제 invocation과 measurement를 반환한 직후, abort 재확인 지점에서 cancellation이 들어오면 measurement는 이미 소비됐는데 settle에 도달하지 못했고 catch에서는 `WorkerExecutionError`가 아니라서 measurement를 알 수 없었다. durable Run에는 invocation 1회만 UNKNOWN으로 남을 수 있었다.
+- **after:** `execute()` → `settleBudget(result.measurement)` → `signal.throwIfAborted()` 순서로 바꿨다. implement·review 두 경계가 동일하다. 기존 exactly-once guard(`budgetReserved`/`budgetSettled`)는 의미 변경 없이 그대로 사용한다.
+- **cancellation semantics 불변:** measurement가 보존돼도 result 수용은 아니다. aborted result는 handoff/review authority로 쓰이지 않고(`run.handoff`·`run.review` 없음), 다음 step·Reviewer invocation·COMPLETED로 진행하지 않으며 Run은 `CANCELLED`, partial changes는 그대로 두고 rollback도 하지 않는다.
+- **Developer 경계 test:** fake executor가 정상 Developer result(fixture measurement 77 tokens)를 반환하면서 abort한다. 확인: `status CANCELLED`, `workerMeasurements.length 1`·`usage.totalTokens 77`, `budget.workerInvocations 1`·`reportedTokens 77`, 다음 Reviewer invocation 0회, handoff 없음, duplicate 없음.
+- **Reviewer 경계 test:** implement·self-check를 정상 진행한 뒤 Reviewer가 정상 verdict+measurement(50 tokens)를 반환하면서 abort한다. 확인: `CANCELLED`, Developer 100 + Reviewer 50 = 2건 durable·`reportedTokens 150`·invocations 2, `reviewHistory` 0건·`completed` 0건(review verdict가 완료 authority가 되지 않음).
+- **pre-fix 재현:** 순서를 되돌린 상태에서 신규 2건이 실제로 실패함을 확인하고 복원해 13/13 PASS를 확인했다. LOG-061의 기존 경로(실패 measurement durable, measurement 없는 실패는 UNKNOWN, REVISE/BLOCK, 성공 후 검증 실패)는 그대로 유지된다.
+
+### B. telemetry adapter return-value 격리
+
+- **before:** `withSpan()`이 settled 이후 `telemetry.startSpan(...)`의 반환값을 그대로 돌려줬다. adapter가 callback 결과 대신 다른 값(또는 `undefined`)을 반환하면 Runtime 실행 결과가 바뀔 수 있었다.
+- **after:** authoritative 결과는 항상 work callback의 outcome이다. telemetry가 callback을 이미 실행했다면 work value를 반환하고 work error가 있으면 그 오류를 던진다(adapter 반환값은 사용하지 않음). adapter가 callback을 호출하지 않았다면 `runOnce()`로 정확히 1회 실행하며, telemetry/span/exporter가 throw·reject해도 work를 두 번 실행하지 않는다.
+- **추가 test:** 변조 반환(`"tampered-result"`) → work 결과 유지·work 1회, `undefined` 반환 → work 결과 유지, callback 오류를 삼키고 성공값을 반환하는 adapter → 원래 work 오류 유지·work 1회. 기존 격리 test(callback 전 throw, settled 후 throw, span 메서드 throw, callback 미호출 adapter)는 전부 유지된다.
+- **pre-fix 재현:** 기존 방식으로 어댑터 반환값을 쓰도록 되돌린 상태에서 신규 변조 test와 기존 settled-after-throw test가 함께 실패함을 확인하고 복원했다.
+
+### 이번 작업에서 실행한 검증
+
+```sh
+# packages/company-runtime (전체)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2      # 36개 파일·1,158개 PASS
+# packages/coding-agent (Weavra suite 11개 파일)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-*.test.ts  # 11개 파일·449개 PASS
+# packages/evals (unit, vitest.test.config.ts)
+node ../../node_modules/vitest/dist/cli.js run --config vitest.test.config.ts   # 6개 파일·33개 PASS
+# root
+npm run check / npm run check:ci / git diff --check / bash -n packages/company-runtime/bin/weavra  # 모두 exit 0
+```
+
+- 합계 53개 파일·1,640개 PASS(LOG-061 대비 +4). 신규 테스트는 Runtime cancellation race 2건·telemetry 격리 2건이다.
+- `packages/company-runtime` 전체 suite와 Weavra suite를 동시에 돌린 1회차에서 Weavra suite 1건이 CPU 경쟁으로 실패했고(449개 중 1개), 동일 suite를 단독으로 2회 재실행하니 각각 11개 파일·449개 전부 PASS였다. 동시 실행 시점의 flake이며 이번 변경과 무관함을 단독 재실행 2회로 확인했다.
+- Provider 호출 0회(DeepSeek·GPT NOT RUN). dependency·lockfile·config 변경 없음.
+
+### 남은 제한과 다음 작업
+
+- 이번 micro hardening은 cancellation race와 telemetry 반환값 격리만 다룬다. telemetry 외부 exporter, 실제 가격/비용, R2/R3 measurement·evidence, Plain Pi 비교, eval corpus 확장, verifier sandbox, Planner/병렬/COMPLEX는 여전히 NOT VERIFIED다.
+- **다음 단계:** 이 작업이 clean하게 끝나면 V0.4A — Strict Mutation Hardening으로 넘어간다.
+- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 

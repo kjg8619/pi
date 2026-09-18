@@ -827,8 +827,10 @@ export class CompanyKernel {
 									...(this.state.risk === "R3" ? { onApprovalRequested, onApprovalConsumed } : {}),
 								}),
 					});
-					signal?.throwIfAborted();
+					// The invocation already returned: its measurement is spent evidence and is settled
+					// before cancellation is re-checked. Cancellation still rejects the result itself.
 					settleBudget(result.measurement);
+					signal?.throwIfAborted();
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					approvalCallbacksOpen = false;
 					if (result.role === "Reviewer" || result.role !== role)
@@ -912,8 +914,10 @@ export class CompanyKernel {
 						handoff: structuredClone(this.handoff),
 						verification: structuredClone(this.selfCheck),
 					});
-					signal?.throwIfAborted();
+					// The invocation already returned: its measurement is spent evidence and is settled
+					// before cancellation is re-checked. Cancellation still rejects the result itself.
 					settleBudget(result.measurement);
+					signal?.throwIfAborted();
 					requireEvidence(this.ports.agents.safeToRelease !== false, "Worker cleanup is unconfirmed");
 					if (result.role !== "Reviewer") throw new Error("Expected Reviewer result");
 					if (this.state.risk === "R2" || this.state.risk === "R3")

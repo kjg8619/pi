@@ -38,3 +38,15 @@ V0.3F 게시 후 확인된 plumbing gap을 자동 회귀로 닫았다(Provider �
 - **정정:** LOG-059가 실패 run에서 관찰한 16,409 tokens는 worker/session-level observation이다. hardening 이전에는 실패 invocation measurement의 durable Run persistence에 gap이 있었다. 성공 run의 판정·Evidence Pack 결과는 유지된다.
 - 결정론적 검증: Runtime 36개 파일·1,154개 + coding-agent Weavra suite 11개 파일·449개 + evals unit 6개 파일·33개 = 53개 파일·1,636개 PASS. faux E2E(standard-2ac)는 Provider network 0회로 실제 adapter 경로를 통과한다.
 - 이번 hardening은 Provider quota를 사용하지 않았다(DeepSeek·GPT smoke 재실행 NOT RUN).
+
+## Final Micro Hardening (LOG-062, 2026-09-18)
+
+V0.3F에 남은 edge case 2건만 닫고 이 단계를 종료한다(Provider 재실행 없음, dependency·lockfile 변경 없음).
+
+| 항목 | before | after |
+|---|---|---|
+| result 반환 직후 cancellation | `execute()` → `throwIfAborted()` → `settleBudget()` 순서라 이미 소비된 measurement가 settle에 도달하지 못할 수 있었다 | implement/review 모두 `settleBudget()` → `throwIfAborted()`. measurement는 durable, Run은 기존처럼 CANCELLED이며 handoff/review는 완료 authority가 아니다 |
+| telemetry adapter 반환값 | settled 이후 adapter가 반환한 값이 실행 결과가 될 수 있었다 | authoritative 결과는 항상 work callback의 outcome. adapter 반환값·`undefined`·오류 삼키기 어느 것도 Runtime 결과를 바꾸지 못하고 work는 항상 최대 1회 실행된다 |
+
+- 결정론적 검증: Runtime 36개 파일·1,158개 + coding-agent Weavra suite 11개 파일·449개 + evals unit 6개 파일·33개 = 53개 파일·1,640개 PASS. 신규 4건은 pre-fix 상태에서 실제로 실패함을 확인한 뒤 복원해 통과를 확인했다.
+- 다음 단계는 V0.4A — Strict Mutation Hardening이다.

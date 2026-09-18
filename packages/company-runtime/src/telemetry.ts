@@ -110,7 +110,7 @@ export async function withSpan<T>(
 		return work;
 	};
 	try {
-		const reported = await telemetry.startSpan({ name, attributes }, async (span) => {
+		await telemetry.startSpan({ name, attributes }, async (span) => {
 			try {
 				const value = await runOnce();
 				outcome = value;
@@ -142,15 +142,14 @@ export async function withSpan<T>(
 				throw error;
 			}
 		});
-		// An adapter that never invoked the callback must not swallow the work.
-		return settled ? reported : await runOnce();
 	} catch {
-		if (settled) {
-			// The work already finished: keep its own error or its own success.
-			if (outcomeError !== undefined) throw outcomeError;
-			return outcome as T;
-		}
-		// Telemetry failed before invoking the callback: run the work exactly once ourselves.
-		return await runOnce();
+		// Telemetry/span/exporter failures are observation only; the captured work outcome stays authoritative.
 	}
+	if (settled) {
+		if (outcomeError !== undefined) throw outcomeError;
+		// The telemetry adapter's own return value is never the execution result.
+		return outcome as T;
+	}
+	// A telemetry adapter that never invoked the callback must not swallow the work.
+	return await runOnce();
 }

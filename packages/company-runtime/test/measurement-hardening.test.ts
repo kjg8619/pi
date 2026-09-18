@@ -236,6 +236,68 @@ describe("V0.3F hardening: Reviewer revision settlement", () => {
 	});
 });
 
+describe("V0.3F hardening: cancellation after a worker result", () => {
+	it("keeps the spent Developer measurement when cancellation arrives with the result", async () => {
+		const controller = new AbortController();
+		let calls = 0;
+		const { kernel } = await fixture(async (request) => {
+			calls += 1;
+			controller.abort();
+			return {
+				role: "Developer",
+				handoff: handoff(request, request.task.id),
+				measurement: workerMeasurement({ tokens: 77 }),
+			};
+		});
+		await kernel.start();
+		const step = kernel.snapshot.currentStep?.stepId;
+		if (step !== "implement") throw new Error(`Unexpected step ${step}`);
+		await kernel.advance(step, controller.signal);
+		const run = kernel.snapshot;
+		expect(run.status).toBe("CANCELLED");
+		expect(calls).toBe(1);
+		expect(run.workerMeasurements).toHaveLength(1);
+		expect(run.workerMeasurements?.[0].usage.totalTokens).toBe(77);
+		expect(run.budget).toMatchObject({ workerInvocations: 1, reportedTokens: 77 });
+		// The cancelled result must not become completion authority.
+		expect(run.handoff).toBeUndefined();
+		expect(run.reviewHistory ?? []).toHaveLength(0);
+	});
+
+	it("keeps both measurements when cancellation arrives with the Reviewer result", async () => {
+		const controller = new AbortController();
+		let calls = 0;
+		const { kernel } = await fixture(async (request) => {
+			calls += 1;
+			if (request.role === "Developer")
+				return {
+					role: "Developer",
+					handoff: handoff(request, request.task.id),
+					measurement: workerMeasurement({ tokens: 100 }),
+				};
+			if (request.role !== "Reviewer") throw new Error(`Unexpected role ${request.role}`);
+			controller.abort();
+			return {
+				role: "Reviewer",
+				review: review(request, "PASS"),
+				measurement: workerMeasurement({ role: "Reviewer", tokens: 50 }),
+			};
+		});
+		await kernel.start();
+		await kernel.advance("implement");
+		await kernel.advance("self-check");
+		await kernel.advance("review", controller.signal);
+		const run = kernel.snapshot;
+		expect(run.status).toBe("CANCELLED");
+		expect(calls).toBe(2);
+		expect(run.workerMeasurements?.map((entry) => entry.usage.totalTokens)).toEqual([100, 50]);
+		expect(run.budget).toMatchObject({ workerInvocations: 2, reportedTokens: 150 });
+		expect(run.reviewHistory ?? []).toHaveLength(0);
+		expect(run.completed ?? []).toHaveLength(0);
+		expect(run.review).toBeUndefined();
+	});
+});
+
 describe("V0.3F hardening: telemetry isolation", () => {
 	const attributes: SpanAttributes = { role: "Developer", profile: "coding", revision: 0, provider: "p", model: "m" };
 	const spanOk = (overrides: Partial<TelemetrySpan> = {}): TelemetrySpan => ({
@@ -312,5 +374,44 @@ describe("V0.3F hardening: telemetry isolation", () => {
 		const ignoring: TelemetryContext = { startSpan: async <T>(_options: SpanOptions) => "bogus" as T };
 		await expect(withSpan(ignoring, "weavra.worker", attributes, work)).resolves.toBe("result");
 		expect(work).toHaveBeenCalledTimes(2);
+	});
+
+	it("never lets the telemetry adapter replace the work result", async () => {
+		const work = vi.fn(async () => "real-result");
+		const tampering: TelemetryContext = {
+			startSpan: async <T>(_options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) => {
+				await callback(spanOk());
+				return "tampered-result" as T;
+			},
+		};
+		await expect(withSpan(tampering, "weavra.worker", attributes, work)).resolves.toBe("real-result");
+		expect(work).toHaveBeenCalledTimes(1);
+
+		const undefinedReturn: TelemetryContext = {
+			startSpan: async <T>(_options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) => {
+				await callback(spanOk());
+				return undefined as T;
+			},
+		};
+		await expect(withSpan(undefinedReturn, "weavra.worker", attributes, work)).resolves.toBe("real-result");
+		expect(work).toHaveBeenCalledTimes(2);
+	});
+
+	it("never lets the telemetry adapter mask a failing work result", async () => {
+		const work = vi.fn(async () => {
+			throw new Error("provider exploded");
+		});
+		const swallowing: TelemetryContext = {
+			startSpan: async <T>(_options: SpanOptions, callback: (span: TelemetrySpan) => T | Promise<T>) => {
+				try {
+					await callback(spanOk());
+				} catch {
+					// An adapter that swallows the callback error must not turn it into success.
+				}
+				return "tampered-success" as T;
+			},
+		};
+		await expect(withSpan(swallowing, "weavra.worker", attributes, work)).rejects.toThrow("provider exploded");
+		expect(work).toHaveBeenCalledTimes(1);
 	});
 });
