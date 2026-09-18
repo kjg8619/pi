@@ -11,9 +11,13 @@
 
 ## 게시 시점 보정
 
-원래 조사는 V0.4A 기준 `971d4c3`에서 수행했다. 게시 전 [작업 이력][W4]을 확인하니 V0.4B Verifier Trust의 구현·자동 회귀가 `b41843e68`에 게시돼 있고, 다음 개발 단계는 V0.4C Verifier Sandbox로 기록돼 있다. 다만 실제 DeepSeek run은 self-check `PASS`와 `VERIFIED (strict)` 뒤 Reviewer의 protected-oracle read가 Policy DENY되어 FAILED했으며, 이 경로의 end-to-end COMPLETED는 미검증이다. 이는 기존 기록의 확인이지 이번 게시 작업에서 새로 실행한 검증 결과가 아니다.
+원래 조사는 V0.4A 기준 `971d4c3`에서 수행했고, 최초 게시 전에는 V0.4B 구현까지만 반영돼 있었다. 이후 LOG-067에서 V0.4B Verifier Trust의 최종 contract closure와 실제 DeepSeek strict-trust **COMPLETED**를 확인했다. registration digest의 filtered env binding, executable identity real SHA-256, Host-frozen expected registration digest Kernel guard, Reviewer/Worker protected-oracle guidance까지 닫혔다.
 
-따라서 V0.4B를 처음부터 다시 구현하지 않는다. 아래 C02/C08의 선행 조건은 **현재 Verifier Trust를 유지하고, 남은 실제 완료 경로·격리 경계를 확인하는 것**으로 읽는다. 제안한 C01~C08이 구현됐다는 뜻은 아니며, 구현 착수 전 실제 HEAD와 관련 계약을 다시 확인한다.
+따라서 이 문서를 현재 작업 계획에 반영할 때 V0.4B는 **CLOSED**로 읽는다. C02의 Verifier Trust 선행조건은 충족됐고, 다음 선행 작업은 기존 로드맵의 **V0.4C Verifier Sandbox**다. 특히 C02의 bounded repair와 C08의 브라우저 행동 범위를 넓히기 전에 verifier/file/network/process 격리 경계를 먼저 확보한다.
+
+2026-09-18 후속 채택 순서는 **V0.4C → V0.5A C01 → V0.5B C03 → V0.5C C02 → V0.5D C04+C05 → V0.6A C07 → V0.6B C06 → V0.6C C08 → Facts/Capability Broker → COMPLEX/Parallel**로 정리한다. C06은 일회성 모델 순위가 아니라 이후에도 계속 누적하는 Provider Fitness 평가 track으로 본다.
+
+제안한 C01~C08이 이미 구현됐다는 뜻은 아니며, 각 단계 착수 전 실제 HEAD와 기존 authority 계약을 다시 확인한다.
 
 이 문서는 기존 [로드맵](WEAVRA_ROADMAP_2026-09-17.md), [보완 계획](WEAVRA_IMPROVEMENT_AND_FEATURE_RESEARCH_2026-09-17.md), [OMP/OMO 도입 계획](WEAVRA_OMP_OMO_ADOPTION_PLAN.md)을 대체하지 않는다. 제안한 명칭·자료 구조는 현재 명령이나 설정이 아니다.
 
@@ -46,7 +50,7 @@ Weavra에 외부 코딩 에이전트들을 중첩 실행하는 방식보다, 각
 | C07 | T3 Code Host Bridge | 제품 방향상 높음 | 구조화 명령·이벤트·승인·취소·재연결 계약 |
 | C08 | Jev Browser Explorer → Regression Evidence | 조건부 후속 | 통제된 브라우저 탐색과 독립 결과 검증 |
 
-기존 로드맵의 **V0.4B Verifier Trust → V0.4C Verifier Sandbox**를 생략하지 않는다. 특히 C02와 외부 실행을 넓히는 C08은 그 경계를 먼저 확보한다.[W2]
+V0.4B Verifier Trust는 LOG-067에서 CLOSED됐고, 기존 로드맵의 **V0.4C Verifier Sandbox**를 다음 단계로 유지한다. 특히 C02와 외부 실행을 넓히는 C08은 V0.4C 격리 경계를 먼저 확보한다.[W2]
 
 ## 2. 현재 Weavra와 중복되는 제안 제거
 
@@ -274,23 +278,66 @@ Jev는 T3에 직결하지 않고 Weavra 소유 adapter 뒤에 둔다. 브라우�
 
 ## 6. 추천 진행 순서
 
-### 먼저 유지할 기존 작업
+현재 Weavra의 확정 상태와 이 조사 문서를 함께 반영한 실행 순서는 다음과 같다.
 
-게시 시점에 V0.4B의 verifier registration/source freeze와 보호 기준은 구현·자동 회귀가 게시돼 있다. 이를 재구현하지 말고 남아 있는 실제 완료 경로를 확인한다. 다음 V0.4C에서 외부 프로그램 실행의 파일·네트워크·프로세스 격리를 검증한다. 이번 문서 게시로 V0.4B end-to-end smoke나 V0.4C가 검증됐다고 선언하지 않는다.[W4]
+```text
+V0.4C  Verifier Sandbox
+   ↓
+V0.5A  C01 Task Context Pack / Repo Map
+   ↓
+V0.5B  C03 Task Recipes / Reviewed Skill Packs
+   ↓
+V0.5C  C02 Bounded Verification Repair
+   ↓
+V0.5D  C04 Impact-aware Review Pack
+        + C05 Versioned Documentation Pack
+   ↓
+V0.6A  C07 T3 Code Host Bridge
+   ↓
+V0.6B  C06 Provider Contract/Fitness Matrix
+   ↓
+V0.6C  C08 Jev Browser Explorer → Regression Evidence
+   ↓
+Facts / Capability Broker
+   ↓
+COMPLEX / Parallel
+```
 
-### 새 기능은 효과가 보이는 작은 묶음으로
+### V0.4C — 기존 안전 경계 우선
 
-| 묶음 | 범위 | 종료 조건 |
-|---|---|---|
-| 문맥 개선 | C01 최소 Context Pack | 관련 파일을 놓치지 않으며 불필요 read/토큰 변화 측정 |
-| 반복 작업 | C03 bugfix/refactor 두 recipe | 기존 AC guard를 재사용하고 사용자 입력 수고가 줄어듦 |
-| 제한 복구 | C02 단일 repair cycle | 실패 증거 보존, 권한·oracle 유지, 재실패 시 종료 |
-| 리뷰 보강 | C04 + 필요한 C05 | 호출자 회귀·버전 오용 검출 및 오탐 평가 |
-| 제품 연결 | C07 local T3 bridge | 승인·취소·상태·재연결·지원 불가 명령 검증 |
-| 모델 비교 | C06와 실제 비교 eval | 같은 과제·조건에서 quality/cost/latency 근거 확보 |
-| 브라우저 실험 | C08 | 격리·action policy·독립 결과 검증 통과 |
+V0.4B는 LOG-067에서 CLOSED됐으므로 재구현하지 않는다. 다음은 Verifier Sandbox다. 등록 verifier의 source integrity와 registration trust는 확보했지만, verifier process의 network/filesystem/process 접근을 OS 수준으로 제한했다고 아직 주장할 수 없다. sandbox unavailable 시 silent host fallback을 허용하지 않고, credential 비노출·cleanup·지원 OS 차이를 명시적으로 다룬다.
 
-이는 버전 번호나 동시 실행 허가가 아니다. T3의 protocol 설계는 일찍 진행할 수 있으나, UI 때문에 Kernel을 다시 UI 종속적으로 만들지 않는다.
+### V0.5A — C01 Task Context Pack / Repo Map
+
+새 explore agent보다 먼저 기존 `runtime_list_files`, read/search, LSP, instruction snapshot 결과를 작업별 bounded pack으로 조합한다. 관련 파일 발견률·중복 read·입력 token·성공률을 함께 측정하고, pack의 오래된 snippet을 mutation authority로 사용하지 않는다.
+
+### V0.5B — C03 Task Recipes / Reviewed Skill Packs
+
+bugfix, safe refactor, test addition, read-only investigation을 우선 recipe로 둔다. recipe는 실행 엔진이 아니라 기존 Plan Preview와 frozen Task Contract를 만드는 reviewed data template이며, 임의 shell·설치·hook·권한 부여를 포함하지 않는다.
+
+### V0.5C — C02 Bounded Verification Repair
+
+초기 범위는 **opt-in STANDARD/EDIT/R1, 최대 1회 repair**다. 허용된 assertion failure만 새 Developer attempt로 되돌리고 Provider/Auth/Policy/Storage/Cleanup/Cancel/R3/READ_ONLY/unknown failure는 종료한다. 이전 failure evidence와 budget은 보존하고 stale review/check/receipt는 재사용하지 않는다.
+
+### V0.5D — C04 Impact-aware Review + C05 Versioned Documentation
+
+C01의 symbol/caller/related-test 문맥을 Reviewer 입력으로 재선별하고, 필요할 때 실제 dependency version에 맞는 reviewed local/official docs를 붙인다. 추가 evidence는 advisory이며 Reviewer나 문서 자체가 completion authority가 되지 않는다.
+
+### V0.6A — C07 T3 Code Host Bridge
+
+T3 Code를 우선 Host/UI로 유지한다. UI 요청은 Plan 확인, Run 시작, 상태 구독, 승인 응답, 취소, evidence/usage 조회, 재연결로 제한하고, Runtime이 Run/Policy/Approval/Completion authority를 계속 소유한다. protocolVersion, capabilities, request idempotency, snapshot+sequence 재연결을 먼저 고정한다.
+
+### V0.6B — C06 Provider Contract/Fitness Matrix
+
+일회성 모델 티어표가 아니라 지속 평가 track으로 만든다. Provider + model + endpoint + thinking + tool schema revision을 같은 fixture/budget/policy 조건으로 비교하고 tool schema, stale recovery, AC 제출, read-only 거부, cancellation, usage reporting을 분리 측정한다. 자동 fallback은 아직 도입하지 않는다.
+
+### V0.6C — C08 Jev Browser Explorer → Regression Evidence
+
+초기는 local test app, isolated browser profile, no personal account/upload/delete/production으로 제한한다. Jev의 탐색/DONE은 완료 권한이 아니며, 재현 절차를 registered regression evidence 후보로 변환한 뒤 독립 Verifier가 판정한다. Browser action policy와 V0.4C 격리 경계가 선행 조건이다.
+
+### 이후
+
+Facts Pack과 Capability Broker는 실제 context/tool 규모가 커졌을 때 도입한다. COMPLEX/Parallel은 Task/file ownership, integration verification, budget/eval baseline이 충분히 쌓인 뒤 마지막에 연다. T3 protocol 설계와 Provider fixture 축적은 앞 단계와 병행 조사할 수 있지만, 이 순서의 authority/완료 조건을 건너뛰는 근거가 되지 않는다.
 
 ## 7. 평가 계획
 
