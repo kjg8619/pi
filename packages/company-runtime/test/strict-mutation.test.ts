@@ -176,7 +176,7 @@ describe("V0.4A config and plan preview", () => {
 		expect(strict).toContain("Mutation mode: strict (strict freshness/precondition enforcement");
 		expect(strict).toContain("not a permission and not approval");
 		expect(strict).toContain(
-			"Verifier trust: strict (frozen registration + trusted source integrity pinning; not a sandbox)",
+			"Verifier trust: strict (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)",
 		);
 		expect(strict).toContain("test/acceptance.test.mjs");
 	});

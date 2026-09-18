@@ -75,6 +75,11 @@ export interface RegisteredCheckLike {
 	trust?: { files?: readonly string[] };
 }
 
+/** Deterministic canonical form: sorted [key, value] pairs, independent of object insertion order. */
+export function canonicalEnvironment(environment: Readonly<Record<string, string>>): Array<[string, string]> {
+	return Object.entries(environment).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
 function sha256Of(value: unknown, domain: string): string {
 	return createHash("sha256").update(JSON.stringify({ domain, value })).digest("hex");
 }
@@ -212,12 +217,30 @@ export function snapshotVerifierExecutable(executable: string): VerifierExecutab
 	return { path: resolved, ...identity(stat) };
 }
 
+/** Actual SHA-256 of the resolved executable's frozen filesystem identity (not a concatenated label). */
+export function executableIdentityDigest(executable: VerifierExecutableSnapshot): string {
+	return `sha256:${sha256Of(
+		{
+			path: executable.path,
+			dev: executable.dev,
+			ino: executable.ino,
+			mode: executable.mode,
+			size: executable.size,
+			mtimeNs: executable.mtimeNs,
+			ctimeNs: executable.ctimeNs,
+		},
+		"weavra-verifier-executable-v1",
+	)}`;
+}
+
 export function registrationDigestOf(input: {
 	check: RegisteredCheckLike;
 	executable: VerifierExecutableSnapshot;
 	sources: readonly VerifierSourceSnapshot[];
 	configDigest: string;
 	trustMode: VerifierTrustMode;
+	/** The exact filtered environment handed to the check process; hashed canonically, never printed. */
+	environment: Readonly<Record<string, string>>;
 }): string {
 	return `sha256:${sha256Of(
 		{
@@ -229,7 +252,7 @@ export function registrationDigestOf(input: {
 			argv: [...input.check.args],
 			cwd: input.check.cwd,
 			timeoutMs: input.check.timeout_ms,
-			env: "verification-filtered",
+			env: canonicalEnvironment(input.environment),
 			configDigest: input.configDigest,
 			trustMode: input.trustMode,
 			sources: input.sources.map((source) => ({ path: source.path, sha256: source.sha256 })),

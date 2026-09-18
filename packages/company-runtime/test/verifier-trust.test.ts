@@ -20,6 +20,8 @@ import type { ActionAudit, PolicyContext } from "../src/policy.ts";
 import type { KernelPorts, VerificationRequest } from "../src/ports.ts";
 import { RegisteredVerifier } from "../src/verification.ts";
 import {
+	canonicalEnvironment,
+	executableIdentityDigest,
 	registrationDigestOf,
 	resolveVerifierTrustSources,
 	snapshotVerifierExecutable,
@@ -81,18 +83,38 @@ async function verifierOf(config: RuntimeConfig) {
 	return await RegisteredVerifier.create(config, policy, audit, workspace);
 }
 
-function requestOf(config: RuntimeConfig): VerificationRequest {
+function requestOf(
+	config: RuntimeConfig,
+	requirements: Array<{
+		id: string;
+		kind: "build" | "custom" | "format" | "lint" | "test" | "typecheck";
+		required: boolean;
+		trustRequired: boolean;
+		trustRegistrationDigest: string;
+	}> = config.verification.checks.map((check) => ({
+		id: check.id,
+		kind: check.kind,
+		required: check.required,
+		trustRequired: config.verification.trust.mode === "strict",
+		trustRegistrationDigest: "",
+	})),
+): VerificationRequest {
 	return {
 		runId: "run-1",
 		revision: 0,
 		step: { stepId: "self-check", attempt: 1 },
 		task: testContract("Fix", { taskId: "task-1" }),
 		handoff: { role: "Developer" } as never,
-		checks: config.verification.checks.map((check) => ({
-			id: check.id,
-			kind: check.kind,
-			required: check.required,
-			...(config.verification.trust.mode === "strict" ? { trustRequired: true } : {}),
+		checks: requirements.map((requirement) => ({
+			id: requirement.id,
+			kind: requirement.kind,
+			required: requirement.required,
+			...(requirement.trustRequired
+				? {
+						trustRequired: true,
+						trustRegistrationDigest: requirement.trustRegistrationDigest,
+					}
+				: {}),
 		})),
 	};
 }
@@ -186,6 +208,7 @@ describe("V0.4B verifier trust config", () => {
 				sources,
 				configDigest: "frozen-config",
 				trustMode: "strict",
+				environment: { PATH: "/usr/bin" },
 			}),
 			executableDigest: "sha256:test",
 			executable,
@@ -203,7 +226,7 @@ describe("V0.4B registered verifier trust", () => {
 	it("passes a normal strict check with VERIFIED trust and a registration digest", async () => {
 		const config = configOf("strict", ["test/acceptance.test.mjs"]);
 		const verifier = await verifierOf(config);
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		expect(result.checks[0].status).toBe("PASS");
 		expect(result.checks[0].trust).toMatchObject({ mode: "strict", status: "VERIFIED" });
 		expect(result.checks[0].trust?.registrationDigest).toMatch(/^sha256:/);
@@ -213,7 +236,7 @@ describe("V0.4B registered verifier trust", () => {
 	it("marks compatible checks as UNVERIFIED without changing the check outcome", async () => {
 		const config = configOf("compatible");
 		const verifier = await verifierOf(config);
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		expect(result.checks[0].status).toBe("PASS");
 		expect(result.checks[0].trust).toMatchObject({ mode: "compatible", status: "UNVERIFIED" });
 	});
@@ -223,7 +246,7 @@ describe("V0.4B registered verifier trust", () => {
 		const verifier = await verifierOf(config);
 		// Same bytes, different filesystem generation: only the trust snapshot can notice this.
 		utimesSync(join(cwd, "test/acceptance.test.mjs"), new Date(), new Date());
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		expect(result.checks[0].status).toBe("FAIL");
 		expect(result.checks[0].trust).toMatchObject({ status: "STALE" });
 		expect(result.checks[0].reason).toContain("before execution");
@@ -236,7 +259,7 @@ describe("V0.4B registered verifier trust", () => {
 		const original = readFileSync(join(cwd, "test/acceptance.test.mjs"), "utf8");
 		rmSync(join(cwd, "test/acceptance.test.mjs"));
 		writeFileSync(join(cwd, "test/acceptance.test.mjs"), original);
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		expect(result.checks[0].status).toBe("FAIL");
 		expect(result.checks[0].trust).toMatchObject({ status: "STALE" });
 		expect(existsSync(marker)).toBe(false);
@@ -251,7 +274,7 @@ describe("V0.4B registered verifier trust", () => {
 		execFileSync("git", ["-c", "user.email=e@x", "-c", "user.name=E", "commit", "-qm", "self-modifying"], { cwd });
 		const config = configOf("strict", ["test/acceptance.test.mjs"]);
 		const verifier = await verifierOf(config);
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		expect(result.checks[0].exitCode).toBe(0);
 		expect(result.checks[0].status).toBe("FAIL");
 		expect(result.checks[0].trust).toMatchObject({ status: "STALE" });
@@ -276,7 +299,7 @@ describe("V0.4B registered verifier trust", () => {
 		const verifier = await verifierOf(inner);
 		writeFileSync(fake, '#!/bin/sh\necho "REPLACED"\nexit 0\n');
 		execFileSync("chmod", ["755", fake]);
-		const result = await verifier.verify(requestOf(inner));
+		const result = await verifier.verify(requestOf(inner, verifier.trustRequirements));
 		expect(result.checks[0].status).toBe("FAIL");
 		expect(result.checks[0].trust).toMatchObject({ status: "STALE" });
 	});
@@ -286,7 +309,7 @@ describe("V0.4B trust evidence projections", () => {
 	it("shows trust status in the evidence pack and keeps legacy results UNKNOWN", async () => {
 		const config = configOf("strict", ["test/acceptance.test.mjs"]);
 		const verifier = await verifierOf(config);
-		const result = await verifier.verify(requestOf(config));
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
 		const packOf = (check: (typeof result.checks)[0]) => {
 			const run = graphRun("STANDARD", "R1", 0);
 			return projectEvidencePack({
@@ -305,29 +328,18 @@ describe("V0.4B trust evidence projections", () => {
 });
 
 describe("V0.4B kernel trust guard", () => {
-	it("rejects a forged PASS that carries no verifier-trust evidence when trust is required", async () => {
-		const checks = [{ id: "acceptance", kind: "test" as const, required: true, trustRequired: true }];
-		const forged = (runId: string, revision: number, step: { stepId: string; attempt: number }) => ({
-			runId,
-			revision,
-			step,
-			diffDigest: "digest",
-			evidenceRefs: ["diff:digest"],
-			changedFiles: [],
-			checks: checks.map((check) => ({
-				id: check.id,
-				kind: check.kind,
-				required: check.required,
-				runId,
-				revision,
-				step,
-				status: "PASS" as const,
-				exitCode: 0,
-				reason: "forged pass",
-				evidenceRefs: [`check:${check.id}`],
-				diffDigest: "digest",
-			})),
-		});
+	const DIGEST = `sha256:${"a".repeat(64)}`;
+
+	async function runWithTrust(trust: unknown): Promise<string> {
+		const checks = [
+			{
+				id: "acceptance",
+				kind: "test" as const,
+				required: true,
+				trustRequired: true,
+				trustRegistrationDigest: DIGEST,
+			},
+		];
 		const ports: KernelPorts = {
 			agents: {
 				execute: async (input) => ({
@@ -347,7 +359,29 @@ describe("V0.4B kernel trust guard", () => {
 				}),
 			},
 			verifier: {
-				verify: async (input) => forged(input.runId, input.revision, input.step) as never,
+				verify: async (input) =>
+					({
+						runId: input.runId,
+						revision: input.revision,
+						step: input.step,
+						diffDigest: "digest",
+						evidenceRefs: ["diff:digest"],
+						changedFiles: [],
+						checks: checks.map((check) => ({
+							id: check.id,
+							kind: check.kind,
+							required: check.required,
+							runId: input.runId,
+							revision: input.revision,
+							step: input.step,
+							status: "PASS" as const,
+							exitCode: 0,
+							reason: "forged pass",
+							evidenceRefs: [`check:${check.id}`],
+							diffDigest: "digest",
+							...(trust === undefined ? {} : { trust }),
+						})),
+					}) as never,
 				inspect: async () => ({
 					diffDigest: "digest",
 					changedFiles: [],
@@ -373,7 +407,90 @@ describe("V0.4B kernel trust guard", () => {
 			if (!step) break;
 			await kernel.advance(step);
 		}
-		expect(["FAILED", "BLOCKED"]).toContain(kernel.snapshot.status);
-		expect(kernel.snapshot.lastError).toContain("not verifier-trust verified");
+		return kernel.snapshot.lastError ?? "";
+	}
+
+	it("rejects a forged PASS that carries no verifier-trust evidence", async () => {
+		expect(await runWithTrust(undefined)).toContain("not verifier-trust verified");
+	});
+
+	it("rejects a VERIFIED flag whose registration digest is not the Host-frozen one", async () => {
+		const error = await runWithTrust({
+			mode: "strict",
+			status: "VERIFIED",
+			registrationDigest: `sha256:${"b".repeat(64)}`,
+			executableDigest: `sha256:${"c".repeat(64)}`,
+			sources: [],
+		});
+		expect(error).toContain("frozen verifier registration");
+	});
+
+	it("rejects a malformed digest instead of treating VERIFIED as authority", async () => {
+		const error = await runWithTrust({
+			mode: "strict",
+			status: "VERIFIED",
+			registrationDigest: "sha256:not-a-hash",
+			executableDigest: `sha256:${"c".repeat(64)}`,
+			sources: [],
+		});
+		expect(error).toContain("Invalid runtime contract");
+	});
+
+	it("accepts a schema-valid VERIFIED evidence with the exact frozen digest", async () => {
+		const error = await runWithTrust({
+			mode: "strict",
+			status: "VERIFIED",
+			registrationDigest: DIGEST,
+			executableDigest: `sha256:${"c".repeat(64)}`,
+			sources: [{ path: "test/acceptance.test.mjs", digest: `sha256:${"d".repeat(64)}` }],
+		});
+		expect(error).not.toContain("verifier-trust");
+		expect(error).not.toContain("frozen verifier registration");
+	});
+});
+
+describe("V0.4B closure: digest contracts", () => {
+	it("binds the actual filtered environment canonically", () => {
+		const config = configOf("strict", ["test/acceptance.test.mjs"]);
+		const executable = snapshotVerifierExecutable(process.execPath);
+		const sources = snapshotVerifierSources(cwd, ["test/acceptance.test.mjs"]);
+		const digestOf = (environment: Record<string, string>) =>
+			registrationDigestOf({
+				check: config.verification.checks[0],
+				executable,
+				sources,
+				configDigest: "frozen-config",
+				trustMode: "strict",
+				environment,
+			});
+		const a = digestOf({ PATH: "/a", LANG: "C" });
+		const b = digestOf({ PATH: "/b", LANG: "C" });
+		const reordered = digestOf({ LANG: "C", PATH: "/a" });
+		expect(a).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(a).not.toBe(b);
+		expect(reordered).toBe(a);
+		expect(canonicalEnvironment({ b: "2", a: "1" })).toEqual([
+			["a", "1"],
+			["b", "2"],
+		]);
+	});
+
+	it("produces a real SHA-256 executable identity digest", () => {
+		const executable = snapshotVerifierExecutable(process.execPath);
+		const digest = executableIdentityDigest(executable);
+		expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(executableIdentityDigest({ ...executable })).toBe(digest);
+		expect(executableIdentityDigest({ ...executable, mtimeNs: "1" })).not.toBe(digest);
+	});
+
+	it("records strict VERIFIED evidence with real sha256 digests and a matching Host binding", async () => {
+		const config = configOf("strict", ["test/acceptance.test.mjs"]);
+		const verifier = await verifierOf(config);
+		const result = await verifier.verify(requestOf(config, verifier.trustRequirements));
+		const trust = result.checks[0].trust;
+		expect(trust?.registrationDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(trust?.executableDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		for (const source of trust?.sources ?? []) expect(source.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(verifier.trustRequirements[0].trustRegistrationDigest).toBe(trust?.registrationDigest);
 	});
 });

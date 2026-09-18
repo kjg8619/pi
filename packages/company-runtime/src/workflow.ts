@@ -195,12 +195,17 @@ export class StandardWorkflow {
 					workflow: selection.workflow,
 					maxRevisionCycles: classification.risk === "R3" ? 0 : this.options.config.agents.max_revision_cycles,
 					approvalTimeoutMs: this.options.approvalTimeoutMs,
-					checks: this.options.config.verification.checks.map(({ id, kind, required }) => ({
-						id,
-						kind,
-						required,
-						// Host-frozen guard input: strict verifier trust must be VERIFIED for required checks.
-						...(this.options.config.verification.trust.mode === "strict" ? { trustRequired: true } : {}),
+					// Host-frozen guard input from the verifier's Run-start snapshot, never from a result.
+					checks: verifier.trustRequirements.map((requirement) => ({
+						id: requirement.id,
+						kind: requirement.kind,
+						required: requirement.required,
+						...(requirement.trustRequired
+							? {
+									trustRequired: true,
+									trustRegistrationDigest: requirement.trustRegistrationDigest,
+								}
+							: {}),
 					})),
 				},
 				{

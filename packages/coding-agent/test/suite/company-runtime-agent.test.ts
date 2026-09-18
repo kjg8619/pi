@@ -906,6 +906,48 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(store.snapshot.actions).toEqual([]);
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
+	it("tells workers that verifier trust sources are protected oracle inputs", async () => {
+		mkdirSync(join(workspace, "test"), { recursive: true });
+		writeFileSync(join(workspace, "test/oracle.mjs"), "console.log('oracle');\n");
+		const strict = parseRuntimeConfig(
+			JSON.stringify({
+				schemaVersion: 1,
+				models: {
+					profiles: {
+						coding: { provider: "faux", model: "coding-model" },
+						reasoning: { provider: "faux", model: "review-model" },
+					},
+				},
+				files: { allowed_paths: ["src", "test"] },
+				verification: {
+					trust: { mode: "strict" },
+					checks: [
+						{
+							id: "regression",
+							kind: "test",
+							executable: process.execPath,
+							args: ["test/oracle.mjs"],
+							trust: { files: ["test/oracle.mjs"] },
+						},
+					],
+				},
+			}),
+		);
+		const runner = await PiAgentExecutor.create({ ...options, config: strict });
+		let captured = "";
+		harness.setResponses([
+			(context) => {
+				captured = context.systemPrompt ?? "";
+				return submitReview();
+			},
+		]);
+		await runner.execute(reviewer());
+		expect(captured).toContain("Verifier trust sources are Host-owned protected oracle inputs");
+		expect(captured).toContain("test/oracle.mjs");
+		expect(captured).toContain("do not read, search, list, navigate with LSP, edit, write or delete them");
+		expect(captured).toContain("never for protected project instructions or verifier trust sources");
+	});
+
 	it("starts the worker span with the requested profile provider/model and the actual identity at the end", async () => {
 		const starts: Array<{ name: string; attributes: Record<string, unknown> }> = [];
 		const ends: Array<Record<string, unknown>> = [];

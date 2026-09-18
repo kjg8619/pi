@@ -129,9 +129,13 @@ export const VerifierTrustEvidenceSchema = Type.Object(
 	{
 		mode: Type.Union([Type.Literal("compatible"), Type.Literal("strict")]),
 		status: Type.Enum(["VERIFIED", "UNVERIFIED", "STALE", "UNKNOWN"]),
-		registrationDigest: text,
-		executableDigest: text,
-		sources: Type.Array(Type.Object({ path: text, digest: text }, strict), { maxItems: 64 }),
+		// Malformed digests are rejected at the schema boundary, never accepted as VERIFIED evidence.
+		registrationDigest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+		executableDigest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+		sources: Type.Array(
+			Type.Object({ path: text, digest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }) }, strict),
+			{ maxItems: 64 },
+		),
 	},
 	strict,
 );
@@ -166,6 +170,8 @@ export const CheckRequirementSchema = Type.Object(
 		required: Type.Boolean(),
 		// Host-frozen: a required check of a strict verifier-trust Run is not completion authority without VERIFIED trust.
 		trustRequired: Type.Optional(Type.Boolean()),
+		// Host-frozen expected registration digest from the verifier's Run-start snapshot; never taken from a result.
+		trustRegistrationDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
 	},
 	strict,
 );

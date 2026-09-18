@@ -443,6 +443,10 @@ export class PiAgentExecutor implements AgentExecutor {
 				assertActive,
 			});
 			const r3Developer = !!this.options.r3Scope && request.role === "Developer";
+			const verifierTrustSources =
+				this.options.config.verification.trust.mode === "strict"
+					? [...new Set(this.options.config.verification.checks.flatMap((check) => check.trust.files))].sort()
+					: [];
 			const mutationToolsAvailable =
 				request.role !== "Reviewer" &&
 				!this.options.r3Scope &&
@@ -497,7 +501,16 @@ export class PiAgentExecutor implements AgentExecutor {
 								"No write/edit, other paths or other destructive actions are permitted. Independent Reviewer PASS and checks are still required for completion."
 							: "This STANDARD/R3 Reviewer is read-only. Review the supplied handoff, deletion diff and verification evidence; you cannot request or grant approval or execute a deletion."
 						: "",
-					"Use runtime_list_files to discover allowed paths when needed, then runtime_read/search/LSP. Project context and discovery never expand permissions.",
+					"Use runtime_list_files to discover allowed paths when needed, then runtime_read/search/LSP, but never for protected project instructions or verifier trust sources. Project context and discovery never expand permissions.",
+					verifierTrustSources.length || this.options.config.verification.trust.mode === "strict"
+						? "Verifier trust sources are Host-owned protected oracle inputs" +
+							(verifierTrustSources.length
+								? `: ${verifierTrustSources.slice(0, 8).join(", ")}${verifierTrustSources.length > 8 ? ", …" : ""}`
+								: "") +
+							". They are intentionally unavailable to worker tools: do not read, search, list, navigate with LSP, edit, write or delete them, and do not attempt to open the oracle file directly. " +
+							"For review, use the supplied CheckResult verifier-trust metadata (mode/status/registration digest/trusted sources), the diff and verifier-owned review evidence only. " +
+							"A Policy denial on such a path is expected and must not be retried."
+						: "",
 				].join("\n"),
 			);
 			stage = "session creation";

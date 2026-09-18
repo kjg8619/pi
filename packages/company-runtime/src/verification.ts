@@ -11,6 +11,7 @@ import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { VerificationRequest, Verifier } from "./ports.ts";
 import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
 import {
+	executableIdentityDigest,
 	registrationDigestOf,
 	resolveVerifierTrustSources,
 	snapshotVerifierExecutable,
@@ -97,8 +98,9 @@ export class RegisteredVerifier implements Verifier {
 						sources,
 						configDigest: policy.configDigest,
 						trustMode,
+						environment: registration.env,
 					}),
-					executableDigest: `sha256:${executable.dev}:${executable.ino}:${executable.size}:${executable.mtimeNs}`,
+					executableDigest: executableIdentityDigest(executable),
 					executable,
 					sources,
 				};
@@ -118,6 +120,26 @@ export class RegisteredVerifier implements Verifier {
 			lsp,
 		);
 	}
+	/**
+	 * Bounded Host metadata for the Kernel guard: the frozen registration digest per check.
+	 * Never exposes sources, env or executable paths, and never comes from a Verifier result.
+	 */
+	get trustRequirements(): Array<{
+		id: string;
+		kind: "build" | "custom" | "format" | "lint" | "test" | "typecheck";
+		required: boolean;
+		trustRequired: boolean;
+		trustRegistrationDigest: string;
+	}> {
+		return this.config.verification.checks.map((check, index) => ({
+			id: check.id,
+			kind: check.kind,
+			required: check.required,
+			trustRequired: this.trustSnapshots[index]?.mode === "strict",
+			trustRegistrationDigest: this.trustSnapshots[index]?.registrationDigest ?? "",
+		}));
+	}
+
 	private async cwdSafe(path: string): Promise<boolean> {
 		const cwd = join(this.workspace.cwd, path);
 		try {
@@ -139,18 +161,33 @@ export class RegisteredVerifier implements Verifier {
 		if (this.policy.r2RunId && request.runId !== this.policy.r2RunId)
 			throw new Error("R2 verifier run binding mismatch");
 		const configured = this.config.verification.checks;
-		const requirementOf = (check: { id: string; kind: string; required: boolean; trustRequired?: boolean }) => ({
+		const requirementOf = (check: {
+			id: string;
+			kind: string;
+			required: boolean;
+			trustRequired?: boolean;
+			trustRegistrationDigest?: string;
+		}) => ({
 			id: check.id,
 			kind: check.kind,
 			required: check.required,
 			...(check.trustRequired === true ? { trustRequired: true } : {}),
+			...(check.trustRegistrationDigest ? { trustRegistrationDigest: check.trustRegistrationDigest } : {}),
 		});
 		const strictTrust = (this.config.verification.trust?.mode ?? "compatible") === "strict";
 		if (
 			JSON.stringify(request.checks.map(requirementOf)) !==
 			JSON.stringify(
-				configured.map(({ id, kind, required }) =>
-					requirementOf({ id, kind, required, ...(strictTrust ? { trustRequired: true } : {}) }),
+				configured.map(({ id, kind, required }, index) =>
+					requirementOf({
+						id,
+						kind,
+						required,
+						...(strictTrust ? { trustRequired: true } : {}),
+						...(strictTrust && this.trustSnapshots[index]?.registrationDigest
+							? { trustRegistrationDigest: this.trustSnapshots[index]!.registrationDigest }
+							: {}),
+					}),
 				),
 			)
 		)
