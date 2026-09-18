@@ -113,8 +113,15 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.3F — Measurement & Evidence** | 실제 품질·비용·실패를 측정/설명 | FEAT-03, FEAT-04, FEAT-05, FIX-09 | 높음 |
 | **V0.4A — Mutation Hardening** | anchored protection을 strict mutation으로 확장 | FIX-07 | **완료**(LOG-064·LOG-065). compatible 기본 + opt-in strict receipt/identity, create/replace 분리, deletion/재생성 typed stale, NUL 거부. DeepSeek strict actual **COMPLETED** |
 | **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | **완료**(LOG-066·LOG-067). env-bound registration digest·real executable digest·Host 기대 digest Kernel guard·Reviewer oracle guidance. DeepSeek strict run COMPLETED |
-| **V0.4C — Verifier Sandbox** | 검증 프로세스 OS 경계 도입 | FEAT-07 | 후속 |
-| **Later** | Facts / Browser QA / Capability Broker / COMPLEX | FEAT-06, 08, 09, Team Mode | 수요 기반 |
+| **V0.4C — Verifier Sandbox** | 검증 프로세스 OS 경계 도입 | FEAT-07 | **다음 단계** |
+| **V0.5A — Task Context Pack** | 작업별 관련 코드·테스트·규칙을 선별한 bounded context 구성 | C01 | V0.4C 이후 |
+| **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | V0.5A 이후 |
+| **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | V0.4C + V0.5B 이후 |
+| **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | C01 재사용 |
+| **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | Runtime authority 유지 |
+| **V0.6B — Provider Fitness Matrix** | Provider/model/endpoint별 Weavra 계약 적합성의 재현 가능한 평가 | C06 | 지속 평가 track의 첫 정식 milestone |
+| **V0.6C — Jev Browser Evidence** | 격리된 브라우저 탐색을 regression evidence 후보로 연결 | C08 | V0.4C + action policy 선행 |
+| **Later** | Facts / Capability Broker / COMPLEX / Parallel | FEAT-06, 09, Team Mode | 수요·측정 기반 |
 
 ---
 
@@ -602,6 +609,50 @@ Host-owned acceptance test
 
 ---
 
+# 10.5. Agent Landscape 반영 후속 순서
+
+2026-09-18의 [AI 코딩 에이전트 유형별 조사 및 도입 제안](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)을 후속 로드맵 입력으로 채택한다. 외부 코딩 에이전트 런타임을 중첩 실행하기보다, 현재 Weavra의 Kernel/Policy/Task Contract/Verifier/Evidence 경계를 유지하면서 효과적인 패턴만 작은 모듈로 흡수한다.
+
+채택 순서는 다음과 같다.
+
+```text
+V0.4C  Verifier Sandbox
+   ↓
+V0.5A  C01 Task Context Pack / Repo Map
+   ↓
+V0.5B  C03 Task Recipes / Reviewed Skill Packs
+   ↓
+V0.5C  C02 Bounded Verification Repair
+   ↓
+V0.5D  C04 Impact-aware Review Pack
+        + C05 Versioned Documentation Pack
+   ↓
+V0.6A  C07 T3 Code Host Bridge
+   ↓
+V0.6B  C06 Provider Contract/Fitness Matrix
+   ↓
+V0.6C  C08 Jev Browser Explorer → Regression Evidence
+   ↓
+Facts / Capability Broker
+   ↓
+COMPLEX / Parallel
+```
+
+이 순서의 이유:
+
+- **V0.4C가 먼저다.** V0.4B는 LOG-067에서 CLOSED됐지만 Verifier 실행 자체는 아직 OS sandbox가 아니다. C02의 자동 복구와 C08의 외부 브라우저 행동 범위를 넓히기 전에 verifier/file/network/process 격리 경계를 먼저 닫는다.
+- **C01을 기능 확장의 첫 단계로 둔다.** 새 탐색 agent를 바로 추가하지 않고 기존 `runtime_list_files` / read/search / LSP / instruction snapshot을 bounded Task Context Pack으로 조합해 관련 코드 발견률과 토큰 사용을 먼저 측정한다.
+- **C03은 새 Planner가 아니다.** bugfix/safe-refactor/test-addition/read-only-investigation 같은 reviewed recipe를 기존 Plan Preview와 frozen Task Contract의 입력 템플릿으로 사용한다.
+- **C02는 최대 1회 bounded repair로 시작한다.** 초기 범위는 opt-in STANDARD/EDIT/R1이며 Provider/Auth/Policy/Storage/Cleanup/Cancel/R3/READ_ONLY 실패는 자동 복구하지 않는다. 이전 실패 evidence와 budget을 보존하고 새 attempt에서 stale evidence/receipt/review를 재사용하지 않는다.
+- **C04/C05는 Reviewer 입력 품질을 높이는 한 묶음으로 진행한다.** C01의 symbol/caller/test 문맥을 재사용하고, 공식·reviewed 문서에는 version/source/capturedAt을 붙인다. advisory evidence를 completion authority로 승격하지 않는다.
+- **C07은 T3 Code를 우선 Host UI로 연결한다.** UI는 Runtime의 구조화 명령·이벤트·승인·취소·재연결 계약을 사용하며 COMPLETE/Approval/Policy의 원본 authority를 갖지 않는다.
+- **C06은 일회성 모델 순위가 아니라 지속 평가 track이다.** V0.6B에서는 matrix 형식을 정식화하고 이후 새 Provider/model/endpoint 조합을 같은 fixture·budget·tool schema revision으로 누적한다. run 중 무통보 fallback은 도입하지 않는다.
+- **C08은 마지막 조건부 확장이다.** 초기에는 local test app + isolated browser profile + no upload/delete/personal account/production 범위로 제한하고, Jev의 DONE을 Weavra completion으로 사용하지 않는다. 탐색 결과는 registered regression evidence 후보로 변환한 뒤 독립 Verifier가 판정한다.
+
+공통 완료 기준은 기존과 동일하게 authority 확대 없이 측정 가능한 효과를 남기는 것이다. 각 단계는 최소 하나의 deterministic false-positive/false-completion fixture와 기능 대조 eval을 추가하고, 실제 Provider 호출은 일반 CI가 아닌 명시적 opt-in smoke로 유지한다.
+
+---
+
 # 11. 이후 선택 단계
 
 ## Project Facts
@@ -669,13 +720,34 @@ V0.3F Measurement & Evidence
 V0.4A Strict Edit   eval baseline
         │
         ▼
-V0.4B Verifier Trust
+V0.4B Verifier Trust  ✅
         │
         ▼
 V0.4C Verifier Sandbox
         │
         ▼
-Facts / Browser / MCP / COMPLEX
+V0.5A Context Pack
+        │
+        ▼
+V0.5B Recipes
+        │
+        ▼
+V0.5C Bounded Repair
+        │
+        ▼
+V0.5D Impact Review + Versioned Docs
+        │
+        ▼
+V0.6A T3 Host Bridge
+        │
+        ▼
+V0.6B Provider Fitness Matrix
+        │
+        ▼
+V0.6C Jev Browser Evidence
+        │
+        ▼
+Facts / Capability Broker / COMPLEX / Parallel
 ```
 
 이 순서는 절대적 기능 의존성이라기보다 **안전성·측정 가능성·실사용 효과를 우선하는 개발 순서**다. 실제 측정 결과에 따라 후속 단계는 조정할 수 있다.
@@ -711,27 +783,21 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**V0.4B — Verifier Trust(FIX-08)는 CLOSED다(LOG-066 구현 + LOG-067 closure).** 실제 DeepSeek strict-trust run이 COMPLETED했고, 다음 단계는 **V0.4C — Verifier Sandbox(FEAT-07)**다.
+**현재 다음 작업은 V0.4C — Verifier Sandbox(FEAT-07)다.** V0.4B Verifier Trust는 LOG-066 구현 + LOG-067 closure 및 실제 DeepSeek strict-trust COMPLETED로 닫혔다.
 
-완료(각 LOG의 판정 그대로, 소급 수정 없음): V0.3A~V0.3F, V0.4A Strict Mutation(LOG-064·LOG-065), V0.4B Verifier Trust(LOG-066).
-
-**V0.4B 구현 범위:** `verification.trust.mode`(기본 compatible)와 `checks[].trust.files`(explicit oracle), Run 시작 시 registration digest·executable identity·direct/explicit source의 digest+generation freeze, pre/post process 검증, Kernel의 독립 `trustRequired` guard, CheckResult/Evidence Pack의 bounded trust metadata. sandbox가 아니며 transitive dependency 전체를 보호한다고 주장하지 않는다.
-
-역사적 기록(V0.3D 단계, 아래는 소급 수정하지 않는다):
+V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 
 ```text
-FIX-03  Host-selected instruction snapshot
-FIX-06  JVM dependency/build risk paths
-FEAT-02 일부  bounded runtime_list_files
+V0.5A  C01 Task Context Pack / Repo Map
+V0.5B  C03 Task Recipes / Reviewed Skill Packs
+V0.5C  C02 Bounded Verification Repair
+V0.5D  C04 Impact-aware Review + C05 Versioned Documentation
+V0.6A  C07 T3 Code Host Bridge
+V0.6B  C06 Provider Contract/Fitness Matrix
+V0.6C  C08 Jev Browser Explorer → Regression Evidence
+Later  Facts / Capability Broker / COMPLEX / Parallel
 ```
 
-```
-multiple/nested instructions / auto discovery
-Repo Map / workspace-wide symbol index
-Strict Edit (V0.4A에서 구현됨)
-Verifier Sandbox (V0.4C 후보)
-MCP
-COMPLEX / Parallel Agents
-```
+이 순서는 기능 개수보다 **문맥 품질 → 반복 절차 → 제한 복구 → 리뷰 품질 → Host UI → Provider 측정 → 브라우저 evidence**를 우선한다. T3는 Host/UI이고 Kernel authority가 아니며, Provider Matrix는 자동 fallback이 아닌 지속 평가 track이다. C08은 V0.4C 격리와 별도 Browser action policy를 전제로 한다.
 
-V0.3C 기록은 LOG-046, V0.3D의 실제 결과/한계는 LOG-048을 따른다. 실제 Provider 성공·JVM build matrix·self-hosting을 완료로 표시하지 않는다. V0.3E~V0.4B는 각 LOG의 판정대로 완료됐고, 다음 단계는 V0.4C — Verifier Sandbox(FEAT-07)다.
+과거 V0.3C/V0.3D의 실제 결과와 제한은 기존 LOG의 판정을 그대로 유지하며 소급 수정하지 않는다. 미실행 remote CI, 다른 OS/Node/Provider, R2/R3 actual smoke를 PASS로 확대하지 않는다.
