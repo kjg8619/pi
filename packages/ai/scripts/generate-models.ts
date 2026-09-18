@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { loadKimiCodingFallback, shouldUseKimiCodingFallback } from "../src/model-fallbacks.ts";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
 import {
 	getOpenRouterThinkingLevelMap,
@@ -2222,8 +2223,46 @@ async function loadModelsDevData(): Promise<Model<any>[]> {
 			}
 		}
 
-		// Process Kimi For Coding models
-		if (data["kimi-for-coding"]?.models) {
+		// Process Kimi For Coding models. A live source always wins; when upstream no longer ships the
+		// `kimi-for-coding` provider the reviewed pinned snapshot is emitted verbatim (no other provider
+		// gains tolerance from this exception).
+		const liveKimiCodingModels = data["kimi-for-coding"]?.models
+			? Object.values(data["kimi-for-coding"].models as Record<string, ModelsDevModel>).filter(
+					(model) => (model as ModelsDevModel).tool_call === true,
+				).length
+			: 0;
+		if (shouldUseKimiCodingFallback(liveKimiCodingModels)) {
+			const fallback = loadKimiCodingFallback();
+			if (!fallback.ok) throw new Error(`Kimi coding fallback invalid: ${fallback.reason}`);
+			for (const model of fallback.models) {
+				const normalizedId = model.id;
+				const isKimiK3 = normalizedId === "k3";
+				const allowEmptySignature = isKimiK3 || normalizedId === "kimi-for-coding";
+				const impliedCost = KIMI_CODING_IMPLIED_COSTS[normalizedId];
+				models.push({
+					id: normalizedId,
+					name: model.name || normalizedId,
+					api: "anthropic-messages",
+					provider: "kimi-coding",
+					baseUrl: "https://api.kimi.com/coding",
+					compat: {
+						...(allowEmptySignature ? { allowEmptySignature: true } : {}),
+						forceAdaptiveThinking: true,
+					},
+					reasoning: isKimiK3 || model.reasoning === true,
+					input: model.input.includes("image") ? ["text", "image"] : ["text"],
+					cost: {
+						input: model.cost.input || impliedCost?.input || 0,
+						output: model.cost.output || impliedCost?.output || 0,
+						cacheRead: model.cost.cacheRead || impliedCost?.cacheRead || 0,
+						cacheWrite: model.cost.cacheWrite || impliedCost?.cacheWrite || 0,
+					},
+					contextWindow: model.contextWindow || 4096,
+					maxTokens: model.maxTokens || 4096,
+				});
+			}
+		}
+		if (data["kimi-for-coding"]?.models && !shouldUseKimiCodingFallback(liveKimiCodingModels)) {
 			const kimiModels = data["kimi-for-coding"].models as Record<string, ModelsDevModel>;
 			const hasCanonicalModel = Object.prototype.hasOwnProperty.call(kimiModels, "kimi-for-coding");
 
