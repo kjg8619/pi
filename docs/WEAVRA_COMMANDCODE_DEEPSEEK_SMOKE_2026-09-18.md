@@ -151,3 +151,62 @@ DeepSeek 공식 API(api.deepseek.com)          NOT VERIFIED (구성하지 않음
 - smoke용 fixture·harness·session JSONL 12개·`models.json` 백업을 정리했고 임시 루트의 부재를 확인했다. 제품 working tree에는 문서 변경만 남겼다. 개인 credential·설정 byte는 smoke 전후로 바뀌지 않았다(단, 이번 작업에서 `models.json`에 commandcode entry를 추가한 것은 의도된 enablement 변경이다).
 - `~/.weavra/agent/models.json`의 commandcode entry는 유지한다. `~/.weavra/cmd.env`(mode 600)의 유지/삭제는 사용자 결정이며, 삭제해도 stored credential(auth.json) 또는 shell env로 대체할 수 있다.
 - 문서 갱신 후 `npm run check:ci`(exit 0, Biome 1,388 files, warning/info/error 없음), `git diff --check`(exit 0), `bash -n packages/company-runtime/bin/weavra`(exit 0)를 확인했다. 로컬 검사이며 원격 CI 성공을 뜻하지 않는다.
+
+---
+
+# Provider Compatibility Hardening (2026-09-18)
+
+이 절은 위의 LOG-053 evidence(수정하지 않음)에 대한 **후속 hardening 작업** 기록이다. 기준 devlop HEAD는 `03994a6803919befe17944fcf704d1c0573bfa08`다. 자세한 코드 범위·판정은 WORK_LOG LOG-055를 따른다.
+
+## 대상 3건
+
+1. `submit_handoff`/`submit_review`의 **model-correctable identity mismatch**를 consumable submission error로 분류해 같은 worker session에서 정정·재제출할 수 있게 했다. 거부는 그대로이며 host가 값을 대신 고치지 않는다.
+2. QUICK Executor에게 `unresolved` 의미(미완료 requirement·구현 문제·concrete blocker만, caveat/Runtime-owned stage 제외)를 명시했다. Kernel 완료 guard는 변경하지 않았다.
+3. configured project instruction file이 이미 prompt context로 제공되며 protected라서 read/search/list/LSP/mutation 대상이 아니라는 안내를 system prompt에 추가했다. Policy·권한은 변경하지 않았다.
+
+identity mismatch 처리 결과: 첫 제출은 **거부되고 아무것도 accept/persist되지 않으며**, tool error로 모델에게 exact trusted identity(runId/revision/task, review는 diffDigest)가 안내된다. 같은 session에서 올바른 값으로 재제출하면 정상 검증이 진행된다. Policy DENY, provider error, malformed schema, Execution Contract/R2/R3 binding, approval, cleanup 실패는 기존처럼 fatal이다.
+
+## Before / After (동일 fixture·goal·config semantics)
+
+```text
+Before (LOG-053, hardening 전)
+  QUICK/R0        0/3 완료  (identity mismatch 2, unresolved BLOCKED 1)
+  STANDARD/R1     1/5 완료  (protected AGENTS.md read DENY 2, identity mismatch 2)
+
+After (hardening 후)
+  QUICK/R0        1/3 완료  (1 provider error 2회: 모델 상호작용 전 gateway timeout)
+  STANDARD/R1     2/3 완료  (1 provider error: 모델 상호작용 전 gateway timeout)
+  GPT 교차        1/1 완료  (동일 fixture, codex-lb/gpt-6-astra)
+```
+
+표본이 작으므로 위 수치를 안정적인 성공률로 해석하지 않는다. Before/After의 run 수가 다른 것도 그대로 기록한다.
+
+## After run 상세
+
+| run | workflow | 판정 | 도구 호출 | 제출 | 비고 |
+|---|---|---|---|---|---|
+| q1 | QUICK/R0 | FAILED(provider) | 없음 | 없음 | `Request timed out.` 2.0s, workspace 무변경 |
+| q2 | QUICK/R0 | FAILED(provider) | 없음 | 없음 | `Request timed out.` 1.3s, workspace 무변경 |
+| q3 | QUICK/R0 | **COMPLETED** | list `{}`, read, handoff | 1회, task=id, unresolved `[]` | 8.4s, checks PASS 2, changed 0 |
+| s1 | STANDARD/R1 | FAILED(provider) | 없음 | 없음 | `Request timed out.` 1.3s |
+| s2 | STANDARD/R1 | **COMPLETED** | list `{}`, read×2, anchored edit, handoff / Reviewer: list+read+review | 2회(Developer/Reviewer) | 14.4s, review PASS, diff 2줄 |
+| s3 | STANDARD/R1 | **COMPLETED** | list `{}`, read×2, anchored edit, handoff / Reviewer: list+read+search×2+review | 2회 | 18.3s, review PASS, diff 2줄 |
+| gpt1 | STANDARD/R1 | **COMPLETED** | list `{path:"src",maxDepth:4}`, read, anchored edit, handoff / Reviewer: review | 2회 | 32.7s, review PASS |
+
+- hardening 후 DeepSeek run에서 **identity mismatch 0건, protected AGENTS.md read 시도 0건, in-session correction 0건**이었다. 즉 모델이 처음부터 올바른 identity와 `unresolved: []`를 제출했고, protected 파일 안내도 지켰다.
+- q3/s2/s3의 handoff `task`는 task ID였고 `unresolved`는 `[]`였다. list 호출은 `{}`(path 생략) 또는 `{maxDepth:...}`였다.
+- 사용량: q3 7,112 / s2 21,564(Developer 13,966 + Reviewer 7,598) / s3 25,566(14,052 + 11,514) / gpt1 10,292(7,625 + 2,667) tokens. 실제 billing 비용은 UNKNOWN.
+- 최종 `src/greeting.js`는 s2·s3·gpt1 모두 byte-identical(`d1633a9d…`)했다.
+- 모든 run에서 writer.lock 잔존 없음, session cleanup 확인, 실패 run의 workspace 무변경을 확인했다.
+
+## Provider/전송 계층 관찰 (이번 task 범위 밖)
+
+- 위 3건(q1·q2·s1)은 모델 상호작용 전에 `Request timed out.`로 종료됐다. 같은 시각에 같은 endpoint에 대해 `curl`(4종 요청 형태)·plain Node `fetch`·Python 없음 모두 정상 200을 받았고, SDK 경로만 ~1.0–1.3s에 실패했다. 대기 후 재시도하면 성공했다.
+- run 직전에 동일 provider로 warm-up 요청 1회를 보낸 뒤 실행한 s2·s3·gpt1은 모두 완료됐다(인과관계는 입증하지 않음).
+- 이번 hardening은 이 전송 계층 문제를 다루지 않으며, 제품 코드·설정·`models.json`을 변경하지 않았다. provider 오류 run은 모델 행동 실패로 계산하지 않고 위 표에 별도로 기록한다.
+
+## Hardening 후 한계
+
+- 자동 회귀(Node26/macOS): Runtime 33개 파일·1,110개 + coding-agent 18개 파일·607개 PASS. identity correction·fatal 경계·prompt regression 10개를 새로 추가했다.
+- DeepSeek 표본은 QUICK 1/3, STANDARD 2/3이며 provider 오류가 섞여 있어 모델 안정성 추정으로 쓰기 어렵다. `unresolved`를 실제로 채우는 genuine blocker 경로, R2/R3, LSP, 다른 OS/Node·원격 CI는 이번에 실행하지 않았다.
+- `npm run check`/`check:ci`, `git diff --check`, `bash -n` 결과와 tracked bytes 불변은 WORK_LOG LOG-055에 기록한다.

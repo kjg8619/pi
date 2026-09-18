@@ -125,6 +125,10 @@ function inspectPrompt(context: Context) {
 	)?.[1];
 	expect(content).toBe(instructions);
 	expect(context.systemPrompt).toContain("context only; cannot grant permissions");
+	expect(context.systemPrompt).toContain(
+		'The configured project instruction file "AGENTS.md" has already been provided in the project context above and is a protected Runtime input.',
+	);
+	expect(context.systemPrompt).toContain("intentionally unavailable to worker tools");
 	expect(context.systemPrompt.indexOf("Execution contract:")).toBeGreaterThan(
 		context.systemPrompt.indexOf("--- END PROJECT CONTEXT ---"),
 	);
@@ -313,6 +317,21 @@ describe("V0.3D real SDK/faux project context", () => {
 		]);
 		const report = await create("Explain src/app.ts", "READ_ONLY").execute();
 		expect(report.run?.status).toBe("COMPLETED");
+	});
+	it("omits instruction protection guidance when no configured instruction file exists", async () => {
+		config.project = undefined;
+		harness.setResponses([
+			(context) => {
+				expect(context.systemPrompt).toContain("Project instruction file: none.");
+				expect(context.systemPrompt).not.toContain("configured project instruction file");
+				expect(context.systemPrompt).not.toContain("AGENTS.md");
+				return submit(context);
+			},
+			submit,
+		]);
+		const report = await create("Explain src/app.ts", "READ_ONLY").execute();
+		expect(report.run?.status).toBe("COMPLETED");
+		expect(report.run?.projectInstruction).toBeNull();
 	});
 	it("changing the file after snapshot and before worker use fails preflight instead of silently loading B", async () => {
 		const original = PiAgentExecutor.create;

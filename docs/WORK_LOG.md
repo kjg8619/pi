@@ -44,12 +44,15 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3C Trust Baseline | 완료 / 게시 | `08c04daf1`에 반영. LOG-046 Node26 49개 파일·1,646개, Node22/macOS 18개 파일·800개 PASS |
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
+| Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 미커밋 | LOG-055. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
 현재 작업은 **V0.3D — Project Context(FIX-03/06 + runtime_list_files만)**다. Host-selected instruction 한 파일의 frozen snapshot, bounded Node fs discovery, JVM dependency/build 최소 R2를 구현했다. context는 permission이 아니며 기존 Execution Contract/Policy/Review/Approval/checks·Graph/Worktree/Product Isolation 의미를 유지한다. LOG-048의 최종 자동 회귀는 Node26/macOS **52개 파일·1,738개**, Node22.22.3/macOS targeted **7개 파일·308개 PASS**다. check/check:ci/diff/bash와 check:ci 전후 tracked bytes 불변도 확인했다. Attempt 1은 `path:"."` DENY/FAILED·무변경으로 끝났다. 별도 승인된 LOG-050의 Attempt 2는 커밋 `6da0c5ce5`에서 snapshot/list filtering·anchored edit·독립 Reviewer·두 required checks·fresh evidence·cleanup과 실제 COMPLETED를 확인했다. 다만 두 역할 모두 `runtime_list_files({path:"src",maxDepth:1})`를 사용하여 요청한 path omission은 NOT VERIFIED이며, Attempt 2 acceptance는 FAILED로 유지한다. 전체 V0.3D Provider smoke PASS로 변경하지 않고 추가 Provider 호출/제품 수정도 하지 않았다. 이후 별도 사용자 요청에 따라 같은 판정의 evidence 문서만 커밋·푸시한다(LOG-051). 과거 V0.3A/B/C 결과는 당시 기록으로 보존하며 self-hosting을 주장하지 않는다. 안정 태그 `weavra-v0.1-rc1`의 commit `183f85de1897d8b9f4fadb368a54e2b1390e5a84`는 불변이다. DeepSeek·다른 Provider/OS/Node 조합, 전체 suite/e2e·정식 배포물·취약점 해소는 여전히 NOT VERIFIED다. 정식 release 선언이 아니며 기존 한계는 [V0.1_READINESS](V0.1_READINESS.md), LOG-020 및 Status Projection의 LOG-023을 따른다.
 
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
+
+이어서 LOG-055에서 structured submission identity mismatch를 같은 worker session에서 정정할 수 있게 하고(거부·무결성 유지, host 자동 교정 없음), QUICK Executor의 `unresolved` 의미와 configured project instruction 보호 안내를 보강했다. before/after는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "Provider Compatibility Hardening" 절에 기록한다. V0.3E Task Contract는 별도 승인 전까지 시작하지 않는다.
 
 ---
 
@@ -2563,6 +2566,80 @@ Cross validation:           codex-lb / GPT-6 Astra (1회)
 - **과거 검증과 구분:** 실제 Provider smoke 결과·사용량·cleanup은 LOG-053 당시 결과다. 이번 게시 준비에서는 Provider/targeted tests/TUI/build를 재실행하지 않았다. 로컬 check를 원격 CI PASS로 주장하지 않는다.
 - **커밋·푸시:** `6c86bd5d6`(`332e90b8f` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-052·LOG-053 본문의 커밋 상태 표기는 작성 시점 기준이며 실제 게시 커밋은 `6c86bd5d6`다. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다. 강제 푸시는 사용하지 않았다.
 - **남은 제한·다음 작업:** [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "열린 결정" 4항목(identity mismatch consumable 처리, Executor `unresolved`·보호 파일 read 안내, `cmd.env` 유지/삭제, V0.3E 착수)은 여전히 사용자 승인 대상이다.
+
+---
+
+## LOG-055 — Provider Compatibility Hardening (identity correction·Executor unresolved·instruction 보호 안내)
+
+- **기록일:** 2026-09-18 (KST), 실제 Provider 실행 10:03–10:17 KST.
+- **상태:** 완료 (제품 source 2개 + SDK suite test 2개 변경, 문서 갱신. **미커밋**)
+- **기준 SHA:** `03994a6803919befe17944fcf704d1c0573bfa08` (착수 시 `git status` clean, fetch 후 로컬=원격). `weavra-v0.1-rc1`은 `183f85de1`로 불변.
+- **목적:** CommandCode/DeepSeek 실제 smoke에서 확인된 provider-agnostic 안정성 문제 3건만 보완한다. V0.3E·AC·Plan Preview·schema 확장·권한 완화는 하지 않는다.
+
+### 정확한 hardening 범위 (3건)
+
+1. **Identity mismatch의 consumable 처리** (`packages/company-runtime/src/agent-tools.ts`)
+   - `submit_handoff`: `runId`/`revision`/`task` mismatch, `submit_review`: `runId`/`revision`/`task`/`diffDigest` mismatch를 기존 `submissionValidationErrors` 메커니즘으로 분류한다.
+   - 첫 제출은 **거부되고 accept/persist되지 않는다**. host는 값을 대신 고치지 않으며 partial/fuzzy/schema 완화도 없다.
+   - tool error 메시지로 exact trusted identity를 안내하고 같은 session에서 정정·재제출만 허용한다. Kernel identity guard는 그대로 유지한다.
+2. **QUICK Executor unresolved 안내** (`agent-runner.ts`)
+   - shared `UNRESOLVED_GUIDANCE`로 Developer/Executor에 동일한 의미를 전달한다. Executor에는 "requirements[].status로 결과를 보고하고 unresolved는 genuinely unfinished work만"을 추가 안내한다.
+   - Executor에 대한 obligation filter나 Kernel guard 변경은 없다(`Developer feedback does not rewrite QUICK Executor unresolved` regression 유지).
+3. **Configured instruction 보호 안내** (`agent-runner.ts`)
+   - `policy.projectInstruction`이 있을 때만 system prompt에 "이미 project context로 제공됐고 protected Runtime input이므로 read/search/list/LSP/edit/write/delete하지 말라"는 문장을 넣는다. inline instruction seam만 있는 경우에는 넣지 않는다.
+   - Policy·protectedPaths·list hiding·권한은 변경하지 않았다. Policy DENY는 계속 fatal이다.
+
+### 여전히 fatal인 것
+
+Policy DENY(보호 경로 read 포함), 임의 mutation 거부, schema가 깨진 malformed 제출, provider error, cleanup 실패, Execution Contract/R2/R3 binding mismatch, approval 오류, unsafe workspace, mixed submit batch, natural-language 완료. `STALE_ANCHOR`의 consumable semantics도 그대로다. consumable 오류는 `maxTurns`/worker timeout 안에서만 재시도되며 별도 무한 retry 장치는 만들지 않았다.
+
+### 변경 파일
+
+- `packages/company-runtime/src/agent-runner.ts`: `UNRESOLVED_GUIDANCE`·`INSTRUCTION_PROTECTION_GUIDANCE` 추가, handoff 역할 공통 적용, configured instruction 안내 1줄.
+- `packages/company-runtime/src/agent-tools.ts`: 두 제출 도구의 identity mismatch를 consumable로 분류 + 안내 메시지, `submit_handoff` description에 identity 필드 의미와 Executor unresolved 안내 추가.
+- `packages/coding-agent/test/suite/company-runtime-agent.test.ts`: identity 정정 test(handoff 3, review 4), fatal 경계 test(Policy DENY, provider error), identity-loop bound를 turn-limit과 함께 검증, Executor prompt assertion.
+- `packages/coding-agent/test/suite/company-runtime-context.test.ts`: configured instruction 보호 안내 assertion과 "instruction 없음" case.
+- 문서: 이 항목, 현재 요약, [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "Provider Compatibility Hardening" 절, `README.md`의 DeepSeek 표기.
+
+### 이번 자동 검증
+
+```sh
+# packages/company-runtime (전체)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2
+# packages/coding-agent (Weavra + 관련 Pi 18개 파일)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-context.test.ts ... test/sdk-session-manager.test.ts
+
+# root
+npm run check
+npm run check:ci        # 전후 tracked bytes 및 non-ignored untracked bytes 비교
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- Runtime **33개 파일·1,110개 PASS**, coding-agent **18개 파일·607개 PASS**(합 51개 파일·1,717개, 실패/skip 0). identity 정정·fatal 경계·prompt regression 10개를 추가했다.
+- `npm run check`/`check:ci` PASS(자동 수정 없음), `git diff --check`·`bash -n` PASS. `check:ci` 전후 tracked 1,823개 파일과 untracked bytes가 동일했다.
+- 새 test가 실패한 적이 있었다: 공유 문구에서 "enforced by Kernel/Workflow"를 빠뜨려 R2 suite 5건이 깨졌고, 문구를 복원해 51개 파일 전체를 다시 PASS시켰다.
+
+### 실제 Provider smoke (자동 test PASS 후)
+
+- 환경: macOS/Node26.7.0, `commandcode / deepseek/deepseek-v4.1-flash`(thinking medium), 기존 `~/.weavra/agent/models.json`·`~/.weavra/cmd.env` 재사용·변경 없음.
+- QUICK/R0 3회: q1·q2는 모델 상호작용 전 provider 오류(`Request timed out.`)로 FAILED, q3는 **COMPLETED**(8.4초, 7,112 tokens, handoff 1회·task ID·unresolved `[]`, checks PASS 2, workspace 무변경).
+- STANDARD/R1/EDIT 3회: s1은 provider 오류로 FAILED, s2·s3은 **COMPLETED**(14.4초·21,564 tokens / 18.3초·25,566 tokens, anchored edit, 독립 Reviewer PASS, diff 2줄).
+- hardening 후 DeepSeek run에서 identity mismatch·protected AGENTS.md read 시도·in-session correction이 모두 0건이었다. `runtime_list_files`는 `{}` 또는 `{maxDepth:…}`를 사용했다.
+- GPT 교차검증 1회(`codex-lb/gpt-6-astra`, 동일 fixture·goal·config semantics): **COMPLETED**(32.7초, 10,292 tokens, 도구 오류 0, anchored edit). 최종 `src/greeting.js`는 DeepSeek s2·s3과 byte-identical.
+- Before/After(샘플 수를 성공률로 해석하지 않음): QUICK 0/3 → 1/3 완료, STANDARD 1/5 → 2/3 완료.
+
+### 문제와 해결
+
+- provider 오류 3회는 전송/provider 계층 문제로 판단했다. 같은 시각 `curl`·plain `fetch`는 정상 200이었고 SDK 경로만 ~1.0–1.3초에 실패했다. 대기 후 재시도하면 성공했으며, run 직전 warm-up 요청 뒤 실행한 s2·s3·gpt1은 모두 완료됐다(인과관계는 미입증). 이번 hardening은 이 문제를 다루지 않으며 provider 오류 run은 모델 행동 실패로 계산하지 않았다.
+- 세 hardening 범위 밖의 새 failure class는 발견되지 않았다.
+
+### 남은 제한과 다음 작업
+
+- DeepSeek 표본(QUICK 1/3, STANDARD 2/3)에는 provider 오류가 섞여 있어 안정성 추정으로 쓰기 어렵다. `unresolved`에 실제 blocker를 넣는 경로, 보호 경로 read 재현, R2/R3, LSP, 다른 OS/Node·원격 CI는 이번에 실행하지 않았다.
+- 자동 회귀는 Node26/macOS만 실행했다.
+- **커밋·푸시:** 하지 않음. 사용자 보고 후 결정한다. `weavra-v0.1-rc1`은 이동하지 않았다.
+- V0.3E Task Contract는 이번 작업에서 시작하지 않았다.
 
 ---
 

@@ -350,7 +350,12 @@ export function createWorkerTools(options: {
 			defineTool({
 				name: "submit_handoff",
 				label: "Submit handoff",
-				description: `Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn.${request.role === "Developer" ? " unresolved must contain only remaining implementation/requirement problems, not Runtime-owned pending review, SELF_CHECK, TEST or Human Approval. Preserve real blockers; correct submission errors in this session." : ""}`,
+				description:
+					`Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn. ` +
+					"runId, revision and task must be copied exactly from the current task context; task is the task id, not the goal text." +
+					(request.role === "Developer"
+						? " unresolved must contain only remaining implementation/requirement problems, not Runtime-owned pending review, SELF_CHECK, TEST or Human Approval. Preserve real blockers; correct submission errors in this session."
+						: " requirements[].status reports each task outcome; unresolved must contain only unfinished task requirements or concrete blockers, not general caveats, low confidence or Runtime-owned pending checks/review. Preserve real blockers; correct submission errors in this session."),
 				executionMode: "sequential",
 				parameters: request.role === "Executor" ? ExecutorHandoffSchema : HandoffSchema,
 				execute: async (id, params) => {
@@ -360,12 +365,20 @@ export function createWorkerTools(options: {
 							? validateContract(ExecutorHandoffSchema, params)
 							: validateContract(HandoffSchema, params),
 					);
-					if (
-						handoff.runId !== request.runId ||
-						handoff.revision !== request.revision ||
-						handoff.task !== request.task.id
-					)
-						throw new Error("Handoff identity mismatch");
+					const identityMismatch = [
+						handoff.runId === request.runId ? null : "runId",
+						handoff.revision === request.revision ? null : "revision",
+						handoff.task === request.task.id ? null : "task",
+					].filter((field): field is string => field !== null);
+					if (identityMismatch.length) {
+						// Adapter-owned classification: rejected and never accepted, but correctable in this same session.
+						submissionValidationErrors.set(id, "submit_handoff");
+						throw new Error(
+							`Handoff identity validation failed: ${identityMismatch.join(", ")} must match the trusted task context exactly; nothing was accepted. ` +
+								`Expected runId: ${request.runId}; revision: ${request.revision}; task: ${request.task.id} (the task id, not the goal text). ` +
+								"Correct those fields and resubmit submit_handoff alone in this same session.",
+						);
+					}
 					if (request.role === "Developer") {
 						const invalidFields = handoff.unresolved.flatMap((item, index) =>
 							RUNTIME_OBLIGATION_ONLY.test(item.trim().replace(/\s+/g, " ")) ? [`unresolved[${index}]`] : [],
@@ -404,13 +417,21 @@ export function createWorkerTools(options: {
 				execute: async (id, params) => {
 					assertActive();
 					const review: Review = structuredClone(validateContract(ReviewSchema, params));
-					if (
-						review.runId !== request.runId ||
-						review.revision !== request.revision ||
-						review.task !== request.task.id ||
-						review.diffDigest !== request.verification.diffDigest
-					)
-						throw new Error("Review identity or diff mismatch");
+					const identityMismatch = [
+						review.runId === request.runId ? null : "runId",
+						review.revision === request.revision ? null : "revision",
+						review.task === request.task.id ? null : "task",
+						review.diffDigest === request.verification.diffDigest ? null : "diffDigest",
+					].filter((field): field is string => field !== null);
+					if (identityMismatch.length) {
+						// Same adapter-owned classification as evidence errors: reject, then allow one correction.
+						submissionValidationErrors.set(id, "submit_review");
+						throw new Error(
+							`Review identity validation failed: ${identityMismatch.join(", ")} must match the frozen trusted input exactly; nothing was accepted. ` +
+								`Expected runId: ${request.runId}; revision: ${request.revision}; task: ${request.task.id}; diffDigest: ${request.verification.diffDigest}. ` +
+								"Correct those fields and resubmit submit_review alone in this same session.",
+						);
+					}
 					const invalidFields: string[] = [];
 					if (!review.evidenceRefs.length || review.evidenceRefs.some((ref) => !trustedEvidence.has(ref)))
 						invalidFields.push("evidenceRefs");

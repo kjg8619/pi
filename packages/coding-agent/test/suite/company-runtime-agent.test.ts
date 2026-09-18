@@ -359,11 +359,43 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		},
 	);
 
-	it.each(["no-resubmission", "turn-limit", "cancel", "stale-identity", "forbidden-tool", "mixed-submit"])(
+	it.each([
+		["task goal text", { task: "Fix bug" }],
+		["runId", { runId: "other-run" }],
+		["revision", { revision: 7 }],
+		["diffDigest", { diffDigest: "stale-digest" }],
+	])("corrects a wrong review %s in the same Reviewer session", async (_field, wrong) => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_review", { ...review, ...wrong }), { stopReason: "toolUse" }),
+			(context) => {
+				const error = context.messages.at(-1);
+				expect(error).toMatchObject({ role: "toolResult", toolName: "submit_review", isError: true });
+				expect(JSON.stringify(error)).toContain("Review identity validation failed");
+				expect(JSON.stringify(error)).toContain("diffDigest: digest-1");
+				expect(context.systemPrompt).not.toContain("unresolved contains only task requirements");
+				expect(dispose).not.toHaveBeenCalled();
+				expect(workers).toHaveLength(1);
+				return submitReview();
+			},
+		]);
+		expect(await executor.execute(reviewer())).toEqual({ role: "Reviewer", review });
+		expect(workers).toHaveLength(1);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(store.snapshot.actions).toEqual([]);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(executor.safeToRelease).toBe(true);
+	});
+
+	it.each(["no-resubmission", "turn-limit", "identity-loop", "cancel", "forbidden-tool", "mixed-submit"])(
 		"RC-04 retry does not bypass %s termination",
 		async (mode) => {
 			const controller = new AbortController();
-			const runner = mode === "turn-limit" ? await PiAgentExecutor.create({ ...options, maxTurns: 1 }) : executor;
+			const runner =
+				mode === "turn-limit"
+					? await PiAgentExecutor.create({ ...options, maxTurns: 1 })
+					: mode === "identity-loop"
+						? await PiAgentExecutor.create({ ...options, maxTurns: 2 })
+						: executor;
 			harness.setResponses([
 				fauxAssistantMessage(fauxToolCall("submit_review", { ...review, evidenceRefs: ["unknown"] }), {
 					stopReason: "toolUse",
@@ -371,8 +403,8 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				() => {
 					if (mode === "cancel") controller.abort();
 					if (mode === "no-resubmission") return fauxAssistantMessage("PASS done");
-					if (mode === "stale-identity")
-						return fauxAssistantMessage(fauxToolCall("submit_review", { ...review, revision: 1 }), {
+					if (mode === "identity-loop")
+						return fauxAssistantMessage(fauxToolCall("submit_review", { ...review, revision: 9 }), {
 							stopReason: "toolUse",
 						});
 					if (mode === "forbidden-tool")
@@ -388,7 +420,9 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 					return submitReview();
 				},
 			]);
-			await expect(runner.execute({ ...reviewer(), signal: controller.signal })).rejects.toThrow();
+			await expect(runner.execute({ ...reviewer(), signal: controller.signal })).rejects.toThrow(
+				mode === "identity-loop" ? "Worker turn limit exceeded" : undefined,
+			);
 			expect(workers).toHaveLength(1);
 			expect(dispose).toHaveBeenCalledTimes(1);
 			expect(runner.safeToRelease).toBe(true);
@@ -424,13 +458,75 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
 
-	it.each(["no-resubmission", "turn-limit", "cancel", "timeout", "stale-identity", "forbidden-tool", "mixed-submit"])(
+	it.each([
+		["task goal text", { task: "Fix bug" }],
+		["runId", { runId: "other-run" }],
+		["revision", { revision: 7 }],
+	])("corrects a wrong handoff %s in the same Developer session", async (_field, wrong) => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, ...wrong }), { stopReason: "toolUse" }),
+			(context) => {
+				const error = context.messages.at(-1);
+				expect(error).toMatchObject({ role: "toolResult", toolName: "submit_handoff", isError: true });
+				expect(JSON.stringify(error)).toContain("Handoff identity validation failed");
+				expect(JSON.stringify(error)).toContain("task: task-1");
+				expect(JSON.stringify(error)).toContain("the task id, not the goal text");
+				expect(context.systemPrompt).toContain(
+					"For example, 'Independent Reviewer PASS is required and remains pending.' is not unresolved implementation",
+				);
+				expect(dispose).not.toHaveBeenCalled();
+				expect(workers).toHaveLength(1);
+				return submitHandoff();
+			},
+		]);
+		expect(await executor.execute(developer())).toEqual({ role: "Developer", handoff });
+		expect(workers).toHaveLength(1);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(store.snapshot.runs[0].roleSessionRefs).toHaveLength(1);
+		expect(store.snapshot.actions).toEqual([]);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(executor.safeToRelease).toBe(true);
+	});
+
+	it("does not consume an unrelated Policy denial after a correctable identity error", async () => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, runId: "other-run" }), {
+				stopReason: "toolUse",
+			}),
+			(context) => {
+				expect(JSON.stringify(context.messages.at(-1))).toContain("Handoff identity validation failed");
+				return fauxAssistantMessage(fauxToolCall("runtime_write", { path: ".ai/state.json", content: "x" }), {
+					stopReason: "toolUse",
+				});
+			},
+			submitHandoff(),
+		]);
+		await expect(executor.execute(developer())).rejects.toThrow();
+		expect(store.snapshot.actions.some((action) => action.status === "DENIED")).toBe(true);
+		expect(readFileSync(join(workspace, "src/app.ts"), "utf8")).toBe("original\n");
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(executor.safeToRelease).toBe(true);
+	});
+
+	it("keeps a provider error fatal after a correctable identity error", async () => {
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, revision: 3 }), { stopReason: "toolUse" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "provider exploded" }),
+		]);
+		await expect(executor.execute(developer())).rejects.toThrow("Worker provider failed");
+		expect(store.snapshot.actions).toEqual([]);
+		expect(dispose).toHaveBeenCalledTimes(1);
+		expect(executor.safeToRelease).toBe(true);
+	});
+
+	it.each(["no-resubmission", "turn-limit", "identity-loop", "cancel", "timeout", "forbidden-tool", "mixed-submit"])(
 		"RC-04 handoff correction does not bypass %s termination",
 		async (mode) => {
 			const controller = new AbortController();
 			const runner = await PiAgentExecutor.create({
 				...options,
-				maxTurns: mode === "turn-limit" ? 1 : 32,
+				maxTurns: mode === "turn-limit" ? 1 : mode === "identity-loop" ? 2 : 32,
 				timeoutMs: mode === "timeout" ? 250 : 3000,
 			});
 			harness.setResponses([
@@ -446,8 +542,8 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 							else streamOptions?.signal?.addEventListener("abort", () => resolve(), { once: true });
 						});
 					if (mode === "no-resubmission") return fauxAssistantMessage("Done");
-					if (mode === "stale-identity")
-						return fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, revision: 1 }), {
+					if (mode === "identity-loop")
+						return fauxAssistantMessage(fauxToolCall("submit_handoff", { ...handoff, task: "Fix bug" }), {
 							stopReason: "toolUse",
 						});
 					if (mode === "forbidden-tool")
@@ -464,7 +560,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				},
 			]);
 			await expect(runner.execute({ ...developer(), signal: controller.signal })).rejects.toThrow(
-				mode === "timeout" ? "timed out" : undefined,
+				mode === "timeout" ? "timed out" : mode === "identity-loop" ? "Worker turn limit exceeded" : undefined,
 			);
 			expect(workers).toHaveLength(1);
 			expect(dispose).toHaveBeenCalledTimes(1);
@@ -490,7 +586,18 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				requirements: [{ requirement: "Fix bug", status: "MET", explanation: "Fixture" }],
 			};
 			harness.setResponses([
-				fauxAssistantMessage(fauxToolCall("submit_handoff", result), { stopReason: "toolUse" }),
+				(context) => {
+					expect(context.systemPrompt).toContain(
+						"unresolved contains only task requirements or implementation problems you could not finish",
+					);
+					expect(context.systemPrompt).toContain("Never hide real blockers");
+					expect(context.systemPrompt).toContain("Runtime-owned obligations");
+					expect(context.systemPrompt).toContain(
+						"Report each requirement's outcome in requirements[] and keep unresolved for genuinely unfinished work",
+					);
+					expect(context.systemPrompt).not.toContain("'Required input validation is not implemented.' is.");
+					return fauxAssistantMessage(fauxToolCall("submit_handoff", result), { stopReason: "toolUse" });
+				},
 			]);
 			expect(
 				await runner.execute({ ...developer(), executionMode, role: "Executor", profile: "coding", scope }),
@@ -543,20 +650,18 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 
 	it.each([
 		{ ...handoff, role: "Reviewer" },
-		{ ...handoff, runId: "other" },
-		{ ...handoff, revision: 3 },
 		{ ...handoff, summary: undefined },
-	])("rejects malformed or stale handoff %j", async (bad) => {
+		{ ...handoff, task: undefined },
+	])("rejects malformed handoff schema %j", async (bad) => {
 		harness.setResponses([fauxAssistantMessage(fauxToolCall("submit_handoff", bad), { stopReason: "toolUse" })]);
 		await expect(executor.execute(developer())).rejects.toThrow();
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
 	it.each([
 		{ ...review, role: "Developer" },
-		{ ...review, diffDigest: "stale" },
-		{ ...review, runId: "other" },
 		{ ...review, result: "DONE" },
-	])("rejects malformed or stale review %j", async (bad) => {
+		{ ...review, diffDigest: undefined },
+	])("rejects malformed review schema %j", async (bad) => {
 		harness.setResponses([fauxAssistantMessage(fauxToolCall("submit_review", bad), { stopReason: "toolUse" })]);
 		await expect(executor.execute(reviewer())).rejects.toThrow();
 	});
