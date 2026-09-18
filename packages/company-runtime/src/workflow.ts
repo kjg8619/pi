@@ -199,6 +199,8 @@ export class StandardWorkflow {
 						id,
 						kind,
 						required,
+						// Host-frozen guard input: strict verifier trust must be VERIFIED for required checks.
+						...(this.options.config.verification.trust.mode === "strict" ? { trustRequired: true } : {}),
 					})),
 				},
 				{

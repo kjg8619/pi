@@ -267,6 +267,17 @@ registered process checks (기존 required/PASS/FAIL)
 
 ## V0.3D Project Context
 
+### FIX-08 — verifier trust (V0.4B)
+
+`verification.trust: { mode: compatible | strict }`(기본 `compatible`)는 **특정 verifier registration과 oracle source를 고정**하는 integrity 계약이다. sandbox가 아니고 permission/approval도 아니며 Policy·R2/R3·Approval을 대체하지 않는다.
+
+- strict에서 Run 시작 시 각 check의 **registration digest**(id/kind/required/executable/argv/cwd/timeout/filtered env/config digest/trust mode/source digest)와 **resolved executable identity**, 그리고 **direct local argv source + `checks[].trust.files`** 의 content SHA-256과 filesystem generation(dev/ino/mode/size/mtimeNs/ctimeNs)을 freeze한다.
+- check process **직전·직후**와 result settle 직전에 재검증한다. executable 교체, delete 후 동일 bytes 재생성, mtime-only 변경도 stale이며 pre-process stale이면 process를 실행하지 않는다. process가 oracle을 바꾸고 exit 0이어도 PASS가 아니다.
+- `trust.files`는 workspace-relative literal 경로만 허용하고 built-in protected path를 지정할 수 없다. 지정된 source는 **Worker protectedPath**가 되어 Developer/Executor가 oracle을 수정하거나 읽을 수 없다(기존 Policy DENY). Worker 권한이 늘어나지 않는다.
+- Kernel은 Host가 고정한 `trustRequired`로 독립 검증한다. required check는 `PASS` + trust `VERIFIED`가 아니면 completion authority가 될 수 없고, custom/fake Verifier가 trust 없이 PASS를 반환해도 fail closed한다.
+- CheckResult/Evidence Pack에는 bounded metadata(`mode`/`status`/`registrationDigest`/`executableDigest`/`sources[{path,digest}]`)만 저장한다. raw source content·env·credential·절대 executable path는 공개 projection에 넣지 않는다. legacy 결과는 `UNKNOWN (legacy)`다.
+- transitive dependency(imports·package script·plugin·test framework graph)는 freeze하지 않는다(NOT VERIFIED). network/filesystem isolation은 V0.4C — Verifier Sandbox다.
+
 ### FIX-07 — strict mutation (V0.4A)
 
 `mutation: { mode: compatible | strict }`(기본 `compatible`)는 **freshness/precondition contract**이며 permission이 아니다. 권한은 계속 Execution Contract → Policy → R2/R3 → 필요 시 Human Approval이 결정한다. 모드는 trusted config로 Run 시작 시 고정되고 `configDigest`에 포함되며 worker 입력으로 바꿀 수 없다.

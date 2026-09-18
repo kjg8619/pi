@@ -197,11 +197,14 @@ describe("V0.3E acceptance criteria", () => {
 					args: ["--test"],
 					cwd: ".",
 					timeout_ms: 1000,
+					trust: { files: [] },
 				},
 			],
 			projectInstructionPath: "AGENTS.md",
 			lspEnabled: false,
 			mutationMode: "compatible",
+			verifierTrustMode: "compatible",
+			verifierTrustSources: [],
 		});
 		for (const term of [
 			"Goal:",

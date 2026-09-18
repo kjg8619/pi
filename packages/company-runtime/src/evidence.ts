@@ -68,6 +68,13 @@ export interface EvidencePack {
 		required: boolean;
 		exitCode: number | null;
 		evidenceRefs: string[];
+		trust: {
+			mode: string;
+			status: string;
+			registrationDigest: string;
+			executableDigest: string;
+			sources: Array<{ path: string; digest: string }>;
+		} | null;
 	}>;
 	lsp: { available: boolean; stale: boolean } | null;
 	review: {
@@ -182,6 +189,16 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 			required: check.required,
 			exitCode: check.exitCode,
 			evidenceRefs: [...check.evidenceRefs],
+			// Bounded trust projection only: no raw contents, env, credentials or absolute executable paths.
+			trust: check.trust
+				? {
+						mode: check.trust.mode,
+						status: check.trust.status,
+						registrationDigest: check.trust.registrationDigest,
+						executableDigest: check.trust.executableDigest,
+						sources: check.trust.sources.map((source) => ({ path: source.path, digest: source.digest })),
+					}
+				: null,
 		})),
 		lsp: lspChecks.length
 			? { available: true, stale: (run.workspace?.evidenceRefs ?? []).some((ref) => ref.startsWith("stale:")) }
@@ -272,10 +289,16 @@ export function formatEvidencePack(pack: EvidencePack): string {
 	lines.push(
 		`Workspace: diff ${unknown(pack.workspace.diffDigest)}; changed files ${pack.workspace.changedFiles.length ? pack.workspace.changedFiles.map((path) => displayText(path)).join(", ") : "none recorded"}; changed lines ${unknown(pack.workspace.changedLines)}`,
 	);
-	for (const check of pack.checks)
+	for (const check of pack.checks) {
 		lines.push(
 			`Check ${displayText(check.id)} (${check.step}${check.required ? ", required" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
 		);
+		lines.push(
+			check.trust
+				? `  Verifier trust: ${check.trust.status} (${check.trust.mode}); registration ${check.trust.registrationDigest.slice(0, 20)}…; trusted sources ${check.trust.sources.length}`
+				: "  Verifier trust: UNKNOWN (legacy)",
+		);
+	}
 	lines.push(
 		`LSP advisory evidence: ${pack.lsp ? (pack.lsp.stale ? "present (stale)" : "present") : "none recorded"}`,
 	);

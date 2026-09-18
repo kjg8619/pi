@@ -108,6 +108,12 @@ function assertVerification(
 		);
 		requireEvidence(check.diffDigest === result.diffDigest, "Verification evidence is stale");
 		requireEvidence(check.status !== "FAIL", "A verification check failed");
+		// Independent Host guard: a strict verifier-trust requirement is never satisfied by exit 0 alone.
+		if (expected?.trustRequired === true && check.required)
+			requireEvidence(
+				check.status === "PASS" && check.trust?.status === "VERIFIED",
+				"A required check is not verifier-trust verified",
+			);
 		requireEvidence(!check.required || check.status === "PASS", "A required verification check was not performed");
 		if (check.status === "PASS") {
 			requireEvidence(

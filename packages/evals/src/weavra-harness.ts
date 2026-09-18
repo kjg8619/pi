@@ -52,6 +52,8 @@ export interface WeavraEvalOptions {
 	wrapAudit?: (audit: ActionAudit, context: { cwd: string; config: RuntimeConfig }) => ActionAudit;
 	/** Test/smoke fixture mutation mode; absent means the production default (compatible). */
 	mutation?: "compatible" | "strict";
+	/** Test/smoke fixture verifier trust mode; absent means the production default (compatible). */
+	verifierTrust?: "compatible" | "strict";
 }
 
 export interface WeavraEvalResult {
@@ -87,7 +89,12 @@ function git(cwd: string, args: string[]): void {
 export function materializeFixture(
 	fixture: WeavraEvalFixture,
 	root: string,
-	options: { provider: string; model: string; mutation?: "compatible" | "strict" },
+	options: {
+		provider: string;
+		model: string;
+		mutation?: "compatible" | "strict";
+		verifierTrust?: "compatible" | "strict";
+	},
 ): { cwd: string; config: RuntimeConfig } {
 	const cwd = join(root, fixture.id);
 	mkdirSync(join(cwd, ".ai"), { recursive: true });
@@ -108,11 +115,13 @@ export function materializeFixture(
 			files: { allowed_paths: fixture.allowedPaths },
 			...(options.mutation ? { mutation: { mode: options.mutation } } : {}),
 			verification: {
+				...(options.verifierTrust ? { trust: { mode: options.verifierTrust } } : {}),
 				checks: fixture.checkIds.map((id) => ({
 					id,
 					kind: "test",
 					executable: process.execPath,
 					args: ["--test", "test/eval.test.mjs"],
+					...(options.verifierTrust === "strict" ? { trust: { files: ["test/eval.test.mjs"] } } : {}),
 				})),
 			},
 		}),
@@ -128,6 +137,7 @@ export function materializeFixture(
 			`runtime: { workflow: ${fixture.workflow} }`,
 			`files: { allowed_paths: [${fixture.allowedPaths.join(", ")}] }`,
 			...(options.mutation ? [`mutation: { mode: ${options.mutation} }`] : []),
+			...(options.verifierTrust ? [`verification: { trust: { mode: ${options.verifierTrust} } }`] : []),
 			"",
 		].join("\n"),
 	);
@@ -153,6 +163,7 @@ export async function runWeavraFixture(
 			provider,
 			model,
 			...(options.mutation ? { mutation: options.mutation } : {}),
+			...(options.verifierTrust ? { verifierTrust: options.verifierTrust } : {}),
 		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);

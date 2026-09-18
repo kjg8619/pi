@@ -416,6 +416,7 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 			args: ["scripts/check.mjs"],
 			cwd: ".",
 			timeout_ms: 1000,
+			trust: { files: [] },
 		});
 		harness.setResponses([write(), submit]);
 		const report = await create().execute();

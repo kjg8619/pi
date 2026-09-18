@@ -99,6 +99,13 @@ export const RuntimeConfigSchema = Type.Object(
 		verification: Type.Optional(
 			Type.Object(
 				{
+					// Verifier trust pins the frozen registration and direct oracle sources; it is not a sandbox.
+					trust: Type.Optional(
+						Type.Object(
+							{ mode: Type.Optional(Type.Union([Type.Literal("compatible"), Type.Literal("strict")])) },
+							strict,
+						),
+					),
 					checks: Type.Optional(
 						Type.Array(
 							Type.Object(
@@ -110,6 +117,9 @@ export const RuntimeConfigSchema = Type.Object(
 									cwd: Type.Optional(text),
 									timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 3_600_000 })),
 									required: Type.Optional(Type.Boolean()),
+									trust: Type.Optional(
+										Type.Object({ files: Type.Array(text, { uniqueItems: true, maxItems: 64 }) }, strict),
+									),
 								},
 								strict,
 							),
@@ -179,11 +189,18 @@ export function parseRuntimeConfig(source: string) {
 		if (ids.has(check.id)) throw new Error("Duplicate verification check ID");
 		ids.add(check.id);
 		validateRelativePath(check.cwd ?? ".");
+		const trustFiles = check.trust?.files ?? [];
+		for (const file of trustFiles) {
+			validateRelativePath(file);
+			// A trusted verifier source cannot be an already protected/built-in path.
+			if (isProtectedPath(file)) throw new Error("Verifier trust source must not be a protected path");
+		}
 		return {
 			...check,
 			cwd: check.cwd ?? ".",
 			timeout_ms: check.timeout_ms ?? 60_000,
 			required: check.required ?? true,
+			trust: { files: [...trustFiles] },
 		};
 	});
 	return {
@@ -200,7 +217,10 @@ export function parseRuntimeConfig(source: string) {
 		state: { enabled: true as const, directory: ".ai" as const },
 		risk: { approval_required: ["R3"] as ["R3"] },
 		files: { allowed_paths: allowedPaths },
-		verification: { checks },
+		verification: {
+			checks,
+			trust: { mode: value.verification?.trust?.mode ?? ("compatible" as const) },
+		},
 		mutation: { mode: value.mutation?.mode ?? ("compatible" as const) },
 		...(value.project ? { project: structuredClone(value.project) } : {}),
 		...(value.code_intelligence

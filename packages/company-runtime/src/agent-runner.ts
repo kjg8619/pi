@@ -39,6 +39,7 @@ import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, AgentExecutor } from "./ports.ts";
 import { snapshotProjectInstructions } from "./project-instructions.ts";
 import { NOOP_TELEMETRY_CONTEXT, withSpan } from "./telemetry.ts";
+import { resolveVerifierTrustSources } from "./verifier-trust.ts";
 
 type WorkerModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 
@@ -228,13 +229,13 @@ export class PiAgentExecutor implements AgentExecutor {
 		if (inside(paths.projectPath, agentDir)) throw new Error("Pi agent directory must be outside worker workspace");
 		const protectedPaths = [...(options.protectedPaths ?? [])];
 		// Freeze explicitly registered local programs/scripts; a worker must not rewrite its own check.
-		for (const check of [
-			...config.verification.checks,
-			...(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers : []),
-		]) {
-			for (const argument of [check.executable, ...check.args]) {
+		// Same source resolution as the verifier trust snapshot, so protection and freeze never drift.
+		for (const check of config.verification.checks)
+			protectedPaths.push(...resolveVerifierTrustSources(paths.projectPath, check));
+		for (const server of config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers : []) {
+			for (const argument of [server.executable, ...server.args]) {
 				if (argument.startsWith("-")) continue;
-				const path = resolve(paths.projectPath, "cwd" in check ? check.cwd : ".", argument);
+				const path = resolve(paths.projectPath, ".", argument);
 				if (!inside(paths.projectPath, path)) continue;
 				try {
 					if ((await lstat(path)).isFile())

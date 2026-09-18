@@ -50,6 +50,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3F Final Micro Hardening | 구현·자동 회귀 PASS / 게시 `c95993b9f` | LOG-062. result 반환 직후 cancellation에서도 소비 measurement 보존(implement/review 동일 경계), telemetry adapter 반환값이 실행 결과를 바꾸지 못하게 격리. 자동 53개 파일·1,640개 PASS. 선행 LOG-061 Measurement Hardening: 실패 invocation measurement·budget settlement의 durable 기록(성공·실패·REVISE·BLOCK·후속 검증 실패 전 경로 exactly-once), telemetry exactly-once 격리, `weavra.worker` start attr의 requested provider/model, eval adapter faux E2E(Provider 0회). 자동 53개 파일·1,636개 PASS |
 | V0.4A Strict Mutation | 구현·자동 회귀 PASS / 게시 `bb909a59b` | LOG-064. opt-in `mutation.mode`(기본 compatible)·read receipt(최신 1개, mutation 후 무효화)·strict `runtime_edit`(legacy fallback 없음)·`runtime_write` create/replace 분리(O_EXCL create, fresh receipt replace, fallback 없음). 자동 53개 파일·1,668개 PASS. DeepSeek strict smoke에서 stale→re-read→재시도 성공을 확인했으나 fixture check 실패로 COMPLETED는 미확인 |
 | V0.4A Strict Mutation Closure | 구현·자동 회귀 PASS / DeepSeek strict actual COMPLETED / 게시 `5c15317c9` | LOG-065. read-time filesystem identity binding(같은 read snapshot에서 capture)·deletion/재생성 typed stale(ENOENT만 변환)·strict create/replace NUL·lossy text 거부. 자동 53개 파일·1,676개 PASS. DeepSeek `standard-2ac` strict smoke: Helo→Heelo 주입 1회 → STALE_ANCHOR → 재-read → fresh receipt로 edit 성공 → checks PASS×2 → 독립 Reviewer PASS → **COMPLETED**(37,829 tokens) |
+| V0.4B Verifier Trust | 구현·자동 회귀 PASS / DeepSeek strict trust VERIFIED / smoke COMPLETED 미확인 / 커밋 보류 | LOG-066. opt-in `verification.trust.mode`(기본 compatible)·`checks[].trust.files`, registration digest·executable identity·source digest+generation freeze, pre/post process + settle 재검증, Worker protected source, Kernel `trustRequired` guard, bounded trust evidence. 자동 53개 파일·1,689개 PASS. DeepSeek strict run에서 self-check `PASS`+`VERIFIED (strict)`, Reviewer protected-read Policy DENY로 FAILED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -58,7 +59,8 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.3A Hash-Anchored Edit, V0.3B Read-only LSP, V0.3C Trust Baseline, V0.3D Project Context는 완료다. V0.3D의 역사적 판정은 소급 수정하지 않는다(Attempt 1 `path:"."` DENY/FAILED·무변경, LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission은 NOT VERIFIED, default-root `{}` 후속 evidence 포함).
 - Provider Compatibility Hardening(LOG-055·LOG-056), V0.3E Task Contract(LOG-057·LOG-058), V0.3F Measurement & Evidence(LOG-059), V0.3F Measurement Hardening(LOG-061), V0.3F Final Micro Hardening(LOG-062)까지 완료·게시했다. V0.3F는 LOG-062로 종료한다.
 - V0.4A Strict Mutation(LOG-064)은 opt-in strict freshness/precondition contract로 게시했고, LOG-065에서 deletion/재생성 stale·read-time identity binding·NUL 거부를 닫았다. strict actual smoke는 `standard-2ac`/DeepSeek에서 **COMPLETED**(stale→re-read→retry→checks PASS→독립 Reviewer PASS→oracle PASS)까지 확인했다. V0.4A는 LOG-065로 종료한다.
-- 다음 개발 단계는 **V0.4B — Verifier Trust (FIX-08)**다.
+- V0.4B Verifier Trust(LOG-066)는 opt-in strict registration/source freeze, pre/post process 재검증, Worker protected source, Kernel `trustRequired` guard, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek run에서 self-check가 `PASS` + `Verifier trust: VERIFIED (strict)`를 기록했지만, 같은 run은 Reviewer의 protected-oracle read Policy DENY로 FAILED하여 smoke COMPLETED는 NOT VERIFIED다.
+- 다음 개발 단계는 **V0.4C — Verifier Sandbox (FEAT-07)**다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
 - 아직 NOT VERIFIED: 최신 HEAD의 remote GitHub Actions 실제 PASS, V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, verifier sandbox, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음).
 
@@ -3003,6 +3005,35 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - **NOT VERIFIED:** remote GitHub Actions 실제 PASS(YAML 존재를 PASS로 쓰지 않음), V0.4A strict의 R2/R3·QUICK actual smoke, 다른 OS/Node matrix, verifier sandbox, COMPLEX/parallel, browser/MCP/memory, external TOCTOU 완전 해소(주장하지 않음 — 마지막 identity 검증 syscall과 write syscall 사이의 비협조 외부 process race 한계는 그대로다).
 - **임시 파일:** smoke script(`packages/evals/smoke-v04a.mts`)는 실행 후 제거했고 커밋 대상이 아니다. 재사용 가능한 harness seam(`mutation`·`wrapAudit`)만 남긴다.
 - **커밋·푸시:** 사용자 승인 후 `5c15317c9`(`7db4ac039` 위)로 게시했다(6개 경로, 372 insertions). 강제 push는 하지 않았고 `weavra-v0.1-rc1` 태그는 불변이다. V0.4A는 이 커밋으로 종료되며 다음 단계는 V0.4B — Verifier Trust(FIX-08)다.
+
+---
+
+## LOG-066 — V0.4B Verifier Trust (FIX-08)
+
+- **기록일:** 2026-09-18 (KST)
+- **기준 SHA:** `971d4c30daf20ee6e92cf3d840098eb68fffd05f`(clean, `origin/devlop` 일치, rebase 불필요). 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다. LOG-064/065의 역사적 결과는 그대로 보존한다.
+- **상태:** 구현·자동 회귀 완료. 실제 Provider smoke는 strict trust `VERIFIED` 확인, COMPLETED는 미확인(NOT VERIFIED). 커밋·푸시: 하지 않음.
+- **config 결정:** `verification.trust: { mode: compatible | strict }`(기본 compatible)와 check별 `trust: { files: [...] }`. trust.files는 workspace-relative literal·unique·최대 64개이며 built-in protected path는 지정 불가(config 단계에서 거부). trust 없음/`compatible`은 기존 동작 그대로이고, `strict`만 fail-closed다.
+- **strict vs compatible:** compatible은 기존 registration/process/workspace/Policy semantics를 유지하고 trust metadata만 `UNVERIFIED`(또는 snapshot 실패 시 미기록)로 남긴다. strict는 ① frozen registration 일치 ② executable identity 일치 ③ direct/explicit source 일치 ④ exit 0 ⑤ cleanup confirmed ⑥ post-process source 일치 ⑦ workspace evidence current를 모두 요구한다.
+- **trust snapshot 구조:** `verifier-trust.ts`가 direct argv source 해석(기존 protected-path heuristic과 동일한 helper)·explicit trust file 검증·source snapshot(`path`+`sha256`+`dev/ino/mode/size/mtimeNs/ctimeNs`)·executable identity snapshot(realpath)을 담당한다. content는 저장하지 않고 raw bytes SHA-256만 계산하며, 1 file 4 MiB·total 32 MiB·64 files 상한을 넘으면 strict preflight fail closed다. registration digest는 check id/kind/required/executable/argv/cwd/timeout/filtered env 표시/config digest/trust mode/source digest를 `weavra-verifier-registration-v1` 도메인으로 묶는다(raw credential 없음).
+- **protected source resolution:** `resolveVerifierTrustSources`를 `PiAgentExecutor.create`와 `RegisteredVerifier.create`가 공유해 Worker protection 집합과 freeze 집합이 drift하지 않는다. explicit trust file은 missing/symlink/protected면 fail closed이고, direct argv 후보는 기존처럼 존재하는 regular file만 포함하며 없으면 plain argv literal로 남는다. 지정된 oracle은 Worker protectedPath가 되어 Developer/Executor의 수정·열람이 Policy DENY다(oracle protection이 allowed_paths보다 강하다).
+- **pre/post 검증:** strict check는 process 직전에 executable+source를 재검증하고 stale이면 **process를 시작하지 않고** `FAIL`+trust `STALE`을 기록한다. exit 0이어도 process 직후 재검증이 stale이면 `FAIL`이며(자기수정 oracle 포함), result settle 직전에 한 번 더 확인해 settle 사이 변경도 stale로 만든다.
+- **Kernel 독립 guard:** Host(workflow)가 strict Run의 CheckRequirement에 `trustRequired: true`를 고정하고, Kernel `assertVerification`이 required check에 대해 `PASS` + trust `VERIFIED`를 요구한다. custom/fake Verifier가 trust 없이 PASS를 반환하는 forged 결과는 completion authority가 되지 못한다(전용 test 포함). legacy CheckResult에는 trust가 없어 `UNKNOWN (legacy)`이며 자동 VERIFIED로 승격하지 않는다.
+- **evidence:** CheckResult에 bounded trust metadata(mode/status/registrationDigest/executableDigest/sources[{path,digest}])를 추가했고 Evidence Pack은 `Verifier trust: VERIFIED (strict); registration sha256:…; trusted sources N` 형식으로, trust가 없으면 `UNKNOWN (legacy)`로 표시한다. Reviewer는 이 evidence를 읽기만 하고 trust를 새로 계산하지 않는다(권한 생성 없음). raw content/credential/env/절대 executable path는 공개 projection에 없다.
+- **negative fixtures(false-PASS 금지):** trusted source mtime-only 변경 → pre-process stale·process 0회·FAIL / delete+동일 bytes 재생성 → stale·process 0회 / oracle self-modify + exit 0 → post-process stale·FAIL / frozen executable 교체 → stale·FAIL / forged PASS without trust → Kernel completion 거부 / config: unknown mode·duplicate·traversal·protected trust file 거부 / declared trust file missing·symlink → fail closed. `test/verifier-trust.test.ts` 13건이 이 경계를 덮는다.
+- **자동 검증:**
+  ```sh
+  packages/company-runtime        node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2      # 36개 파일·1,207개 PASS
+  packages/coding-agent           node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-*.test.ts  # 11개 파일·449개 PASS
+  packages/evals                  node ../../node_modules/vitest/dist/cli.js run --config vitest.test.config.ts   # 6개 파일·33개 PASS
+  root                            npm run check / npm run check:ci / git diff --check / bash -n packages/company-runtime/bin/weavra   # 모두 exit 0
+  ```
+  합계 53개 파일·1,689개 PASS(실패·skip 0). 기존 strict mutation·QUICK·R2·R3·approval·Task Contract·measurement/telemetry·cleanup 회귀는 그대로 유지된다.
+- **실제 Provider smoke:** 자동 회귀 PASS 뒤 1회. `commandcode/deepseek/deepseek-v4.1-flash`, `standard-2ac`, `verification.trust.mode: strict`+`test/eval.test.mjs`를 trusted source로 고정하고 `allowed_paths: [src]`를 유지했다. Developer는 list → read `src/greeting.js` → edit → re-read → request_check로 진행했고 **self-check check가 `PASS` + `Verifier trust: VERIFIED (strict)`(registration sha256:4ccb3c21d72d7…, trusted sources 1)** 를 기록했다. 그러나 Reviewer가 protected oracle을 읽으려다 `Policy R0/DENY: Protected target`으로 FAILED했고(Reviewer CANCELLED), Run은 **FAILED**로 끝났다. 즉 **strict trust path는 실제 run에서 동작 확인**, COMPLETED 판정은 **NOT VERIFIED**다. 실패 원인은 V0.4B 결함이 아니라 protected oracle 열람에 대한 기존 Policy semantics + 모델 선택이며, 실패를 이유로 Policy나 strict를 완화하지 않았다. Provider 호출 1회(model interaction 1회), transport/provider 오류 0건, Developer 24,774 tokens·9 tools, duration 16.7s. 추가 재시도는 승인 후 진행한다.
+- **남은 제한(NOT VERIFIED):** V0.4B smoke COMPLETED, transitive dependency(imports·package script·plugin·test framework) freeze, 다른 모델/OS/Node matrix, remote GitHub Actions 실제 PASS, V0.4B의 R2/R3 실제 smoke.
+- **sandbox 아님:** network/filesystem isolation·seccomp·container는 V0.4C(FEAT-07)이며, 이번 단계는 registration/source integrity pinning이다. 마지막 검증 syscall과 write/execute 사이의 비협조 외부 process race 한계는 그대로다.
+- **임시 파일:** smoke script(`packages/evals/smoke-v04b.mts`)는 실행 후 제거했고 커밋 대상이 아니다. 재사용 harness seam(`mutation`·`verifierTrust`·`wrapAudit`)만 남긴다.
+- **커밋 상태:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 

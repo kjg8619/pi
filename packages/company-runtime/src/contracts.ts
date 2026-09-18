@@ -125,6 +125,17 @@ export function isTaskContract(task: TaskRecord): task is TaskContract {
 }
 
 // Execution evidence is produced by the verifier, never inferred from agent prose.
+export const VerifierTrustEvidenceSchema = Type.Object(
+	{
+		mode: Type.Union([Type.Literal("compatible"), Type.Literal("strict")]),
+		status: Type.Enum(["VERIFIED", "UNVERIFIED", "STALE", "UNKNOWN"]),
+		registrationDigest: text,
+		executableDigest: text,
+		sources: Type.Array(Type.Object({ path: text, digest: text }, strict), { maxItems: 64 }),
+	},
+	strict,
+);
+
 export const CheckResultSchema = Type.Object(
 	{
 		id: text,
@@ -142,12 +153,20 @@ export const CheckResultSchema = Type.Object(
 		finishedAt: Type.Optional(counter),
 		stdout: Type.Optional(Type.String({ maxLength: 16384 })),
 		stderr: Type.Optional(Type.String({ maxLength: 16384 })),
+		// Bounded verifier-trust metadata only: no raw source contents, env or credentials.
+		trust: Type.Optional(VerifierTrustEvidenceSchema),
 	},
 	strict,
 );
 
 export const CheckRequirementSchema = Type.Object(
-	{ id: text, kind: CheckKindSchema, required: Type.Boolean() },
+	{
+		id: text,
+		kind: CheckKindSchema,
+		required: Type.Boolean(),
+		// Host-frozen: a required check of a strict verifier-trust Run is not completion authority without VERIFIED trust.
+		trustRequired: Type.Optional(Type.Boolean()),
+	},
 	strict,
 );
 export const VerificationResultSchema = Type.Object(

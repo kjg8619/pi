@@ -159,10 +159,26 @@ describe("V0.4A config and plan preview", () => {
 			projectInstructionPath: null,
 			lspEnabled: false,
 		};
-		expect(formatPlanPreview({ ...plan, mutationMode: "compatible" })).toContain("Mutation mode: compatible");
-		const strict = formatPlanPreview({ ...plan, mutationMode: "strict" });
+		expect(
+			formatPlanPreview({
+				...plan,
+				mutationMode: "compatible",
+				verifierTrustMode: "compatible",
+				verifierTrustSources: [],
+			}),
+		).toContain("Mutation mode: compatible");
+		const strict = formatPlanPreview({
+			...plan,
+			mutationMode: "strict",
+			verifierTrustMode: "strict",
+			verifierTrustSources: ["test/acceptance.test.mjs"],
+		});
 		expect(strict).toContain("Mutation mode: strict (strict freshness/precondition enforcement");
 		expect(strict).toContain("not a permission and not approval");
+		expect(strict).toContain(
+			"Verifier trust: strict (frozen registration + trusted source integrity pinning; not a sandbox)",
+		);
+		expect(strict).toContain("test/acceptance.test.mjs");
 	});
 });
 

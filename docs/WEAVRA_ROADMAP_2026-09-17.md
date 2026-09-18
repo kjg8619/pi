@@ -543,6 +543,20 @@ anchored read
 
 # 9. V0.4B — Verifier Trust
 
+## 구현 상태 (LOG-066)
+
+- `verification.trust.mode: compatible | strict`(기본 compatible)와 `checks[].trust.files`(explicit oracle, workspace-relative literal, protected path 금지)를 추가했다.
+- strict는 Run 시작 시 registration digest(check id/kind/required/executable/argv/cwd/timeout/filtered env/config digest/trust mode/sources), resolved executable identity, direct argv source + explicit trust file의 **content SHA-256 + filesystem generation**(dev/ino/mode/size/mtimeNs/ctimeNs)을 freeze하고 process **직전과 직후**, 그리고 result settle 직전에 재검증한다.
+- process가 oracle을 바꾸고 exit 0이어도 PASS가 아니며, executable 교체·delete+동일 bytes 재생성·mtime-only 변경도 stale이다. pre-process stale이면 process를 아예 실행하지 않는다.
+- trusted source는 Worker protectedPath가 되어 Developer/Executor가 oracle을 수정·열람할 수 없다(기존 Policy DENY semantics).
+- Kernel은 Host가 고정한 `trustRequired`로 독립 검증한다: fake verifier가 trust 없이 PASS를 반환해도 completion 불가.
+- CheckResult/Evidence Pack에는 bounded trust metadata(mode/status/registrationDigest/executableDigest/sources[{path,digest}])만 담는다. legacy 결과는 `UNKNOWN (legacy)`이며 자동 VERIFIED로 승격하지 않는다.
+- **sandbox가 아니다.** network/filesystem isolation은 V0.4C(FEAT-07)이며, transitive package/plugin dependency graph는 freeze하지 않는다(NOT VERIFIED).
+- 결정론적 회귀: Runtime 36개 파일·1,207개 + coding-agent Weavra 11개 파일·449개 + evals 6개 파일·33개 = **53개 파일·1,689개 PASS**.
+- 실제 Provider: strict trust Run에서 self-check check가 `PASS` + `Verifier trust: VERIFIED (strict)`(registration sha256:4ccb3c21…, trusted sources 1)을 기록했다. 같은 run은 Reviewer가 protected oracle을 읽으려다 Policy R0 DENY로 FAILED했고 COMPLETED는 NOT VERIFIED다(LOG-066).
+
+## 목표
+
 ## 목표
 
 검증 프로그램이 존재한다는 사실과 검증 기준 자체가 신뢰 가능하다는 사실을 구분한다.
@@ -698,17 +712,13 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**현재 다음 작업은 V0.4B — Verifier Trust(FIX-08)다.** V0.3A~V0.3F, V0.4A(Strict Mutation)까지는 각 LOG의 판정 그대로 완료·게시했고, V0.4A는 LOG-065에서 닫았다. 아래 V0.3D 범위는 역사적 기록이며 소급 수정하지 않는다(당시 Provider smoke의 `path:"."` 거부 뒤 안내 보완은 실제 재검증하지 않았다).
+**현재 상태: V0.4B — Verifier Trust(FIX-08)를 구현·자동 회귀 검증했고, 실제 DeepSeek run에서 strict trust `VERIFIED`를 확인했다(LOG-066).** 남은 확인은 V0.4B smoke의 COMPLETED 판정(Reviewer의 protected-oracle read Policy DENY로 FAILED)이며, 이 문서는 완료 후 다음 단계를 **V0.4C — Verifier Sandbox(FEAT-07)**로 표시한다.
 
-역사적 기록(V0.3D 단계):
+완료(각 LOG의 판정 그대로, 소급 수정 없음): V0.3A~V0.3F, V0.4A Strict Mutation(LOG-064·LOG-065), V0.4B Verifier Trust(LOG-066).
 
-```text
-FIX-03  Host-selected instruction snapshot
-FIX-06  JVM dependency/build risk paths
-FEAT-02 일부  bounded runtime_list_files
-```
+**V0.4B 구현 범위:** `verification.trust.mode`(기본 compatible)와 `checks[].trust.files`(explicit oracle), Run 시작 시 registration digest·executable identity·direct/explicit source의 digest+generation freeze, pre/post process 검증, Kernel의 독립 `trustRequired` guard, CheckResult/Evidence Pack의 bounded trust metadata. sandbox가 아니며 transitive dependency 전체를 보호한다고 주장하지 않는다.
 
-범위:
+역사적 기록(V0.3D 단계, 아래는 소급 수정하지 않는다):
 
 ```text
 FIX-03  Host-selected instruction snapshot
@@ -716,15 +726,11 @@ FIX-06  JVM dependency/build risk paths
 FEAT-02 일부  bounded runtime_list_files
 ```
 
-이번 단계에서는 다음을 함께 구현하지 않는다.
-
-```text
+```
 multiple/nested instructions / auto discovery
 Repo Map / workspace-wide symbol index
-Acceptance Criteria / Planner
-Telemetry / Evals
-Strict Edit
-Verifier Sandbox
+Strict Edit (V0.4A에서 구현됨)
+Verifier Sandbox (V0.4C 후보)
 MCP
 COMPLEX / Parallel Agents
 ```

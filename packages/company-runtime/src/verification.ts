@@ -10,6 +10,15 @@ import { type ActionAudit, evaluateRegisteredCheck, type PolicyContext, type Reg
 import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { VerificationRequest, Verifier } from "./ports.ts";
 import { ProcessCleanupError, resolveExecutable, runProcess, verificationEnvironment } from "./process-runner.ts";
+import {
+	registrationDigestOf,
+	resolveVerifierTrustSources,
+	snapshotVerifierExecutable,
+	snapshotVerifierSources,
+	type VerifierTrustSnapshot,
+	validateVerifierTrust,
+	verifierTrustEvidence,
+} from "./verifier-trust.ts";
 import type { DiffEvidence, GitWorkspace } from "./workspace.ts";
 
 export class RegisteredVerifier implements Verifier {
@@ -23,6 +32,7 @@ export class RegisteredVerifier implements Verifier {
 	private readonly audit: ActionAudit;
 	private readonly paths: FilePolicyPathInspector;
 	private readonly registrations: Array<RegisteredCheck | undefined>;
+	private readonly trustSnapshots: Array<VerifierTrustSnapshot | undefined>;
 	private readonly lsp?: LspPort;
 	private constructor(
 		config: RuntimeConfig,
@@ -31,8 +41,10 @@ export class RegisteredVerifier implements Verifier {
 		workspace: GitWorkspace,
 		paths: FilePolicyPathInspector,
 		registrations: Array<RegisteredCheck | undefined>,
+		trustSnapshots: Array<VerifierTrustSnapshot | undefined>,
 		lsp?: LspPort,
 	) {
+		this.trustSnapshots = trustSnapshots;
 		this.lsp = lsp;
 		this.config = config;
 		this.policy = policy;
@@ -68,6 +80,33 @@ export class RegisteredVerifier implements Verifier {
 				};
 			}),
 		);
+		const trustMode = config.verification.trust?.mode ?? "compatible";
+		// Strict: a missing/invalid declared trust source or unreadable direct source fails before any process.
+		// Compatible: existing behavior is preserved; trust metadata degrades to absent instead of failing the Run.
+		const trustSnapshots = registrations.map((registration, index) => {
+			if (!registration) return undefined;
+			const check = config.verification.checks[index];
+			try {
+				const sources = snapshotVerifierSources(workspace.cwd, resolveVerifierTrustSources(workspace.cwd, check));
+				const executable = snapshotVerifierExecutable(registration.executable);
+				return {
+					mode: trustMode,
+					registrationDigest: registrationDigestOf({
+						check,
+						executable,
+						sources,
+						configDigest: policy.configDigest,
+						trustMode,
+					}),
+					executableDigest: `sha256:${executable.dev}:${executable.ino}:${executable.size}:${executable.mtimeNs}`,
+					executable,
+					sources,
+				};
+			} catch (error) {
+				if (trustMode === "strict") throw error;
+				return undefined;
+			}
+		});
 		return new RegisteredVerifier(
 			config,
 			structuredClone(policy),
@@ -75,6 +114,7 @@ export class RegisteredVerifier implements Verifier {
 			workspace,
 			await FilePolicyPathInspector.open(workspace.cwd),
 			registrations,
+			trustSnapshots,
 			lsp,
 		);
 	}
@@ -99,9 +139,20 @@ export class RegisteredVerifier implements Verifier {
 		if (this.policy.r2RunId && request.runId !== this.policy.r2RunId)
 			throw new Error("R2 verifier run binding mismatch");
 		const configured = this.config.verification.checks;
+		const requirementOf = (check: { id: string; kind: string; required: boolean; trustRequired?: boolean }) => ({
+			id: check.id,
+			kind: check.kind,
+			required: check.required,
+			...(check.trustRequired === true ? { trustRequired: true } : {}),
+		});
+		const strictTrust = (this.config.verification.trust?.mode ?? "compatible") === "strict";
 		if (
-			JSON.stringify(request.checks) !==
-			JSON.stringify(configured.map(({ id, kind, required }) => ({ id, kind, required })))
+			JSON.stringify(request.checks.map(requirementOf)) !==
+			JSON.stringify(
+				configured.map(({ id, kind, required }) =>
+					requirementOf({ id, kind, required, ...(strictTrust ? { trustRequired: true } : {}) }),
+				),
+			)
 		)
 			throw new Error("Verification request changed registered checks");
 		const before = await this.workspace.inspect(request.signal);
@@ -183,6 +234,22 @@ export class RegisteredVerifier implements Verifier {
 					});
 					continue;
 				}
+				const trustSnapshot = this.trustSnapshots[index];
+				if (trustSnapshot?.mode === "strict") {
+					const pre = validateVerifierTrust(this.workspace.cwd, trustSnapshot);
+					if (!pre.ok) {
+						intentOpen = false;
+						await this.audit.finish(decision.runId, decision.actionId, "FAILED");
+						checks.push({
+							...base,
+							// A trust violation is never PASS and never silently optional.
+							status: "FAIL",
+							reason: `${pre.reason ?? "Verifier trust source changed"} before execution`,
+							trust: verifierTrustEvidence(trustSnapshot, "STALE"),
+						});
+						continue;
+					}
+				}
 				request.signal?.throwIfAborted();
 				this.processCleanupConfirmed = false;
 				const result = await runProcess({
@@ -217,21 +284,39 @@ export class RegisteredVerifier implements Verifier {
 					if (!this.workspace.safeToRelease) throw new ProcessCleanupError();
 					current = { ...before, safe: false };
 				}
+				const post = trustSnapshot ? validateVerifierTrust(this.workspace.cwd, trustSnapshot) : undefined;
 				checks.push({
 					...base,
 					status:
-						result.reason === "unavailable"
-							? "UNAVAILABLE"
-							: result.reason === "exited" && result.exitCode === 0 && current.safe && !request.signal?.aborted
-								? "PASS"
-								: "FAIL",
+						post && !post.ok
+							? "FAIL"
+							: result.reason === "unavailable"
+								? "UNAVAILABLE"
+								: result.reason === "exited" &&
+										result.exitCode === 0 &&
+										current.safe &&
+										!request.signal?.aborted
+									? "PASS"
+									: "FAIL",
 					exitCode: result.exitCode,
-					reason: `Check ${request.signal?.aborted ? "cancelled" : result.reason}${current.safe ? "" : "; unsupported mutation"}`,
+					reason: post
+						? post.ok
+							? `Check ${request.signal?.aborted ? "cancelled" : result.reason}${current.safe ? "" : "; unsupported mutation"}`
+							: `${post.reason ?? "Verifier trust source changed"} during execution`
+						: `Check ${request.signal?.aborted ? "cancelled" : result.reason}${current.safe ? "" : "; unsupported mutation"}`,
 					startedAt: result.startedAt,
 					finishedAt: result.finishedAt,
 					stdout: result.stdout,
 					stderr: result.stderr,
 					diffDigest: current.diffDigest,
+					...(trustSnapshot
+						? {
+								trust: verifierTrustEvidence(
+									trustSnapshot,
+									post?.ok ? (trustSnapshot.mode === "strict" ? "VERIFIED" : "UNVERIFIED") : "STALE",
+								),
+							}
+						: {}),
 				});
 			} catch (error) {
 				// An intent may remain PREPARED on storage failure; S2 recovery marks it INTERRUPTED, never replays.
@@ -287,6 +372,15 @@ export class RegisteredVerifier implements Verifier {
 			}
 			markStaleLspEvidence(lspEvidence, final.diffDigest, final.safe);
 		}
+		for (const [index, check] of checks.entries())
+			if (check.status === "PASS" && this.trustSnapshots[index]?.mode === "strict") {
+				const settled = validateVerifierTrust(this.workspace.cwd, this.trustSnapshots[index]!);
+				if (!settled.ok) {
+					check.status = "FAIL";
+					check.reason = `${settled.reason ?? "Verifier trust source changed"} before result settlement`;
+					check.trust = verifierTrustEvidence(this.trustSnapshots[index]!, "STALE");
+				}
+			}
 		for (const check of checks)
 			if (
 				check.status === "PASS" &&

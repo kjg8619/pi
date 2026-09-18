@@ -151,6 +151,7 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 **완료 기준:** 중복 문자열·외부 변경·삭제 후 재생성·CRLF/BOM·UTF-8·긴 줄·공백/한글 경로를 다룬다. stale 후 실제 모델이 제한된 예산 내 재읽고 수정하는 시나리오를 별도로 수행한다. 마지막 확인과 OS write 사이 모든 외부 경합을 해결했다고 주장하지 않는다. 기존 호환 모드와 strict 모드의 차이를 문서화한다.
 
+> 구현 상태(2026-09-18): V0.4B에서 구현·자동 회귀 검증했다. `verification.trust.mode`(기본 compatible)·`checks[].trust.files`·registration/executable/source freeze(pre/post process + settle 재검증)·Kernel `trustRequired` guard·bounded trust evidence. sandbox는 V0.4C다. 상세는 LOG-066.
 ### FIX-08 — 검증 프로그램과 정답 기준의 신뢰 고정
 
 **관찰:** 실행 파일·인자 등록과 일부 직접 참조 파일 보호는 있다. 그러나 등록된 명령은 내부에서 파일을 수정하거나 다른 프로그램·네트워크를 사용할 수 있고, 모든 전이 의존성의 무해성까지 증명하지 않는다. 현재 승인 UI도 이 비격리 경계를 명시한다.[S3][S4][S15]

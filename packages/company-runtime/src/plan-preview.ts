@@ -13,6 +13,8 @@ export interface PlanPreview {
 	projectInstructionPath: string | null;
 	lspEnabled: boolean;
 	mutationMode: "compatible" | "strict";
+	verifierTrustMode: "compatible" | "strict";
+	verifierTrustSources: readonly string[];
 }
 
 /** Host-side display only. Confirming this plan is neither an approval nor a permission token. */
@@ -37,6 +39,10 @@ export function formatPlanPreview(plan: PlanPreview): string {
 		`Project instruction: ${plan.projectInstructionPath ? `${plan.projectInstructionPath} (configured; frozen prompt context, not readable by workers)` : "none"}`,
 		`LSP: ${plan.lspEnabled ? "enabled (trusted local program, not sandboxed)" : "disabled"}`,
 		`Mutation mode: ${plan.mutationMode}${plan.mutationMode === "strict" ? " (strict freshness/precondition enforcement for existing files; not a permission and not approval)" : ""}`,
+		`Verifier trust: ${plan.verifierTrustMode}${plan.verifierTrustMode === "strict" ? " (frozen registration + trusted source integrity pinning; not a sandbox)" : " (not strictly pinned)"}`,
+		...(plan.verifierTrustSources.length
+			? ["Trusted verifier sources:", ...plan.verifierTrustSources.map((path) => `  ${path}`)]
+			: []),
 		"Plan confirmation is not an approval or permission token; R3 deletion still requires separate one-time human approval.",
 		"No automatic rollback, commit, merge or cleanup.",
 	].join("\n");
