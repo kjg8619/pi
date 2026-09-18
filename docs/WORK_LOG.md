@@ -45,7 +45,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
-| V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 미커밋 | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
+| V0.3F Measurement & Evidence | 구현·자동 회귀·실제 smoke 완료 / 게시 `b6267e233` | LOG-059. worker별 usage/latency/tool 측정, optional budget(호출 수 사전 차단·token fail-closed), provenance snapshot, `/state evidence` Evidence Pack, evals adapter+fixture 6개. 자동 51개 파일·1,624개 PASS. DeepSeek 1차 provider 실패 후 재시도 COMPLETED, GPT 교차 COMPLETED |
 | V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 게시 `5bc7f8a43` | LOG-057·LOG-058. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
@@ -2820,6 +2820,20 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 - Plain Pi vs Weavra 실제 비교 실행, 20개 corpus 확장, repetition 반복, telemetry exporter/SaaS, LLM judge oracle, Planner/병렬/COMPLEX/strict edit/verifier sandbox/browser/MCP/memory는 이번 범위 밖이며 NOT VERIFIED다.
 - provider-reported token 한도는 billing 정확도가 아니고, 가격은 어느 provider도 신뢰 가능한 출처가 없어 전부 UNKNOWN이다.
 - **커밋·푸시:** 하지 않음. 보고 후 사용자 승인을 따른다.
+
+
+---
+
+## LOG-060 — V0.3F Measurement & Evidence 게시
+
+- **기록일:** 2026-09-18 (KST)
+- **상태·목적:** 사용자 요청에 따라 LOG-059의 V0.3F 구현·테스트·문서 27개 경로를 커밋하고 `origin/devlop`에 게시한다. 판정·결과는 변경하지 않는다.
+- **변경 파일:** 신규 Runtime 8개(`measurement-types.ts`, `measurement.ts`, `budget.ts`, `provenance-types.ts`, `provenance.ts`, `telemetry.ts`, `evidence.ts`, `test/measurement-evidence.test.ts`), 신규 evals 3개(`weavra-harness.ts`, `weavra-fixtures.ts`, `test/weavra-harness.test.ts`), 신규 smoke 문서 1개, 수정 15개(contracts/kernel/workflow/agent-runner/config/ports/extension, README 2종, roadmap/research/WORK_LOG, `packages/coding-agent/test/suite/company-runtime-agent.test.ts`, `packages/company-runtime/package.json` + `package-lock.json`). 이번 후속 항목에서는 현재 요약과 본 항목만 추가한다.
+- **dependency:** workspace 내부 `@earendil-works/pi-telemetry@0.85.1`를 devDependency로 추가했다(외부 dependency·새 exporter 없음). lockfile 변경이 포함되므로 커밋 시 `PI_ALLOW_LOCKFILE_CHANGE=1`을 사용했고 강제 push는 하지 않았다.
+- **이번 검증:** 게시 전 `git status --porcelain`으로 대상 27개 경로만 staged됨을 확인했고 HEAD/origin이 `6c81b21de9548306bd37982b32bcb55c7ec3598c`임을 확인했다. LOG-059의 자동 회귀(Runtime 35개 파일·1,145개 + coding-agent 11개 파일·447개 + evals unit 5개 파일·32개 = 51개 파일·1,624개 PASS), `npm run check`/`check:ci`, `git diff --check`, `bash -n` 결과를 근거로 하며 이번 커밋 준비에서는 테스트·Provider를 재실행하지 않았다.
+- **과거 검증과 구분:** 실제 Provider smoke(DeepSeek 1차 provider 실패·2차 COMPLETED, GPT 교차 COMPLETED)는 LOG-059 당시 결과다.
+- **커밋·푸시:** `b6267e233`(`6c81b21de` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-059의 "커밋·푸시: 하지 않음"은 작성 시점 기준이며 실제 게시 커밋은 `b6267e233`다. 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
+- **남은 제한·다음 작업:** LOG-059의 남은 제한(Plain Pi 비교 실행·20 corpus 확장·repetition·외부 exporter·실제 가격·R2/R3 measurement/evidence·다른 OS/Node·원격 CI)을 그대로 유지한다.
 
 ---
 
