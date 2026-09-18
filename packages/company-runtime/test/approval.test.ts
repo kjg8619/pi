@@ -8,6 +8,7 @@ import type { ApprovalDecision, ApprovalRequest } from "../src/contracts.ts";
 import { CompanyKernel } from "../src/kernel.ts";
 import { evaluatePolicy, executePolicyAction, type PolicyAction, type PolicyContext } from "../src/policy.ts";
 import { FileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 function request(): ApprovalRequest {
 	return {
@@ -210,7 +211,7 @@ async function fixture(now?: () => number) {
 		{
 			executionMode: "EDIT",
 			runId: "run",
-			task: { id: "task", goal, requirements: [goal], status: "pending" },
+			task: testContract(goal, { taskId: "task", checkIds: ["check"] }),
 			classification: classifyRequest(goal).classification,
 			checks: [{ id: "check", kind: "test", required: true }],
 		},

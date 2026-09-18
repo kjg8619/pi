@@ -1,5 +1,13 @@
 import type { RuntimeConfig } from "./config.ts";
-import type { CheckResult, PolicyDecision, Review, Run } from "./contracts.ts";
+import {
+	type CheckResult,
+	isCriteriaHandoff,
+	isCriteriaReview,
+	isTaskContract,
+	type PolicyDecision,
+	type ReviewRecord,
+	type Run,
+} from "./contracts.ts";
 
 export interface ObservationAction {
 	decision: PolicyDecision;
@@ -58,8 +66,22 @@ function page<T>(values: readonly T[], number: number, size = 10): { items: read
 		label: `Page ${number}/${count} (${values.length} records)`,
 	};
 }
-export function reviewRecords(run: Run): readonly Review[] {
+export function reviewRecords(run: Run): readonly ReviewRecord[] {
 	return run.reviewHistory ?? (run.review ? [run.review] : []);
+}
+
+/** Live reviews report Host-assigned criterion IDs; legacy reviews stay statement-based and are labelled. */
+function reviewDetails(review: ReviewRecord): string[] {
+	if (isCriteriaReview(review))
+		return review.criteria.map(
+			(item) => `${item.status}: ${item.criterionId}; evidence: ${item.evidenceRefs.join(", ")}`,
+		);
+	return [
+		"(legacy review; statement-based requirements, no acceptance-criterion evidence)",
+		...review.requirements.map(
+			(item) => `${item.status}: ${item.requirement}; evidence: ${item.evidenceRefs.join(", ")}`,
+		),
+	];
 }
 export function decisionEntries(run: Run, actions: readonly ObservationAction[]): DecisionEntry[] {
 	return [
@@ -80,9 +102,7 @@ export function decisionEntries(run: Run, actions: readonly ObservationAction[])
 			summary: `${review.result} at code revision ${review.revision}`,
 			details: [
 				`Diff: ${review.diffDigest}`,
-				...review.requirements.map(
-					(item) => `${item.status}: ${item.requirement}; evidence: ${item.evidenceRefs.join(", ")}`,
-				),
+				...reviewDetails(review),
 				...review.issues.map(
 					(issue) =>
 						`${issue.severity} ${issue.file ?? "general"}: ${issue.description}; recommendation: ${issue.recommendation}`,
@@ -227,13 +247,26 @@ export function formatRunView(
 		for (const review of reviews)
 			lines.push(
 				`${review.result} | code revision ${review.revision} | diff ${displayText(review.diffDigest)}`,
-				`${review.requirements.length} requirements / ${review.issues.length} issues (first 10 of each shown)`,
-				...review.requirements
-					.slice(0, 10)
-					.map(
-						(item) =>
-							`  ${item.status}: ${displayText(item.requirement)}; evidence ${item.evidenceRefs.map((ref) => displayText(ref)).join(", ")}`,
-					),
+				...(isCriteriaReview(review)
+					? [
+							`${review.criteria.length} acceptance criteria (first 10 shown)`,
+							...review.criteria
+								.slice(0, 10)
+								.map(
+									(item) =>
+										`  ${item.status}: ${displayText(item.criterionId)}; evidence ${item.evidenceRefs.map((ref) => displayText(ref)).join(", ")}`,
+								),
+						]
+					: [
+							"Legacy review: statement-based requirements, no acceptance-criterion evidence",
+							`${review.requirements.length} requirements (first 10 shown)`,
+							...review.requirements
+								.slice(0, 10)
+								.map(
+									(item) =>
+										`  ${item.status}: ${displayText(item.requirement)}; evidence ${item.evidenceRefs.map((ref) => displayText(ref)).join(", ")}`,
+								),
+						]),
 				...review.issues
 					.slice(0, 10)
 					.map(
@@ -284,10 +317,30 @@ export function formatRunView(
 		);
 		if (command === "state") {
 			for (const task of run.tasks.slice(0, 10))
-				lines.push(
-					`Task ${displayText(task.id)}: ${task.status}; ${task.requirements.length} requirements (first 10 shown)`,
-					...task.requirements.slice(0, 10).map((requirement) => `  Requirement: ${displayText(requirement)}`),
-				);
+				if (isTaskContract(task))
+					lines.push(
+						`Task ${displayText(task.id)}: ${task.status}; ${task.acceptanceCriteria.length} acceptance criteria (Host-assigned IDs)`,
+						...task.acceptanceCriteria.map((criterion) => {
+							const result = (run.acceptance ?? []).find((entry) => entry.criterionId === criterion.id);
+							return (
+								`  ${criterion.id}: ${displayText(criterion.statement)} ` +
+								`[checks: ${criterion.verification.checkIds.join(", ") || "none"}; review: ${criterion.verification.reviewRequired ? "required" : "not required"}]` +
+								(result
+									? ` -> ${result.status} (revision ${result.revision}; evidence ${result.evidenceRefs.map((ref) => displayText(ref)).join(", ") || "none recorded"})`
+									: " -> no recorded result")
+							);
+						}),
+					);
+				else
+					lines.push(
+						`Task ${displayText(task.id)}: ${task.status}; Acceptance criteria: UNKNOWN (legacy)`,
+						...task.requirements
+							.slice(0, 10)
+							.map((requirement) => `  Legacy requirement: ${displayText(requirement)}`),
+					);
+			lines.push(
+				`Task Contract digest: ${run.taskContractDigest ? displayText(run.taskContractDigest) : "UNKNOWN (legacy; no contract digest)"}`,
+			);
 			const handoff = run.executorResult ?? run.handoff;
 			if (handoff)
 				lines.push(
@@ -297,9 +350,17 @@ export function formatRunView(
 				);
 			if (run.executorResult)
 				lines.push(
-					...run.executorResult.requirements
-						.slice(0, 10)
-						.map((item) => `${item.status}: ${displayText(item.explanation)}`),
+					...(isCriteriaHandoff(run.executorResult)
+						? run.executorResult.criteria.map(
+								(item) =>
+									`  ${item.status}: ${displayText(item.criterionId)}; ${displayText(item.explanation)}`,
+							)
+						: [
+								"  Legacy Executor result: statement-based requirements, no acceptance-criterion evidence",
+								...run.executorResult.requirements
+									.slice(0, 10)
+									.map((item) => `  ${item.status}: ${displayText(item.explanation)}`),
+							]),
 				);
 		}
 		lines.push(

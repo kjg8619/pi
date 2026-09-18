@@ -3,6 +3,7 @@ import type { Handoff, RoleSessionReference, Run } from "../src/contracts.ts";
 import type { RuntimeEvent } from "../src/events.ts";
 import { CompanyKernel } from "../src/kernel.ts";
 import type { AgentExecutionRequest } from "../src/ports.ts";
+import { testContract } from "./fixture-contract.ts";
 
 const ref: RoleSessionReference = {
 	role: "Developer",
@@ -29,7 +30,7 @@ async function setup(execute: (request: AgentExecutionRequest) => Promise<void>,
 		{
 			executionMode: "EDIT",
 			runId: "run-1",
-			task: { id: "task-1", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
+			task: testContract("Fix bug", { taskId: "task-1" }),
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", reason: "Fixture", confidence: null },
 		},
 		{

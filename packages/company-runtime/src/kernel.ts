@@ -1,6 +1,7 @@
 import { awaitApproval, selectR3Scope } from "./approval.ts";
 import { selectWorkflow } from "./classification.ts";
 import {
+	type AcceptanceCriterion,
 	type ApprovalDecision,
 	type ApprovalProposal,
 	ApprovalRequestSchema,
@@ -12,9 +13,11 @@ import {
 	ExecutorHandoffSchema,
 	type Handoff,
 	HandoffSchema,
+	isTaskContract,
 	QUICK_STEP_IDS,
 	type QuickScope,
 	type Review,
+	type ReviewRecord,
 	ReviewSchema,
 	type Risk,
 	type RoleSessionReference,
@@ -24,13 +27,19 @@ import {
 	STANDARD_STEP_IDS,
 	STANDARD_STEP_PHASES,
 	type StepId,
-	type Task,
-	TaskSchema,
+	type TaskContract,
+	TaskContractSchema,
 	type VerificationResult,
 	VerificationResultSchema,
 	validateContract,
 	type Workflow,
 } from "./contracts.ts";
+import {
+	acceptanceResultsFromChecks,
+	acceptanceResultsFromReview,
+	assertCriterionIdentity,
+	taskContractDigest,
+} from "./criterion-evidence.ts";
 import { createRuntimeEvent, type EventDeliveryFailure, type RuntimeEventDetail } from "./events.ts";
 import { type ExecutionMode, isExecutionMode } from "./execution-contract.ts";
 import type { KernelPorts } from "./ports.ts";
@@ -41,7 +50,8 @@ export interface CreateRunRequest {
 	executionMode: ExecutionMode;
 	projectInstruction?: ProjectInstructionMetadata | null;
 	runId: string;
-	task: Task;
+	/** Host-confirmed, frozen Task Contract. Legacy runs are read-only and cannot be created here. */
+	task: TaskContract;
 	classification: Classification;
 	workflow?: Workflow | "adaptive";
 	maxRevisionCycles?: number;
@@ -102,7 +112,7 @@ function assertVerification(
 	}
 }
 
-function assertReview(review: Review, task: Task, verification: VerificationResult): void {
+function assertReview(review: Review, task: TaskContract, verification: VerificationResult): void {
 	validateContract(ReviewSchema, review);
 	assertIdentity(review, verification.runId, verification.revision);
 	requireEvidence(
@@ -117,33 +127,62 @@ function assertReview(review: Review, task: Task, verification: VerificationResu
 		review.evidenceRefs.length > 0 && review.evidenceRefs.every((ref) => evidence.has(ref)),
 		"Review references unknown or missing evidence",
 	);
-	const requirements = new Set(review.requirements.map((item) => item.requirement));
-	requireEvidence(
-		requirements.size === task.requirements.length &&
-			review.requirements.length === task.requirements.length &&
-			task.requirements.every((item) => requirements.has(item)),
-		"Review did not cover the exact task requirements",
-	);
-	for (const item of review.requirements) {
+	assertCriterionCoverage(review.criteria, task.acceptanceCriteria, "Review");
+	for (const item of review.criteria) {
 		requireEvidence(
 			item.evidenceRefs.every((ref) => evidence.has(ref)),
-			"Requirement references unknown evidence",
+			"Criterion references unknown evidence",
 		);
 		if (review.result === "PASS")
 			requireEvidence(
 				item.status === "MET" && item.evidenceRefs.length > 0,
-				"PASS requires evidence for every requirement",
+				"PASS requires evidence for every acceptance criterion",
 			);
 	}
 	if (review.result === "PASS")
 		requireEvidence(!review.issues.some((issue) => issue.severity === "blocker"), "PASS contains a blocking issue");
 }
 
+/** Exact frozen-criteria coverage: every criterion exactly once, no unknown or duplicate IDs. */
+function assertCriterionCoverage(
+	items: ReadonlyArray<{ criterionId: string; status: string }>,
+	criteria: readonly AcceptanceCriterion[],
+	source: string,
+): void {
+	const expected = new Set(criteria.map((criterion) => criterion.id));
+	const seen = new Set<string>();
+	for (const item of items) {
+		requireEvidence(expected.has(item.criterionId), `${source} reported an unknown acceptance criterion`);
+		requireEvidence(!seen.has(item.criterionId), `${source} reported a duplicate acceptance criterion`);
+		seen.add(item.criterionId);
+	}
+	requireEvidence(seen.size === criteria.length, `${source} omitted an acceptance criterion`);
+}
+
+/** Every criterion's mapped checks must have passing, current verification evidence. */
+function assertCriterionChecks(
+	criteria: readonly AcceptanceCriterion[],
+	selfCheck: VerificationResult,
+	finalCheck: VerificationResult,
+): void {
+	for (const criterion of criteria) {
+		for (const checkId of criterion.verification.checkIds) {
+			const inSelf = selfCheck.checks.find((check) => check.id === checkId);
+			const inFinal = finalCheck.checks.find((check) => check.id === checkId);
+			requireEvidence(
+				inSelf?.status === "PASS" && inSelf.evidenceRefs.length > 0 && inFinal?.status === "PASS",
+				`Acceptance criterion ${criterion.id} lacks passing check evidence`,
+			);
+		}
+	}
+}
+
 export interface CompletionEvidence {
 	executionMode: ExecutionMode;
 	runId: string;
 	revision: number;
-	task: Task;
+	task: TaskContract;
+	taskContractDigest?: string;
 	checks: CheckRequirement[];
 	handoff?: Handoff | ExecutorHandoff;
 	workflow?: Workflow;
@@ -252,15 +291,18 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 				finalCheck.diffDigest === evidence.workspace.diffDigest,
 			"QUICK digest changed after SELF_CHECK; verification is stale",
 		);
+		const executorHandoff = validateContract(ExecutorHandoffSchema, handoff);
+		requireEvidence(
+			task.acceptanceCriteria.every((criterion) => !criterion.verification.reviewRequired),
+			"QUICK cannot complete review-required acceptance criteria; select STANDARD",
+		);
+		assertCriterionCoverage(executorHandoff.criteria, task.acceptanceCriteria, "Executor");
+		assertCriterionChecks(task.acceptanceCriteria, selfCheck, finalCheck);
 		requireEvidence(
 			// Read-only findings do not imply unfinished work; mutations still require risk resolution.
 			(evidence.quickScope.risk === "R0" || handoff.known_risks.length === 0) &&
-				handoff.requirements.length === task.requirements.length &&
-				new Set(handoff.requirements.map((item) => item.requirement)).size === task.requirements.length &&
-				task.requirements.every((requirement) =>
-					handoff.requirements.some((item) => item.requirement === requirement && item.status === "MET"),
-				),
-			"QUICK requirements incomplete or risks unresolved; STANDARD required",
+				executorHandoff.criteria.every((item) => item.status === "MET"),
+			"QUICK acceptance criteria incomplete or risks unresolved; STANDARD required",
 		);
 		requireEvidence(
 			new Set(handoff.changed_files).size === handoff.changed_files.length &&
@@ -274,8 +316,17 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 	assertReview(review, task, selfCheck);
 	requireEvidence(review.result === "PASS", "Completion requires an independent Reviewer PASS");
 	requireEvidence(
+		review.criteria.every((item) => item.status === "MET"),
+		"Review PASS requires every acceptance criterion MET",
+	);
+	assertCriterionChecks(task.acceptanceCriteria, selfCheck, finalCheck);
+	requireEvidence(
 		review.diffDigest === finalCheck.diffDigest,
 		"Final verification changed the reviewed diff; another review is required",
+	);
+	requireEvidence(
+		evidence.taskContractDigest === taskContractDigest(task),
+		"Task Contract changed after confirmation; completion refused",
 	);
 }
 
@@ -313,14 +364,10 @@ export class CompanyKernel {
 	): Promise<CompanyKernel> {
 		request = structuredClone(request);
 		if (!isExecutionMode(request.executionMode)) throw new Error("New runs require an explicit execution contract");
-		validateContract(TaskSchema, request.task);
+		validateContract(TaskContractSchema, request.task);
+		assertCriterionIdentity(request.task.acceptanceCriteria);
 		validateContract(ClassificationSchema, request.classification);
-		if (
-			request.task.status !== "pending" ||
-			new Set(request.task.requirements).size !== request.task.requirements.length
-		) {
-			throw new Error("New runs require a pending task with unique requirements");
-		}
+		if (request.task.status !== "pending") throw new Error("New runs require a pending Host-confirmed Task Contract");
 		if (
 			!Number.isInteger(request.approvalTimeoutMs ?? 30_000) ||
 			(request.approvalTimeoutMs ?? 30_000) < 1 ||
@@ -360,6 +407,7 @@ export class CompanyKernel {
 			risk: request.classification.risk,
 			currentTask: request.task.id,
 			tasks: [request.task],
+			taskContractDigest: taskContractDigest(request.task),
 			activeAgents: [],
 			completed: [],
 			next: ["implement"],
@@ -381,6 +429,13 @@ export class CompanyKernel {
 
 	get snapshot(): Run {
 		return structuredClone(this.state);
+	}
+
+	/** Live runs always carry the Host-confirmed contract; legacy observations never reach the Kernel. */
+	private taskContract(): TaskContract {
+		const task = this.state.tasks[0];
+		if (!isTaskContract(task)) throw new Error("Live run requires a Host-confirmed Task Contract");
+		return task;
 	}
 	get deliveryFailures(): EventDeliveryFailure[] {
 		return structuredClone(this.eventFailures);
@@ -470,7 +525,7 @@ export class CompanyKernel {
 		status: "BLOCKED" | "FAILED" | "CANCELLED" | "INTERRUPTED",
 		reason: string,
 		events: RuntimeEventDetail[],
-		reviewHistory?: Review[],
+		reviewHistory?: ReviewRecord[],
 	): Promise<void> {
 		const eventType = {
 			BLOCKED: "RunBlocked",
@@ -545,7 +600,7 @@ export class CompanyKernel {
 		let approvalCallbacksOpen = true;
 		let approvalInFlight = false;
 		let approvalFailure: string | undefined;
-		const task = structuredClone(this.state.tasks[0]);
+		const task = structuredClone(this.taskContract());
 		const revision = this.state.revisionCycle;
 		const executionMode = this.state.executionMode;
 		if (!isExecutionMode(executionMode)) {
@@ -875,18 +930,30 @@ export class CompanyKernel {
 						reviewerSession: this.reviewerSession,
 						quickScope: this.state.quickScope,
 						executorDigest: this.state.executorDigest,
+						taskContractDigest: this.state.taskContractDigest,
 						workspace: this.state.workspace,
 						handoff: this.handoff,
 						review: this.review,
 						selfCheck: this.selfCheck,
 						finalCheck: this.finalCheck,
 					});
+					if (!this.selfCheck) throw new BlockedError("Completion requires verification evidence");
+					// Projection only: criterion results come from trusted submissions and verifier evidence.
+					const acceptance =
+						this.state.workflow === "QUICK"
+							? acceptanceResultsFromChecks(
+									task,
+									validateContract(ExecutorHandoffSchema, this.handoff).criteria,
+									this.selfCheck,
+								)
+							: acceptanceResultsFromReview(validateContract(ReviewSchema, this.review));
 					await this.persist(
 						{
 							status: "COMPLETED",
 							activeAgents: [],
 							completed: [task.id],
 							next: [],
+							acceptance,
 							tasks: [{ ...task, status: "completed" }],
 							lastError: null,
 						},

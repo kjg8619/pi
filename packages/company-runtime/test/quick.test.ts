@@ -4,6 +4,7 @@ import type { ExecutorHandoff, QuickScope, Run, VerificationResult } from "../sr
 import { assertCanComplete, type CompletionEvidence } from "../src/kernel.ts";
 import { evaluatePolicy } from "../src/policy.ts";
 import { assertQuickWorkspace, changedLineCount, QUICK_MAX_CHANGED_LINES, selectQuickScope } from "../src/quick.ts";
+import { testContract } from "./fixture-contract.ts";
 
 function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 	const changedFiles = risk === "R0" ? [] : ["src/app.ts"];
@@ -19,9 +20,9 @@ function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 		tests_run: [],
 		known_risks: [],
 		unresolved: [],
-		requirements: [
+		criteria: [
 			{
-				requirement,
+				criterionId: "AC-001",
 				status: "MET",
 				explanation: "Label spelling corrected in the named source file",
 			},
@@ -64,12 +65,11 @@ function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 		},
 		runId: "run",
 		revision: 0,
-		task: {
-			id: "task",
-			goal: risk === "R0" ? requirement : "Fix typo in src/app.ts",
-			requirements: [requirement],
-			status: "inProgress",
-		},
+		task: testContract(risk === "R0" ? requirement : "Fix typo in src/app.ts", {
+			taskId: "task",
+			checkIds: ["test"],
+			workflow: "QUICK",
+		}),
 		checks: [{ id: "test", kind: "test", required: true }],
 		handoff,
 		selfCheck,
@@ -170,16 +170,16 @@ describe.each(["R0", "R1"] as const)("QUICK/%s Kernel completion guard", (risk) 
 			e.handoff!.unresolved = ["unfinished"];
 		},
 		(e: CompletionEvidence) => {
-			if (e.handoff?.role === "Executor") e.handoff.requirements[0].status = "UNMET";
+			if (e.handoff?.role === "Executor") e.handoff.criteria[0].status = "UNMET";
 		},
 		(e: CompletionEvidence) => {
-			if (e.handoff?.role === "Executor") e.handoff.requirements = [];
+			if (e.handoff?.role === "Executor") e.handoff.criteria = [];
 		},
 		(e: CompletionEvidence) => {
-			if (e.handoff?.role === "Executor") e.handoff.requirements[0].requirement = "Invented requirement";
+			if (e.handoff?.role === "Executor") e.handoff.criteria[0].criterionId = "AC-999";
 		},
 		(e: CompletionEvidence) => {
-			if (e.handoff?.role === "Executor") e.handoff.requirements[0].status = "UNVERIFIED";
+			if (e.handoff?.role === "Executor") e.handoff.criteria[0].status = "UNVERIFIED";
 		},
 		(e: CompletionEvidence) => {
 			e.handoff!.changed_files = ["src/unreported.ts"];

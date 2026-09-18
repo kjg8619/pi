@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PolicyDecision, Run } from "../src/contracts.ts";
 import { CompanyKernel } from "../src/kernel.ts";
 import { FileStateStore, type FileStateStoreOptions, StateStoreError, withFileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 let root: string;
 const stores: FileStateStore[] = [];
@@ -26,7 +27,7 @@ async function kernel(store: FileStateStore, id = "run-1") {
 		{
 			executionMode: "EDIT",
 			runId: id,
-			task: { id: "task-1", goal: "Fix bug", requirements: ["Regression covered"], status: "pending" },
+			task: testContract("Fix bug", { taskId: "task-1", statements: ["Regression covered"] }),
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Bug fix" },
 		},
 		{

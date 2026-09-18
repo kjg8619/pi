@@ -13,6 +13,7 @@ import type { AgentExecutionRequest, ApprovalPort } from "../../../company-runti
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import type { ExtensionCommandContext, RegisteredCommand } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -62,8 +63,8 @@ function response(context: Context) {
 				unresolved: [],
 				...(request.role === "Executor"
 					? {
-							requirements: request.task.requirements.map((requirement) => ({
-								requirement,
+							criteria: request.task.acceptanceCriteria.map((criterion) => ({
+								criterionId: criterion.id,
 								status: "MET",
 								explanation: "Requested bounded task performed",
 							})),
@@ -81,8 +82,8 @@ function response(context: Context) {
 			task: request.task.id,
 			result: request.risk !== "R3" && request.revision < reviseUntil ? "REVISE" : "PASS",
 			issues: [],
-			requirements: request.task.requirements.map((requirement) => ({
-				requirement,
+			criteria: request.task.acceptanceCriteria.map((criterion) => ({
+				criterionId: criterion.id,
 				status: "MET",
 				evidenceRefs: request.verification.evidenceRefs,
 			})),
@@ -111,6 +112,7 @@ function workflow(goal = "Fix bug", approval?: ApprovalPort, failObserver = fals
 		executionMode: goal.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal,
+		taskContract: workflowContract(goal, config),
 		config,
 		approval,
 		events: failObserver
@@ -149,7 +151,7 @@ function host(allowRun = false, events?: RuntimeEventSink) {
 		hasUI: true,
 		isIdle: () => true,
 		isProjectTrusted: () => true,
-		ui: { notify, confirm: async () => true },
+		ui: { notify, confirm: async () => true, editor: async (_title: string, prefill?: string) => prefill ?? "" },
 	} as unknown as ExtensionCommandContext;
 	registerCompanyRuntime(
 		{

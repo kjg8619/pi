@@ -309,6 +309,28 @@ read/list/search는 R0이며 dependency mutation만 최소 R2다. READ_ONLY는 �
 
 자동 snapshot/filesystem/stdio-free listing/Policy/SDK-faux integration과 기존 V0.3A/B/C 회귀를 수행한다. 실제 Provider 1회는 지침 전달과 list tool 선택을 확인했지만 `path:"."`가 거부되어 FAILED/무변경으로 종료됐다. `{}` 사용 안내와 부정 회귀를 추가했으며 실제 Provider 재실행/Reviewer·checks·COMPLETE 성공은 NOT VERIFIED다. [실제 smoke 기록](../../docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)을 따른다. Weavra가 Weavra를 개발했다는 self-hosting 주장은 하지 않는다.
 
+## V0.3E Task Contract
+
+Host가 확인한 수용 기준(Acceptance Criteria)을 run 단위로 고정한다. `TaskContract = { id, goal, acceptanceCriteria[1..16], status }`이고 각 criterion은 `{ id: "AC-001"…, statement, scope{paths}, verification{checkIds, reviewRequired} }`이다. ID는 Host가 순서대로 부여하며 worker는 추가/삭제/문장·verification 변경을 할 수 없다.
+
+```text
+/workflow run <goal>
+  → classification/workflow/risk
+  → AC 준비(STANDARD: ui.editor로 한 줄=한 criterion 편집, QUICK: AC-001=goal)
+  → Plan Preview 확인(goal/mode/risk/AC/checks/roles/instruction/LSP/경고)
+  → frozen Task Contract + sha256 digest
+  → Developer/Executor/Reviewer가 exact AC ID로 결과 제출
+  → Kernel: 모든 AC 1회·MET·mapped check PASS·current revision/diffDigest·digest 일치
+```
+
+- scope는 설명·evidence binding용이며 권한이 아니다. mutation authority는 Execution Contract/Policy/allowed_paths/R2/R3/Approval이 그대로 결정한다.
+- checkIds는 registered required check의 부분집합이어야 하며 unknown이면 preflight에서 거부한다. STANDARD criterion은 `reviewRequired: true`, QUICK은 `false`이고 QUICK에 review-required AC가 들어오면 fail-closed다.
+- Plan 확인은 approval/permission token이 아니고 ApprovalRecord로 저장하지 않는다. R3 삭제는 별도 1회 승인을 요구한다. 취소는 run/worker/check/approval을 만들지 않는다.
+- Executor handoff는 `criteria[] = {criterionId, status, explanation}`, Reviewer는 `criteria[] = {criterionId, status, evidenceRefs}`를 제출한다(unknown/duplicate/missing은 같은 session에서 교정 가능한 오류, PASS는 전 criterion MET + trusted evidence 필수).
+- 완료 시 AC 결과는 trusted 제출+verifier evidence의 projection(`run.acceptance`)으로만 저장하고, revision이 바뀌면 이전 AC evidence를 재사용하지 않는다. `/state`는 AC별 statement·status·evidence refs를 보여주고 legacy run은 `Acceptance criteria: UNKNOWN (legacy)`로 표시한다.
+- digest는 `{id, goal, acceptanceCriteria}`만 대상으로 하며 lifecycle `status`는 포함하지 않는다(전이에도 안정). digest는 permission token이 아니다.
+- legacy `requirements: string[]` state는 자동 migration 없이 읽기 전용으로만 호환한다. 새 live run은 항상 Task Contract를 요구한다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.

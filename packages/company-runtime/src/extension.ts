@@ -7,6 +7,7 @@ import {
 	ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { PiAgentExecutor } from "./agent-runner.ts";
+import { classifyRequest, selectWorkflow } from "./classification.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { proposeExecutionMode } from "./execution-contract.ts";
@@ -22,8 +23,10 @@ import {
 	pageNumber,
 	type RunView,
 } from "./observations.ts";
+import { formatPlanPreview } from "./plan-preview.ts";
 import { FileStateStore } from "./state-store.ts";
 import { formatWeavraStatus } from "./status.ts";
+import { acceptanceStatementsError, buildTaskContract, parseAcceptanceStatements } from "./task-contract.ts";
 import { formatWorkflowReport, StandardWorkflow, type WorkflowReport } from "./workflow.ts";
 
 /** Explicit composition seam for local faux tests/Hosts, not a worker-visible provider registration mechanism. */
@@ -278,12 +281,63 @@ export function registerCompanyRuntime(
 							const proposal = proposeExecutionMode(goal);
 							if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
 							const executionMode = proposal.mode;
+							const { classification, requiresConfirmation } = classifyRequest(goal);
+							if (requiresConfirmation || classification.complexity === "COMPLEX")
+								throw new Error(
+									`Unsupported classification/workflow: ${classification.complexity}/${classification.risk}; no downgrade performed`,
+								);
+							const selection = selectWorkflow(classification, config.runtime.workflow);
+							if (selection.workflow === "QUICK" && ["R2", "R3"].includes(classification.risk))
+								throw new Error("R2/R3 cannot run as QUICK; STANDARD is required");
+							// FEAT-01: Host-side plan preview. No Planner model call; the editor is the only AC input.
+							const statements =
+								selection.workflow === "STANDARD"
+									? parseAcceptanceStatements(
+											(await ctx.ui.editor(
+												"Acceptance criteria: one line = one criterion (AC-001, AC-002, ... are assigned after confirmation)",
+												goal,
+											)) ?? "",
+										)
+									: [goal];
+							if (selection.workflow === "STANDARD" && !statements.length) {
+								ctx.ui.notify("Weavra: plan cancelled; no run, worker, check or approval was created.", "info");
+								return;
+							}
+							const statementsError = acceptanceStatementsError(statements);
+							if (statementsError) {
+								ctx.ui.notify(`Weavra: acceptance criteria rejected: ${statementsError}`, "warning");
+								return;
+							}
+							const taskContract = buildTaskContract({
+								goal,
+								statements,
+								workflow: selection.workflow,
+								config,
+							});
 							const approved = await ctx.ui.confirm(
-								"Weavra: run trusted QUICK/STANDARD workflow?",
-								`Execution contract: ${executionMode}. Confirm this permission explicitly; classification/risk is not permission.\n${executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nProject instruction file (context only): ${JSON.stringify(config.project?.instructions.path ?? null)}\nAllowed files: ${config.files.allowed_paths.join(", ")}\nChecks (may mutate files; not sandboxed):\n${config.verification.checks.map((check) => JSON.stringify({ executable: check.executable, argv: check.args, cwd: check.cwd })).join("\n")}\nLSP servers (trusted local code, not sandboxed): ${JSON.stringify(config.code_intelligence?.lsp.enabled ? config.code_intelligence.lsp.servers.map(({ id, executable, args }) => ({ id, executable, argv: args })) : [])}\nLSP results are advisory and do not replace required checks.\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. No automatic rollback/commit. Trust only reviewed executables and scripts.`,
+								"Weavra: confirm this plan? (not an approval or permission token)",
+								`${formatPlanPreview({
+									goal,
+									workflow: selection.workflow,
+									executionMode,
+									risk: classification.risk,
+									acceptanceCriteria: taskContract.acceptanceCriteria,
+									allowedPaths: config.files.allowed_paths,
+									checks: config.verification.checks,
+									projectInstructionPath: config.project?.instructions.path ?? null,
+									lspEnabled: config.code_intelligence?.lsp.enabled === true,
+								})}\n${executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);
-							if (!approved) throw new Error("Workflow preflight declined");
+							if (!approved) {
+								ctx.ui.notify(
+									signal.aborted
+										? "Weavra: Preflight cancelled; no run, worker, check or approval was created."
+										: "Weavra: plan declined; no run, worker, check or approval was created.",
+									signal.aborted ? "warning" : "info",
+								);
+								return;
+							}
 							signal.throwIfAborted();
 							const agentDir = options.agentDir ?? getAgentDir();
 							const models = options.createModels
@@ -297,6 +351,7 @@ export function registerCompanyRuntime(
 							workflow = new StandardWorkflow({
 								cwd: ctx.cwd,
 								goal,
+								taskContract,
 								executionMode,
 								config,
 								signal,

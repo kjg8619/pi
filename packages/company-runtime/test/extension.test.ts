@@ -22,6 +22,8 @@ models:
 const notify = vi.fn();
 const setStatus = vi.fn();
 const confirm = vi.fn(async () => false);
+// Plan Preview AC editor: default to the current goal as the single criterion line.
+const editor = vi.fn(async (_title: string, prefill?: string) => prefill ?? "");
 const context = () =>
 	({
 		cwd,
@@ -29,7 +31,7 @@ const context = () =>
 		hasUI: true,
 		isIdle: () => true,
 		isProjectTrusted: () => true,
-		ui: { notify, confirm, setStatus },
+		ui: { notify, confirm, editor, setStatus },
 	}) as unknown as ExtensionCommandContext;
 function commands() {
 	const registered = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
@@ -58,6 +60,7 @@ beforeEach(async () => {
 	notify.mockReset();
 	setStatus.mockReset();
 	confirm.mockClear();
+	editor.mockClear();
 });
 afterEach(async () => {
 	await rm(cwd, { recursive: true, force: true });
@@ -165,13 +168,15 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		await mkdir(join(cwd, ".ai"));
 		await writeFile(join(cwd, ".ai/config.yaml"), config);
 		const host = commands();
-		await host.call("workflow", "run Fix login", { ...context(), isProjectTrusted: () => false });
+		await host.call("workflow", "run Fix bug in src/a.ts", { ...context(), isProjectTrusted: () => false });
 		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("not trusted"), "warning");
-		await host.call("workflow", "run Fix login");
-		await vi.waitFor(() => expect(notify).toHaveBeenCalledWith(expect.stringContaining("declined"), "error"));
+		await host.call("workflow", "run Fix bug in src/a.ts");
+		await vi.waitFor(() => expect(notify).toHaveBeenCalledWith(expect.stringContaining("declined"), "info"));
+		expect(confirm).toHaveBeenCalled();
+		expect(editor).toHaveBeenCalled();
 		expect(host.models).not.toHaveBeenCalled();
 		await host.call("workflow", "cancel");
-		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("No rollback"), "warning");
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("No rollback"), "info");
 	});
 	it("cancels a pending confirmation through its signal before loading models", async () => {
 		await mkdir(join(cwd, ".ai"));
@@ -190,7 +195,8 @@ describe("S4 extension and S0 loader/trust regression", () => {
 		await vi.waitFor(() => expect(entered).toBe(true));
 		await host.call("workflow", "cancel", ctx);
 		expect(host.models).not.toHaveBeenCalled();
-		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("Preflight cancelled"), "warning");
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Preflight cancelled"), "warning");
+		expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("No rollback"), "info");
 	});
 	it("shows the effective worker timeout without starting a worker", async () => {
 		await mkdir(join(cwd, ".ai"));
@@ -261,8 +267,9 @@ describe("S4 extension and S0 loader/trust regression", () => {
 			return false;
 		};
 		await host.call("workflow", `run ${goal}`, ctx);
-		await vi.waitFor(() => expect(notify).toHaveBeenCalledWith(expect.stringContaining("declined"), "error"));
+		await vi.waitFor(() => expect(notify).toHaveBeenCalledWith(expect.stringContaining("declined"), "info"));
 		expect(shown).toContain(`Execution contract: ${mode}`);
+		expect(shown).toContain("Acceptance criteria");
 		expect(host.models).not.toHaveBeenCalled();
 		expect(await readdir(join(cwd, ".ai"))).toEqual(["config.yaml"]);
 	});

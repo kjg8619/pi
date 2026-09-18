@@ -19,6 +19,7 @@ import { LIST_MAX_BYTES, LIST_MAX_ENTRIES, listFiles } from "../src/list-files.t
 import { evaluatePolicy, type PolicyContext } from "../src/policy.ts";
 import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import type { AgentExecutionRequest } from "../src/ports.ts";
+import { testContract } from "./fixture-contract.ts";
 
 let cwd: string, policy: PolicyContext, paths: FilePolicyPathInspector;
 const put = (path: string) => {
@@ -194,7 +195,7 @@ describe("bounded Node filesystem discovery", () => {
 			executionMode: "READ_ONLY",
 			revision: 0,
 			step: { stepId: "implement", attempt: 1 },
-			task: { id: "task", goal: "Explain", requirements: ["Explain"], status: "inProgress" },
+			task: testContract("Explain", { taskId: "task", statements: ["Explain"], workflow: "QUICK" }),
 			role: "Executor",
 			profile: "coding",
 			scope: { risk: "R0", targetPath: null },

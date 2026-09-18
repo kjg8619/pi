@@ -13,6 +13,7 @@ import { LspManager } from "../../../company-runtime/src/lsp/manager.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
 import { RegisteredVerifier } from "../../../company-runtime/src/verification.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 let harness: Harness, cwd: string, agentDir: string, config: RuntimeConfig;
@@ -39,8 +40,8 @@ function submit(context: Context) {
 			issues: [],
 			diffDigest: request.verification.diffDigest,
 			evidenceRefs: refs,
-			requirements: request.task.requirements.map((requirement) => ({
-				requirement,
+			criteria: request.task.acceptanceCriteria.map((criterion) => ({
+				criterionId: criterion.id,
 				status: "MET",
 				evidenceRefs: refs,
 			})),
@@ -62,8 +63,8 @@ function submit(context: Context) {
 		unresolved: [],
 		...(request.role === "Executor"
 			? {
-					requirements: request.task.requirements.map((requirement) => ({
-						requirement,
+					criteria: request.task.acceptanceCriteria.map((criterion) => ({
+						criterionId: criterion.id,
 						status: "MET",
 						explanation:
 							request.executionMode === "READ_ONLY" ? "Inspected current source" : "Applied exact change",
@@ -87,6 +88,7 @@ function create(
 		executionMode,
 		cwd,
 		goal,
+		taskContract: workflowContract(goal, config),
 		config,
 		approval: {
 			requestApproval: async (request) => ({

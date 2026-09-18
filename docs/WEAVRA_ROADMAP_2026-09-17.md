@@ -21,6 +21,8 @@
 
 **V0.3D 후속 상태:** FIX-03/FIX-06/runtime_list_files를 구현하고 자동 회귀를 수행했다(WORK_LOG LOG-048). Provider smoke 1회는 snapshot 전달/list tool 선택 후 `path:"."`를 Policy가 거부해 FAILED/무변경으로 끝났다. `{}` 안내 보완 후 실제 end-to-end 성공은 NOT VERIFIED이며 self-hosting claim은 하지 않는다.
 
+**V0.3E 후속 상태:** FIX-05 Acceptance Criteria와 FEAT-01 Plan Preview를 구현하고 자동 회귀·실제 Provider smoke를 수행했다(WORK_LOG LOG-057). Host가 순차 AC ID(`AC-001`…)를 부여하고 Plan Preview 확인 후 frozen digest로 고정하며, Developer/Executor/Reviewer는 AC ID로만 결과/evidence를 제출한다. Kernel 완료 guard가 missing/duplicate/unknown/UNMET/stale을 거부한다. DeepSeek STANDARD/EDIT와 GPT 교차 각 1회 COMPLETED(2 AC MET), R2/R3·미충족 AC의 live smoke는 NOT VERIFIED다.
+
 ---
 
 ## 1. 현재 기준선
@@ -326,6 +328,8 @@ exact suffix/filename을 case-insensitive로 검사하고 module prefix를 지�
 ---
 
 # 6. V0.3E — Task Contract
+
+**상태: 구현·자동 회귀·실제 Provider smoke 완료(WORK_LOG LOG-057).** AC ID는 Host가 순차 부여하고 Plan Preview 확인 후 frozen contract + digest로 고정된다. 아래 DoD 중 R2/R3 live 흐름과 미충족 AC의 live 부정 경로는 deterministic test로만 검증했으며 NOT VERIFIED다. 자세한 결과는 [V0.3E smoke](WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md)를 따른다.
 
 ## 목표
 

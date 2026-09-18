@@ -13,6 +13,7 @@ import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import * as statusProjection from "../../../company-runtime/src/status.ts";
 import { graphViewUI } from "../../../company-runtime/test/graph-view-harness.ts";
 import type { ExtensionCommandContext, RegisteredCommand } from "../../src/index.ts";
+import { suiteContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const key = "weavra.runtime";
@@ -48,8 +49,8 @@ function response(context: Context) {
 				issues: [],
 				diffDigest: request.verification.diffDigest,
 				evidenceRefs: request.verification.evidenceRefs,
-				requirements: request.task.requirements.map((requirement) => ({
-					requirement,
+				criteria: request.task.acceptanceCriteria.map((criterion) => ({
+					criterionId: criterion.id,
 					status: "MET",
 					evidenceRefs: request.verification.evidenceRefs,
 				})),
@@ -80,8 +81,8 @@ function response(context: Context) {
 			unresolved: [],
 			...(request.role === "Executor"
 				? {
-						requirements: request.task.requirements.map((requirement) => ({
-							requirement,
+						criteria: request.task.acceptanceCriteria.map((criterion) => ({
+							criterionId: criterion.id,
 							status: "MET",
 							explanation: "Done",
 						})),
@@ -112,7 +113,13 @@ function host(events?: RuntimeEventSink) {
 		hasUI: true,
 		isIdle: () => true,
 		isProjectTrusted: () => true,
-		ui: { setStatus, notify, confirm: async () => true, select },
+		ui: {
+			setStatus,
+			notify,
+			confirm: async () => true,
+			select,
+			editor: async (_title: string, prefill?: string) => prefill ?? "",
+		},
 	} as unknown as ExtensionCommandContext;
 	registerCompanyRuntime(
 		{
@@ -406,7 +413,7 @@ describe("Weavra Status Projection on the actual Extension/Kernel/SDK (faux only
 					{
 						executionMode: "EDIT",
 						runId: "stored-run",
-						task: { id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
+						task: suiteContract("Fix bug", { taskId: "task", checkIds: ["regression"] }),
 						classification: {
 							intent: "bugfix",
 							complexity: "STANDARD",

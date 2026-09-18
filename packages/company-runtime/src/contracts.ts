@@ -48,7 +48,8 @@ export const ClassificationSchema = Type.Object(
 	strict,
 );
 
-export const TaskSchema = Type.Object(
+/** Historical task shape. New live runs use TaskContractSchema; legacy tasks stay read-only observations. */
+export const LegacyTaskSchema = Type.Object(
 	{
 		id: text,
 		goal: text,
@@ -57,6 +58,69 @@ export const TaskSchema = Type.Object(
 	},
 	strict,
 );
+
+export const ACCEPTANCE_CRITERION_ID_PATTERN = "^AC-[0-9]{3}$";
+export const MAX_ACCEPTANCE_CRITERIA = 16;
+export const MAX_ACCEPTANCE_STATEMENT_LENGTH = 500;
+
+const acceptanceId = Type.String({ pattern: ACCEPTANCE_CRITERION_ID_PATTERN });
+export const CriterionStatusSchema = Type.Enum(["MET", "UNMET", "UNVERIFIED"]);
+export type CriterionStatus = Static<typeof CriterionStatusSchema>;
+
+export const AcceptanceCriterionSchema = Type.Object(
+	{
+		// Host-owned stable identity; workers never generate or change it.
+		id: acceptanceId,
+		statement: Type.String({ minLength: 1, maxLength: MAX_ACCEPTANCE_STATEMENT_LENGTH, pattern: "\\S" }),
+		// Descriptive scope for this criterion. Not a permission: Policy/Execution Contract remain authority.
+		scope: Type.Object({ paths: Type.Array(text, { maxItems: 32, uniqueItems: true }) }, strict),
+		verification: Type.Object(
+			{
+				// Registered check IDs only; the Kernel maps them to actual verification evidence.
+				checkIds: Type.Array(text, { uniqueItems: true }),
+				reviewRequired: Type.Boolean(),
+			},
+			strict,
+		),
+	},
+	strict,
+);
+export type AcceptanceCriterion = Static<typeof AcceptanceCriterionSchema>;
+
+/** Host-confirmed contract, frozen for one run. Plan confirmation is not an approval or permission token. */
+export const TaskContractSchema = Type.Object(
+	{
+		id: text,
+		goal: text,
+		acceptanceCriteria: Type.Array(AcceptanceCriterionSchema, {
+			minItems: 1,
+			maxItems: MAX_ACCEPTANCE_CRITERIA,
+		}),
+		status: Type.Enum(["pending", "inProgress", "completed", "blocked"]),
+	},
+	strict,
+);
+export type TaskContract = Static<typeof TaskContractSchema>;
+
+/** Projection of per-criterion outcomes from trusted submissions and verifier evidence; no second authority store. */
+export const AcceptanceResultSchema = Type.Object(
+	{
+		criterionId: acceptanceId,
+		status: CriterionStatusSchema,
+		evidenceRefs: texts,
+		revision: counter,
+		diffDigest: text,
+	},
+	strict,
+);
+export type AcceptanceResult = Static<typeof AcceptanceResultSchema>;
+
+export const TaskRecordSchema = Type.Union([TaskContractSchema, LegacyTaskSchema]);
+export type TaskRecord = Static<typeof TaskRecordSchema>;
+
+export function isTaskContract(task: TaskRecord): task is TaskContract {
+	return "acceptanceCriteria" in task;
+}
 
 // Execution evidence is produced by the verifier, never inferred from agent prose.
 export const CheckResultSchema = Type.Object(
@@ -127,22 +191,70 @@ export const HandoffSchema = Type.Object(
 	strict,
 );
 
-// Executor supplies a requirement-by-requirement result, not a self-approval or invented check evidence.
-export const ExecutorHandoffSchema = Type.Object(
+/** Historical Executor handoff with string requirements; read-only compatibility for stored state. */
+export const LegacyExecutorHandoffSchema = Type.Object(
 	{
 		...HandoffSchema.properties,
 		role: Type.Literal("Executor"),
 		requirements: Type.Array(
-			Type.Object(
-				{ requirement: text, status: Type.Enum(["MET", "UNMET", "UNVERIFIED"]), explanation: text },
-				strict,
-			),
+			Type.Object({ requirement: text, status: CriterionStatusSchema, explanation: text }, strict),
 			{ minItems: 1 },
 		),
 	},
 	strict,
 );
+
+// Executor supplies a criterion-by-criterion result, not a self-approval or invented check evidence.
+export const ExecutorHandoffSchema = Type.Object(
+	{
+		...HandoffSchema.properties,
+		role: Type.Literal("Executor"),
+		criteria: Type.Array(
+			Type.Object({ criterionId: acceptanceId, status: CriterionStatusSchema, explanation: text }, strict),
+			{ minItems: 1, maxItems: MAX_ACCEPTANCE_CRITERIA },
+		),
+	},
+	strict,
+);
 export type ExecutorHandoff = Static<typeof ExecutorHandoffSchema>;
+export type LegacyExecutorHandoff = Static<typeof LegacyExecutorHandoffSchema>;
+export const ExecutorResultSchema = Type.Union([ExecutorHandoffSchema, LegacyExecutorHandoffSchema]);
+export type ExecutorResult = Static<typeof ExecutorResultSchema>;
+
+export function isCriteriaHandoff(result: ExecutorResult): result is ExecutorHandoff {
+	return "criteria" in result;
+}
+
+const reviewIssues = Type.Array(
+	Type.Object(
+		{
+			severity: Type.Enum(["info", "warning", "blocker"]),
+			file: Type.Union([text, Type.Null()]),
+			description: text,
+			recommendation: text,
+		},
+		strict,
+	),
+);
+
+/** Historical Reviewer verdict with string requirements; read-only compatibility for stored state. */
+export const LegacyReviewSchema = Type.Object(
+	{
+		runId: text,
+		revision: counter,
+		role: Type.Literal("Reviewer"),
+		task: text,
+		result: Type.Enum(["PASS", "REVISE", "BLOCK"]),
+		issues: reviewIssues,
+		requirements: Type.Array(
+			Type.Object({ requirement: text, status: CriterionStatusSchema, evidenceRefs: texts }, strict),
+			{ minItems: 1 },
+		),
+		evidenceRefs: texts,
+		diffDigest: text,
+	},
+	strict,
+);
 
 export const ReviewSchema = Type.Object(
 	{
@@ -151,33 +263,25 @@ export const ReviewSchema = Type.Object(
 		role: Type.Literal("Reviewer"),
 		task: text,
 		result: Type.Enum(["PASS", "REVISE", "BLOCK"]),
-		issues: Type.Array(
-			Type.Object(
-				{
-					severity: Type.Enum(["info", "warning", "blocker"]),
-					file: Type.Union([text, Type.Null()]),
-					description: text,
-					recommendation: text,
-				},
-				strict,
-			),
-		),
-		requirements: Type.Array(
-			Type.Object(
-				{
-					requirement: text,
-					status: Type.Enum(["MET", "UNMET", "UNVERIFIED"]),
-					evidenceRefs: texts,
-				},
-				strict,
-			),
-			{ minItems: 1 },
+		issues: reviewIssues,
+		// Reviewer judges the frozen AC IDs; it cannot add, remove, replace or restate criteria.
+		criteria: Type.Array(
+			Type.Object({ criterionId: acceptanceId, status: CriterionStatusSchema, evidenceRefs: texts }, strict),
+			{ minItems: 1, maxItems: MAX_ACCEPTANCE_CRITERIA },
 		),
 		evidenceRefs: texts,
 		diffDigest: text,
 	},
 	strict,
 );
+
+export type LegacyReview = Static<typeof LegacyReviewSchema>;
+export const ReviewRecordSchema = Type.Union([ReviewSchema, LegacyReviewSchema]);
+export type ReviewRecord = Static<typeof ReviewRecordSchema>;
+
+export function isCriteriaReview(review: ReviewRecord): review is Review {
+	return "criteria" in review;
+}
 
 // A decision is not an approval token. R3 execution requires a separate, bound approval in S5.
 export const PolicyDecisionSchema = Type.Object(
@@ -272,7 +376,9 @@ export const RunSchema = Type.Object(
 		classification: ClassificationSchema,
 		risk: RiskSchema,
 		currentTask: text,
-		tasks: Type.Array(TaskSchema, { minItems: 1 }),
+		tasks: Type.Array(TaskRecordSchema, { minItems: 1 }),
+		// Present for new live runs; absent on historical legacy runs.
+		taskContractDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
 		activeAgents: Type.Array(RoleSchema, { uniqueItems: true }),
 		completed: texts,
 		next: texts,
@@ -280,7 +386,7 @@ export const RunSchema = Type.Object(
 		revisionCycle: counter,
 		maxRevisionCycles: Type.Optional(Type.Integer({ minimum: 0, maximum: 3 })),
 		handoff: Type.Optional(HandoffSchema),
-		reviewHistory: Type.Optional(Type.Array(ReviewSchema)),
+		reviewHistory: Type.Optional(Type.Array(ReviewRecordSchema)),
 		workspace: Type.Optional(
 			Type.Object(
 				{
@@ -296,9 +402,11 @@ export const RunSchema = Type.Object(
 		r3Scope: Type.Optional(R3ScopeSchema),
 		approvals: Type.Optional(Type.Array(ApprovalRecordSchema)),
 		quickScope: Type.Optional(QuickScopeSchema),
-		executorResult: Type.Optional(ExecutorHandoffSchema),
+		executorResult: Type.Optional(ExecutorResultSchema),
 		executorDigest: Type.Optional(text),
-		review: Type.Optional(ReviewSchema),
+		review: Type.Optional(ReviewRecordSchema),
+		// Per-criterion outcome projection for observation; derived from trusted submissions and verifier evidence.
+		acceptance: Type.Optional(Type.Array(AcceptanceResultSchema)),
 		verification: Type.Array(CheckResultSchema),
 		lastError: Type.Union([text, Type.Null()]),
 		createdAt: counter,
@@ -311,7 +419,6 @@ export type Workflow = Static<typeof WorkflowSchema>;
 export type Risk = Static<typeof RiskSchema>;
 export type Role = Static<typeof RoleSchema>;
 export type Classification = Static<typeof ClassificationSchema>;
-export type Task = Static<typeof TaskSchema>;
 export type CheckResult = Static<typeof CheckResultSchema>;
 export type Handoff = Static<typeof HandoffSchema>;
 export type Review = Static<typeof ReviewSchema>;

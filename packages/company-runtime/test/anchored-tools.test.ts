@@ -20,6 +20,7 @@ import type { PolicyDecision } from "../src/contracts.ts";
 import type { ActionAudit, PolicyContext } from "../src/policy.ts";
 import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import type { AgentExecutionRequest } from "../src/ports.ts";
+import { testContract } from "./fixture-contract.ts";
 
 let cwd: string;
 let policy: PolicyContext;
@@ -88,7 +89,7 @@ beforeEach(async () => {
 		runId: "run",
 		revision: 0,
 		step: { stepId: "implement", attempt: 1 },
-		task: { id: "task", goal: "Fix typo in src/app.ts", requirements: ["fix"], status: "inProgress" },
+		task: testContract("Fix typo in src/app.ts", { taskId: "task", statements: ["fix"], workflow: "QUICK" }),
 		role: "Executor",
 		profile: "coding",
 		scope: { risk: "R1", targetPath: "src/app.ts" },

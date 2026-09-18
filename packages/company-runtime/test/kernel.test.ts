@@ -9,9 +9,11 @@ import {
 	type StepId,
 	type VerificationResult,
 } from "../src/contracts.ts";
+import { taskContractDigest } from "../src/criterion-evidence.ts";
 import type { RuntimeEvent } from "../src/events.ts";
 import { assertCanComplete, CompanyKernel, type CompletionEvidence, type CreateRunRequest } from "../src/kernel.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, KernelPorts, VerificationRequest } from "../src/ports.ts";
+import { contractOf, testContract } from "./fixture-contract.ts";
 
 function agentResult(request: AgentExecutionRequest, verdict: Review["result"] = "PASS"): AgentExecutionResult {
 	if (request.role === "Developer")
@@ -40,8 +42,8 @@ function agentResult(request: AgentExecutionRequest, verdict: Review["result"] =
 			task: request.task.id,
 			result: verdict,
 			issues: [],
-			requirements: request.task.requirements.map((requirement) => ({
-				requirement,
+			criteria: request.task.acceptanceCriteria.map((criterion) => ({
+				criterionId: criterion.id,
 				status: "MET",
 				evidenceRefs: ["diff-proof"],
 			})),
@@ -75,7 +77,11 @@ function fixture() {
 	const request: CreateRunRequest = {
 		executionMode: "EDIT",
 		runId: "run-1",
-		task: { id: "task-1", goal: "Fix login error", status: "pending", requirements: ["Expired token returns 401"] },
+		task: testContract("Fix login error", {
+			taskId: "task-1",
+			statements: ["Expired token returns 401"],
+			checkIds: ["regression"],
+		}),
 		classification: classifyRequest("Fix login error").classification,
 		checks: [{ id: "regression", kind: "test", required: true }],
 	};
@@ -329,6 +335,12 @@ describe("STANDARD pure Kernel", () => {
 	it("allows an unavailable optional check with a reason", async () => {
 		const f = fixture();
 		f.request.checks = [{ id: "optional", kind: "build", required: false }];
+		// The Host maps criteria to required checks only; an optional check stays outside the contract mapping.
+		f.request.task = testContract("Fix login error", {
+			taskId: "task-1",
+			statements: ["Expired token returns 401"],
+			checkIds: [],
+		});
 		f.verifier.verify.mockImplementation(async (request) => {
 			const result = verificationResult(request);
 			Object.assign(result.checks[0], {
@@ -399,13 +411,13 @@ describe("STANDARD pure Kernel", () => {
 	it("supports an absent sink and isolates mutable snapshot, store and observer copies", async () => {
 		const f = fixture();
 		f.store.save.mockImplementation(async (state) => {
-			state.tasks[0].requirements = [];
+			contractOf(state).acceptanceCriteria = [];
 		});
 		const kernel = await CompanyKernel.create(f.request, { ...f.ports, events: undefined });
-		kernel.snapshot.tasks[0].requirements.length = 0;
-		f.request.task.requirements.length = 0;
+		contractOf(kernel.snapshot).acceptanceCriteria.length = 0;
+		f.request.task.acceptanceCriteria.length = 0;
 		expect((await drive(kernel)).status).toBe("COMPLETED");
-		expect(kernel.snapshot.tasks[0].requirements).toHaveLength(1);
+		expect(contractOf(kernel.snapshot).acceptanceCriteria).toHaveLength(1);
 	});
 
 	it("isolates observer and executor mutation from guards", async () => {
@@ -416,13 +428,15 @@ describe("STANDARD pure Kernel", () => {
 		});
 		f.agents.execute.mockImplementation(async (request) => {
 			const result = agentResult(request);
-			request.task.requirements = ["Injected requirement"];
+			request.task.acceptanceCriteria = [];
 			request.step.attempt = 99;
 			return result;
 		});
 		const kernel = await f.create();
 		expect((await drive(kernel)).status).toBe("COMPLETED");
-		expect(kernel.snapshot.tasks[0].requirements).toEqual(["Expired token returns 401"]);
+		expect(contractOf(kernel.snapshot)).toMatchObject({
+			acceptanceCriteria: [expect.objectContaining({ id: "AC-001", statement: "Expired token returns 401" })],
+		});
 		expect(kernel.snapshot.currentStep?.attempt).toBe(1);
 	});
 
@@ -575,6 +589,7 @@ function completionFixture(): CompletionEvidence {
 		runId: "run-1",
 		revision: 0,
 		task,
+		taskContractDigest: taskContractDigest(task),
 		checks: f.request.checks ?? [],
 		handoff,
 		review: result.review,
@@ -616,13 +631,13 @@ describe("completion guard", () => {
 			e.review!.task = "other";
 		},
 		(e: CompletionEvidence) => {
-			e.review!.requirements = [];
+			e.review!.criteria = [];
 		},
 		(e: CompletionEvidence) => {
-			e.review!.requirements[0].status = "UNVERIFIED";
+			e.review!.criteria[0].status = "UNVERIFIED";
 		},
 		(e: CompletionEvidence) => {
-			e.review!.requirements[0].evidenceRefs = [];
+			e.review!.criteria[0].evidenceRefs = [];
 		},
 		(e: CompletionEvidence) => {
 			e.review!.evidenceRefs = ["invented"];

@@ -15,6 +15,7 @@ import { CompanyKernel } from "../../../company-runtime/src/kernel.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { AgentSession } from "../../src/index.ts";
+import { contractOf, suiteContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const handoff: Handoff = {
@@ -36,7 +37,7 @@ const review: Review = {
 	task: "task-1",
 	result: "PASS",
 	issues: [],
-	requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: ["diff-1"] }],
+	criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["diff-1"] }],
 	evidenceRefs: ["diff-1"],
 	diffDigest: "digest-1",
 };
@@ -77,7 +78,7 @@ function developer(): AgentExecutionRequest {
 		step: { stepId: "implement", attempt: 1 },
 		role: "Developer",
 		profile: "coding",
-		task: kernel.snapshot.tasks[0],
+		task: contractOf(kernel.snapshot),
 		onSessionCreated: persistReference,
 	};
 }
@@ -89,7 +90,7 @@ function reviewer(): AgentExecutionRequest {
 		step: { stepId: "review", attempt: 1 },
 		role: "Reviewer",
 		profile: "reasoning",
-		task: kernel.snapshot.tasks[0],
+		task: contractOf(kernel.snapshot),
 		handoff: structuredClone(handoff),
 		verification: structuredClone(verification),
 		onSessionCreated: persistReference,
@@ -133,7 +134,7 @@ beforeEach(async () => {
 		{
 			executionMode: "EDIT",
 			runId: "run-1",
-			task: { id: "task-1", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
+			task: suiteContract("Fix bug", { taskId: "task-1" }),
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Fixture" },
 		},
 		{
@@ -257,11 +258,8 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		["description", { evidenceRefs: ["fixture evidence from trusted verifier"] }],
 		["nonexact reference", { evidenceRefs: [" diff-1 "] }],
 		["missing top-level", { evidenceRefs: [] }],
-		[
-			"unknown requirement",
-			{ requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: ["invented"] }] },
-		],
-		["missing PASS requirement", { requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: [] }] }],
+		["unknown criterion", { criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["invented"] }] }],
+		["missing PASS criterion evidence", { criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: [] }] }],
 	])("RC-04 rejects %s then accepts exact references in the same Reviewer session", async (_name, invalid) => {
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("submit_review", { ...review, ...invalid }), { stopReason: "toolUse" }),
@@ -305,7 +303,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 		const expected = {
 			...review,
 			evidenceRefs: ["check-1"],
-			requirements: [{ ...review.requirements[0], evidenceRefs: ["check-1"] }],
+			criteria: [{ ...review.criteria[0], evidenceRefs: ["check-1"] }],
 		};
 		harness.setResponses([
 			(context) => {
@@ -333,7 +331,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 			const valid = {
 				...review,
 				result,
-				requirements: [{ requirement: "Fix bug", status: "UNVERIFIED", evidenceRefs: [] }],
+				criteria: [{ criterionId: "AC-001", status: "UNVERIFIED", evidenceRefs: [] }],
 			};
 			harness.setResponses([
 				fauxAssistantMessage(fauxToolCall("submit_review", { ...valid, evidenceRefs: [] }), {
@@ -344,7 +342,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 					return fauxAssistantMessage(
 						fauxToolCall("submit_review", {
 							...valid,
-							requirements: [{ ...valid.requirements[0], evidenceRefs: ["unknown"] }],
+							criteria: [{ ...valid.criteria[0], evidenceRefs: ["unknown"] }],
 						}),
 						{ stopReason: "toolUse" },
 					);
@@ -583,7 +581,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 				...handoff,
 				role: "Executor",
 				unresolved: ["SELF_CHECK is required."],
-				requirements: [{ requirement: "Fix bug", status: "MET", explanation: "Fixture" }],
+				criteria: [{ criterionId: "AC-001", status: "MET", explanation: "Fixture" }],
 			};
 			harness.setResponses([
 				(context) => {
@@ -593,7 +591,7 @@ describe("Company Runtime S3 SDK adapter (faux only)", () => {
 					expect(context.systemPrompt).toContain("Never hide real blockers");
 					expect(context.systemPrompt).toContain("Runtime-owned obligations");
 					expect(context.systemPrompt).toContain(
-						"Report each requirement's outcome in requirements[] and keep unresolved for genuinely unfinished work",
+						"Report every frozen acceptance criterion exactly once by its exact ID in criteria[] with its status",
 					);
 					expect(context.systemPrompt).not.toContain("'Required input validation is not implemented.' is.");
 					return fauxAssistantMessage(fauxToolCall("submit_handoff", result), { stopReason: "toolUse" });

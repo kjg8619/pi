@@ -10,7 +10,7 @@ import type {
 	RoleSessionReference,
 	Run,
 	StepReference,
-	Task,
+	TaskContract,
 	VerificationResult,
 } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
@@ -25,7 +25,7 @@ interface StepRequest {
 	/** Code revision cycle, not the monotonically increasing Run.revision used by StateStore. */
 	revision: number;
 	step: StepReference;
-	task: Task;
+	task: TaskContract;
 	signal?: AbortSignal;
 }
 

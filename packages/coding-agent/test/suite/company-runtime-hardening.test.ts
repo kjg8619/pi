@@ -14,6 +14,7 @@ import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { RegisteredVerifier } from "../../../company-runtime/src/verification.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { AgentSession, type ExtensionCommandContext, type RegisteredCommand } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -60,8 +61,8 @@ function submit(request: AgentExecutionRequest & { risk?: string }) {
 				task: request.task.id,
 				result: "PASS",
 				issues: [],
-				requirements: request.task.requirements.map((requirement) => ({
-					requirement,
+				criteria: request.task.acceptanceCriteria.map((criterion) => ({
+					criterionId: criterion.id,
 					status: "MET",
 					evidenceRefs: request.verification.evidenceRefs,
 				})),
@@ -84,8 +85,8 @@ function submit(request: AgentExecutionRequest & { risk?: string }) {
 			unresolved: [],
 			...(request.role === "Executor"
 				? {
-						requirements: request.task.requirements.map((requirement) => ({
-							requirement,
+						criteria: request.task.acceptanceCriteria.map((criterion) => ({
+							criterionId: criterion.id,
 							status: "MET",
 							explanation: "Fixture change",
 						})),
@@ -154,6 +155,7 @@ function create(goal = "Fix bug") {
 		executionMode: "EDIT",
 		cwd,
 		goal,
+		taskContract: workflowContract(goal, config),
 		config,
 		approval: { requestApproval: async (request) => grant(request) },
 		events: {
@@ -488,6 +490,7 @@ describe("S6 ownership must outlive resource cleanup", () => {
 				executionMode: "EDIT",
 				cwd,
 				goal: "Delete file src/obsolete.ts",
+				taskContract: workflowContract("Delete file src/obsolete.ts", config),
 				config,
 				approval: {
 					requestApproval: async (request) => {
@@ -562,6 +565,7 @@ describe("S6 lifecycle cleanup ordering", () => {
 				ui: {
 					notify,
 					confirm: async () => true,
+					editor: async (_title: string, prefill?: string) => prefill ?? "",
 					select: async (_title: string, _items: string[], options?: { signal?: AbortSignal }) => {
 						entered = true;
 						await new Promise<void>((resolve) => {

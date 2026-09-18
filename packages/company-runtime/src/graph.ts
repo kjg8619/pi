@@ -2,6 +2,7 @@ import {
 	type CheckResult,
 	QUICK_STEP_IDS,
 	type Review,
+	type ReviewRecord,
 	type Role,
 	type Run,
 	RunSchema,
@@ -136,7 +137,7 @@ export function projectRunGraph(value: unknown): GraphProjection {
 		graph.diagnostics.push("COMPLEX has no supported execution graph; no Planner/Lead/scheduler is inferred.");
 		return graph;
 	}
-	const reviews = new Map<number, Review>();
+	const reviews = new Map<number, ReviewRecord>();
 	for (const review of run.reviewHistory ?? []) {
 		requireGraph(!reviews.has(review.revision), "duplicate review attempt");
 		reviews.set(review.revision, review);

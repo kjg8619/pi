@@ -45,6 +45,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.3D Project Context | 구현·자동 회귀 게시(`6da0c5ce5`); Provider acceptance FAILED | LOG-048 자동 Node26 1,738개/Node22 308개 PASS. Attempt 1 dot-root DENY. LOG-050 Attempt 2는 narrowed list→anchored edit→독립 review/checks→COMPLETED이나 요청한 path omission 미충족 |
 | CommandCode/DeepSeek Worker Validation | 완료 / 커밋·푸시 | `6c86bd5d6`로 게시. `~/.weavra/agent/models.json`에 commandcode custom provider 추가. STANDARD/EDIT 5회 중 1회 COMPLETED, QUICK/R0 3회 미완료, codex-lb/GPT 교차 1회 COMPLETED. LOG-053·[smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md) |
 | Provider Compatibility Hardening | 구현·자동 회귀 PASS / 실제 smoke 완료 / 게시 `72561d4f3` | LOG-055·LOG-056. identity mismatch를 consumable 정정으로, Executor `unresolved` 의미·configured instruction 보호 안내 추가. 자동 51개 파일·1,717개 PASS. DeepSeek QUICK 1/3·STANDARD 2/3 COMPLETED(provider 오류 3회 별도), GPT 교차 1/1 COMPLETED |
+| V0.3E Task Contract | 구현·자동 회귀·실제 smoke 완료 / 미커밋 | LOG-057. Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen digest·AC 완료 guard. 자동 45개 파일·1,575개 PASS. DeepSeek STANDARD/EDIT + GPT 교차 각 1회 COMPLETED(2 AC MET). R2/R3·미충족 AC의 live smoke는 NOT VERIFIED |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -53,6 +54,8 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
 이어서 LOG-055에서 structured submission identity mismatch를 같은 worker session에서 정정할 수 있게 하고(거부·무결성 유지, host 자동 교정 없음), QUICK Executor의 `unresolved` 의미와 configured project instruction 보호 안내를 보강했다. before/after는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)의 "Provider Compatibility Hardening" 절에 기록한다. V0.3E Task Contract는 별도 승인 전까지 시작하지 않는다.
+
+LOG-057에서 V0.3E Task Contract를 구현했다: Host-confirmed Acceptance Criteria(AC-001…)·Plan Preview·frozen task contract digest·AC 기반 완료 guard와 evidence mapping. 실제 Provider smoke는 DeepSeek STANDARD/EDIT 1회와 GPT 교차 1회 모두 COMPLETED(2 AC MET)이며, R2/R3·미충족 AC 부정 경로의 live smoke는 NOT VERIFIED다. 구현·문서는 **미커밋**이며 사용자 승인 후 게시한다.
 
 ---
 
@@ -2652,6 +2655,83 @@ bash -n packages/company-runtime/bin/weavra
 - **과거 검증과 구분:** 실제 Provider smoke 결과·usage·cleanup은 LOG-055 당시 결과다.
 - **커밋·푸시:** `72561d4f3`(`03994a680` 위)로 게시했고 이 항목은 후속 커밋으로 게시한다. 정정: LOG-055의 "커밋·푸시: 하지 않음"은 작성 시점 기준이며 실제 게시 커밋은 `72561d4f3`다. 강제 푸시는 사용하지 않았고 안정 태그 `weavra-v0.1-rc1`은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변이다.
 - **남은 제한·다음 작업:** LOG-055의 남은 제한(작은 DeepSeek 표본, CommandCode 전송 flake, Node26/macOS 한정, R2/R3·LSP·원격 CI 미실행)을 그대로 유지한다. V0.3E Task Contract 착수는 별도 승인 대상이다.
+
+---
+
+## LOG-057 — V0.3E Task Contract (FIX-05 Acceptance Criteria + FEAT-01 Plan Preview)
+
+- **기록일:** 2026-09-18 (KST), 실제 Provider 실행 11:12–11:14 KST.
+- **상태:** 구현·자동 회귀·실제 Provider smoke 완료. **미커밋**(사용자 보고 후 결정).
+- **기준 SHA:** `9e2cf9e8bfc6e011402a2598b6a1a93294a8214a`(착수 시 clean, 로컬=원격). `weavra-v0.1-rc1`은 `183f85de1`로 불변.
+- **개발 하네스:** OMP. **개발 모델:** CommandCode/DeepSeek V4.1(같은 계층을 Weavra worker smoke에도 사용).
+
+### Task Contract schema (V1)
+
+```text
+TaskContract         { id, goal, acceptanceCriteria[1..16], status }
+AcceptanceCriterion  { id: "AC-001".., statement(<=500), scope{paths[]}, verification{checkIds[], reviewRequired} }
+AcceptanceResult     { criterionId, status: MET|UNMET|UNVERIFIED, evidenceRefs[], revision, diffDigest }
+```
+
+- AC ID는 **Host가 순서대로** 부여한다(`AC-001`, `AC-002`, …). Worker는 ID를 만들거나 바꿀 수 없다. Kernel이 순차 형식·중복·누락을 검증한다.
+- `scope.paths`는 설명·evidence binding용이며 **권한이 아니다**. mutation authority는 계속 Execution Contract/Policy/allowed_paths/R2/R3/Approval이다.
+- `verification.checkIds`는 trusted config의 registered required check 부분집합이고(unknown check는 binding에서 거부), `reviewRequired`는 STANDARD=true / QUICK=false로 Host가 고정한다.
+- `taskContractDigest = sha256(JSON({id, goal, acceptanceCriteria}))`. lifecycle `status`는 digest에서 제외해 시작/완료 전이에도 안정적이다. digest는 permission token이 아니다.
+- Legacy `requirements: string[]` task/review/executor 결과는 `Legacy*Schema`로 읽기 전용 호환한다. **자동 migration/rewrite는 없다.** 새 live Run은 반드시 TaskContract이며, legacy Run은 observation에서 `Acceptance criteria: UNKNOWN (legacy)`로 표시하고 AC evidence를 만들어내지 않는다.
+
+### Plan Preview(FEAT-01)와 QUICK/STANDARD 차이
+
+- `/workflow run <goal>`은 classification/workflow/risk → AC 준비 → **Plan Preview 확인** → frozen contract 순서다. 별도 Planner LLM 호출은 없다.
+- STANDARD는 `ctx.ui.editor()`로 "한 줄 = 한 criterion"을 확인·편집하고(초기값=goal), 빈/중복/16개 초과/500자 초과는 Host가 거부한다. QUICK은 editor 없이 `AC-001 = goal` 하나만 만들고 Preview에는 표시한다.
+- Preview에는 goal/workflow/execution contract/risk/AC 목록(check·review mapping)/allowed paths/planned checks(trusted program·비-sandbox 경고)/roles/project instruction/LSP/no rollback·commit이 들어간다. **Plan 확인은 approval/permission token이 아니며 ApprovalRecord로 저장하지 않는다.** R3 삭제는 계속 별도 1회 Human Approval을 거친다.
+- 취소(editor 취소/확인 거절/cancel)는 run·worker·check·approval을 만들지 않고 info/warning으로 보고한다(FAILED로 과장하지 않음).
+- 확인 이후 contract는 frozen이다. Worker는 AC 추가/삭제/문장·verification 변경을 할 수 없고 tool에도 그런 API가 없다. Kernel은 완료 시 digest binding을 재검증해 다르면 `Task Contract changed after confirmation`으로 막는다.
+
+### Evidence mapping / stale guard
+
+- Executor handoff: `criteria[] = {criterionId, status, explanation}` — 모든 AC를 정확히 1회 cover(unknown/duplicate/missing은 consumable 교정 오류).
+- Reviewer: `criteria[] = {criterionId, status, evidenceRefs}` — 같은 coverage 규칙 + trustedEvidenceRefs만 사용, PASS는 전 criterion MET + evidence 필수.
+- 완료 guard는 (a) AC 정확히 1회·중복/unknown/missing 없음, (b) 모두 MET, (c) 각 AC `checkIds`가 SELF_CHECK/TEST에서 PASS evidence 보유, (d) current revision/diffDigest, (e) digest 일치를 요구한다. QUICK은 reviewRequired AC가 있으면 fail-closed다. AC 결과는 trusted 제출+verifier evidence의 **projection**(`run.acceptance`)이며 새 authority 저장소가 아니다.
+- REVISE로 revision이 올라가면 이전 revision의 AC 결과/evidence/check를 재사용하지 않는다(fresh verification → fresh review → fresh AC). 기존 diff/check freshness guard와 동일 의미다.
+- `/state`는 contract Run에 AC별 statement·status·evidence refs와 `Task Contract digest`를, legacy Run에 `Acceptance criteria: UNKNOWN (legacy)`를 출력한다.
+
+### 변경 파일
+
+- Runtime src: `contracts.ts`(AC/TaskContract/AcceptanceResult/legacy union/guard), 신규 `task-contract.ts`(Host builder·preflight·binding), 신규 `criterion-evidence.ts`(digest·ID 검증·AC projection), 신규 `plan-preview.ts`, `kernel.ts`(contract 생성·AC guard·projection), `workflow.ts`(frozen contract 필수·binding), `agent-tools.ts`/`agent-runner.ts`(criteria 제출·coverage 소비·prompt), `ports.ts`, `observations.ts`, `graph.ts`, `extension.ts`(Plan Preview UX). Kernel import graph는 `node:crypto`(결정적 pure module)만 추가 허용했다.
+- 테스트: Runtime 신규 `test/task-contract.test.ts`(16개) + fixture 전면 이관, SDK suite 11개 파일 이관 + extension/observation case 추가. `Legacy*Schema` 호환은 `contracts.test.ts`가 계속 검증한다.
+- 문서: `README.md`, `packages/company-runtime/README.md`, `docs/WEAVRA_ROADMAP_2026-09-17.md`, `docs/WEAVRA_IMPROVEMENT_AND_FEATURE_RESEARCH_2026-09-17.md`, 신규 [V0.3E smoke](WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md), 본 항목. dependency/lockfile 변경 없음.
+
+### 이번 자동 검증
+
+```sh
+# packages/company-runtime (전체)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2
+# packages/coding-agent (Weavra suite 11개 파일)
+node ../../node_modules/vitest/dist/cli.js --run --maxWorkers=2 test/suite/company-runtime-{context,lsp,status,timeout,hardening,observations,approval,r2,quick,workflow,agent}.test.ts
+
+# root
+npm run check
+npm run check:ci
+git diff --check
+bash -n packages/company-runtime/bin/weavra
+```
+
+- Runtime **34개 파일·1,128개**, coding-agent **11개 파일·447개 PASS**(합 45개 파일·1,575개, 실패/skip 0). 신규·이관 test에 AC 미충족, missing/duplicate/unknown, stale revision/diff, digest 변조, QUICK review-required fail-closed, legacy UNKNOWN 표시가 포함된다.
+- `npm run check`(Biome 1,394 files)·`check:ci` PASS(자동 수정 없음), `git diff --check`·`bash -n` PASS.
+- 이관 중 드러난 원인도 기록한다: review/handoff/task fixture shape 이관, contract digest에서 `status` 제외(전이 시 불일치), Plan Preview 도입에 따른 extension/host stub·기대값 갱신, kernel graph에 추가된 `node:crypto` 경계 승인, criteria 미매핑(required check가 없는 fixture) 허용.
+
+### 실제 Provider smoke
+
+- commandcode / `deepseek/deepseek-v4.1-flash`, thinking medium, private Git fixture(AC-001 typo, AC-002 API·punctuation 보존, required regression check): **COMPLETED**. 21.5초, 34,144 tokens(Developer 26,087 + Reviewer 8,057), `AC-001`/`AC-002` MET(revision 0, diff/check evidence), Reviewer PASS(criteria 2개, 각 evidence refs), `taskContractDigest=sha256:932f6585…`. Developer는 anchored edit 1회(STALE_ANCHOR consumable 복구 1회 포함)로 typo만 수정했다.
+- GPT 교차검증(codex-lb / gpt-6-astra, 동일 fixture·goal·문장, 1회): **COMPLETED**. 36.6초, 13,235 tokens, 동일 acceptance shape, digest `sha256:7fbd2c9c…`(contract id 상이). 두 run의 최종 `src/greeting.js`는 byte-identical(`d1633a9d…`).
+- 이번 회차에는 provider transport 오류가 없었다. (직전 LOG-055에서 관찰한 CommandCode gateway flake는 별도 계층 문제이며 이번 결과에 포함하지 않는다.)
+- 상세는 [V0.3E smoke](WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md)에 기록했다.
+
+### 남은 제한과 다음 작업
+
+- 실제 Provider에서 "AC 하나 미충족 → COMPLETED 금지"는 deterministic automated fixture로만 검증했다(명시된 범위). R2/R3 live AC 흐름, QUICK Executor AC 제출의 live smoke, 다른 Provider/OS/Node, 원격 CI, JVM build matrix는 NOT VERIFIED다.
+- Planner Agent·LLM AC 분해·병렬/COMPLEX·telemetry/eval/Evidence Pack/Budget/strict edit/verifier sandbox/browser/MCP/memory는 이번에 추가하지 않았다(다음 단계 범위).
+- **커밋·푸시:** 하지 않음. 보고 후 사용자 승인을 따른다.
 
 ---
 

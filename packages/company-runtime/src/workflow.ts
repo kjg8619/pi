@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { selectR3Scope } from "./approval.ts";
 import { classifyRequest, selectWorkflow } from "./classification.ts";
 import type { RuntimeConfig } from "./config.ts";
-import type { QuickScope, R3Scope, Run } from "./contracts.ts";
+import type { QuickScope, R3Scope, Run, TaskContract } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import {
 	bindExecutionContract,
@@ -19,12 +19,15 @@ import type { AgentExecutor, ApprovalPort } from "./ports.ts";
 import { ProcessCleanupError } from "./process-runner.ts";
 import { selectQuickScope } from "./quick.ts";
 import { FileStateStore } from "./state-store.ts";
+import { assertTaskContractBinding } from "./task-contract.ts";
 import { RegisteredVerifier } from "./verification.ts";
 import { GitWorkspace } from "./workspace.ts";
 
 export interface WorkflowOptions {
 	cwd: string;
 	goal: string;
+	/** Host-confirmed, frozen for this run: AC IDs, statements and verification mapping never change here. */
+	taskContract: TaskContract;
 	/** Explicit trusted Host selection; natural-language proposal alone is never a grant. */
 	executionMode: ExecutionMode;
 	config: RuntimeConfig;
@@ -127,6 +130,13 @@ export class StandardWorkflow {
 					"Execution request needs clarification or conflicts with the READ_ONLY contract; start a new explicit run",
 				);
 			const selection = selectWorkflow(classification, this.options.config.runtime.workflow);
+			// Fail closed when the Host-confirmed contract does not match this run's workflow/goal/config.
+			assertTaskContractBinding(this.options.taskContract, {
+				workflow: selection.workflow,
+				config: this.options.config,
+			});
+			if (this.options.taskContract.goal !== this.options.goal)
+				throw new Error("Host-confirmed Task Contract goal differs from the run goal");
 			const quickScope =
 				selection.workflow === "QUICK" ? selectQuickScope(this.options.goal, classification) : undefined;
 			if (
@@ -162,12 +172,7 @@ export class StandardWorkflow {
 					runId,
 					executionMode: contract.mode,
 					projectInstruction: agents.policy.projectInstruction ?? null,
-					task: {
-						id: randomUUID(),
-						goal: this.options.goal,
-						requirements: [this.options.goal],
-						status: "pending",
-					},
+					task: this.options.taskContract,
 					classification,
 					workflow: selection.workflow,
 					maxRevisionCycles: classification.risk === "R3" ? 0 : this.options.config.agents.max_revision_cycles,

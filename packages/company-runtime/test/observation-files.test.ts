@@ -10,6 +10,7 @@ import { isOwnedObservation, OBSERVATION_FILES, ownedObservationPaths } from "..
 import type { PolicyContext } from "../src/policy.ts";
 import { FileStateStore, type FileStateStoreOptions } from "../src/state-store.ts";
 import { GitWorkspace } from "../src/workspace.ts";
+import { testContract } from "./fixture-contract.ts";
 
 const directories: string[] = [];
 const stores: FileStateStore[] = [];
@@ -50,7 +51,11 @@ async function fixture(options?: FileStateStoreOptions) {
 		{
 			executionMode: "EDIT",
 			runId: "run",
-			task: { id: "task", goal: "Fix bug <script>\n# forged", requirements: ["Fix bug"], status: "pending" },
+			task: testContract("Fix bug <script>\n# forged", {
+				taskId: "task",
+				statements: ["Fix bug"],
+				checkIds: [],
+			}),
 			classification: classifyRequest("Fix bug").classification,
 		},
 		{
@@ -82,9 +87,7 @@ async function fixture(options?: FileStateStoreOptions) {
 									task: "task",
 									result: "PASS",
 									issues: [],
-									requirements: [
-										{ requirement: "Fix bug", status: "MET", evidenceRefs: ["fixture-evidence"] },
-									],
+									criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["fixture-evidence"] }],
 									evidenceRefs: ["fixture-evidence"],
 									diffDigest: "fixture-digest",
 								},

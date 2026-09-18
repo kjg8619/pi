@@ -12,6 +12,7 @@ import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.t
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { AgentSession } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 let harness: Harness, cwd: string, agentDir: string, config: RuntimeConfig;
@@ -33,8 +34,8 @@ function submit(context: Context) {
 			issues: [],
 			diffDigest: request.verification.diffDigest,
 			evidenceRefs: request.verification.evidenceRefs,
-			requirements: request.task.requirements.map((requirement) => ({
-				requirement,
+			criteria: request.task.acceptanceCriteria.map((criterion) => ({
+				criterionId: criterion.id,
 				status: "MET",
 				evidenceRefs: request.verification.evidenceRefs,
 			})),
@@ -55,8 +56,8 @@ function submit(context: Context) {
 		unresolved: [],
 		...(request.role === "Executor"
 			? {
-					requirements: request.task.requirements.map((requirement) => ({
-						requirement,
+					criteria: request.task.acceptanceCriteria.map((criterion) => ({
+						criterionId: criterion.id,
 						status: "MET",
 						explanation: "Scoped task performed",
 					})),
@@ -90,6 +91,7 @@ function create(goal = "Fix bug in src/app.ts", executionMode: ExecutionMode = "
 	return new StandardWorkflow({
 		cwd,
 		goal,
+		taskContract: workflowContract(goal, config),
 		executionMode,
 		config,
 		createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {

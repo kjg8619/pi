@@ -4,6 +4,7 @@ import type { Handoff, Review, Run, VerificationResult } from "../src/contracts.
 import type { RuntimeEvent } from "../src/events.ts";
 import { CompanyKernel } from "../src/kernel.ts";
 import type { AgentExecutionRequest, AgentExecutionResult, KernelPorts, VerificationRequest } from "../src/ports.ts";
+import { testContract } from "./fixture-contract.ts";
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -47,8 +48,8 @@ function fixture(quick = false) {
 					role: "Reviewer",
 					result: verdict,
 					issues: [],
-					requirements: request.task.requirements.map((requirement) => ({
-						requirement,
+					criteria: request.task.acceptanceCriteria.map((criterion) => ({
+						criterionId: criterion.id,
 						status: "MET",
 						evidenceRefs: ["diff"],
 					})),
@@ -75,10 +76,10 @@ function fixture(quick = false) {
 					handoff: {
 						...handoff,
 						role: "Executor",
-						requirements: request.task.requirements.map((requirement) => ({
-							requirement,
+						criteria: request.task.acceptanceCriteria.map((criterion) => ({
+							criterionId: criterion.id,
 							status: "MET",
-							explanation: "Fixture requirement",
+							explanation: "Fixture criterion",
 						})),
 					},
 				};
@@ -133,7 +134,7 @@ function fixture(quick = false) {
 				{
 					executionMode: "EDIT",
 					runId: "run",
-					task: { id: "task", goal, requirements: [goal], status: "pending" },
+					task: testContract(goal, { taskId: "task", checkIds: ["check"] }),
 					classification: classifyRequest(goal).classification,
 					checks: [{ id: "check", kind: "test", required: true }],
 				},

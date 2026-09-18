@@ -123,6 +123,8 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 
 ### FIX-05 — 요구사항을 검증 가능한 단위로 분해
 
+**구현 상태(V0.3E, LOG-057):** Host-confirmed Acceptance Criteria(순차 AC ID·statement·scope·checkIds/reviewRequired), Kernel AC 완료 guard, Reviewer/Executor의 AC ID별 결과·evidence mapping, legacy `requirements` 읽기 전용 호환이 구현됐다. 모델 기반 자동 분해(Planner)는 도입하지 않았다.
+
 **관찰:** workflow가 `requirements: [goal]`을 생성한다. Kernel은 정확한 requirement 목록과 evidence reference를 검사하지만, 복합 요청 전체가 한 항목이면 개별 조건 누락을 구조적으로 식별하기 어렵다.[S5][S11]
 
 **제안:** 실행 전 AC ID, 조건, 검증 방식, 허용 범위, 제외 범위를 가진 작업 계약을 만든다. 사용자 확인 후 고정하고 Developer/Reviewer가 임의로 줄이거나 바꾸지 못하게 한다. 자동 assertion, 테스트, 코드 근거, 수동 확인을 구분한다. 모든 조건이 자동화 가능한 것은 아니므로 확인 불가는 명시적으로 남긴다.
@@ -192,6 +194,8 @@ git clone --branch devlop --single-branch https://github.com/kjg8619/pi.git weav
 | FEAT-09 | Governed MCP / Capability Broker | HOLD → 별도 실험 | 기존 tool discovery 후보 | 검토한 connector 한 개부터 |
 
 ### FEAT-01 — 실행 전 계획을 보고 시작하기
+
+**구현 상태(V0.3E, LOG-057):** `/workflow run` preflight가 Goal/Workflow/Execution Contract/Risk/AC/Allowed paths/Planned checks/Roles/instruction/LSP와 경고를 보여주고, STANDARD는 `ctx.ui.editor`로 AC를 확인·편집한다. Plan 확인은 approval token이 아니며 R3는 기존 1회 승인을 유지한다. 모델/예산 표시는 후속 범위다.
 
 **조사 근거:** GitHub Spec Kit은 의도를 specification·plan·task 등 명시적 산출물로 이어가는 프로세스를 제공한다. 가져올 것은 전체 프레임워크나 명령 세트가 아니라, 실행 전에 작업 계약을 확인하는 패턴이다.[R1]
 
@@ -308,7 +312,7 @@ Repo map·LSP 응답은 문맥이지 완료 증거를 자동 대체하지 않는
 | 묶음 | 범위 | 종료 조건 |
 |---|---|---|
 | M1 — 기본 신뢰 | FIX-01/02/04 | V0.3C 구현·로컬 회귀 완료; Actions/Linux/fresh-install 전체 검증은 별도 |
-| M2 — 작업 이해 | FIX-03/05/06 + FEAT-01 + FEAT-02의 파일 목록 | V0.3D 지침/list/JVM risk만 반영; AC/Planner는 미구현 |
+| M2 — 작업 이해 | FIX-03/05/06 + FEAT-01 + FEAT-02의 파일 목록 | V0.3C/D 반영에 이어 V0.3E에서 FIX-05 AC와 FEAT-01 Plan Preview 구현(LOG-057); 모델 기반 분해/Planner는 미구현 |
 | M3 — 효과 측정 | FEAT-03/04/05 + FIX-09 | 로컬 사용량·제한, 비교 평가, 사람이 읽을 수 있는 결과 |
 | M4 — 선택 강화 | FIX-07/08 + 필요한 LSP / FEAT-07 | 실제 실패 사례를 줄이는 검증 결과와 새 권한 경계 테스트 |
 | 이후 선택 | FEAT-06/08/09 | 반복 작업·UI·외부 도구에 실제 수요가 있고 선행 조건 충족 |

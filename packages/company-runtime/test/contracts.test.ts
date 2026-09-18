@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
 	CheckResultSchema,
 	HandoffSchema,
+	LegacyTaskSchema,
 	PolicyDecisionSchema,
 	ReviewSchema,
 	RunSchema,
-	TaskSchema,
 	validateContract,
 } from "../src/contracts.ts";
 
@@ -15,7 +15,7 @@ const task = {
 	goal: "Fix login",
 	requirements: ["Expired tokens return 401"],
 	status: "pending",
-} satisfies Static<typeof TaskSchema>;
+} satisfies Static<typeof LegacyTaskSchema>;
 const check = {
 	id: "regression",
 	runId: "run-1",
@@ -47,7 +47,7 @@ const review = {
 	task: "task-1",
 	result: "PASS",
 	issues: [],
-	requirements: [{ requirement: "Expired tokens return 401", status: "MET", evidenceRefs: ["check-1"] }],
+	criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["check-1"] }],
 	evidenceRefs: ["check-1"],
 	diffDigest: "diff-1",
 } satisfies Static<typeof ReviewSchema>;
@@ -92,7 +92,7 @@ const run = {
 	updatedAt: 1,
 } satisfies Static<typeof RunSchema>;
 const examples: Array<{ name: string; schema: TSchema; value: Record<string, unknown> }> = [
-	{ name: "Task", schema: TaskSchema, value: task },
+	{ name: "LegacyTask", schema: LegacyTaskSchema, value: task },
 	{ name: "CheckResult", schema: CheckResultSchema, value: check },
 	{ name: "Handoff", schema: HandoffSchema, value: handoff },
 	{ name: "Review", schema: ReviewSchema, value: review },
@@ -122,7 +122,7 @@ describe("S0 data contracts", () => {
 			{ role: "Developer" },
 			{ result: "DONE" },
 			{ diffDigest: "" },
-			{ requirements: [] },
+			{ criteria: [] },
 			{ revision: -1 },
 		]) {
 			expect(() => validateContract(ReviewSchema, { ...review, ...patch })).toThrow();

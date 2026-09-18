@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyRequest } from "../src/classification.ts";
 import type { Handoff, PolicyDecision, Run, VerificationResult } from "../src/contracts.ts";
+import { taskContractDigest } from "../src/criterion-evidence.ts";
 import { assertCanComplete, CompanyKernel, type CompletionEvidence } from "../src/kernel.ts";
 import { evaluatePolicy, executePolicyAction, type PolicyAction, type PolicyContext } from "../src/policy.ts";
 import { FileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 const context: PolicyContext = {
 	executionMode: "EDIT",
@@ -30,12 +32,11 @@ const action: PolicyAction = {
 };
 const inspected = [{ path: "package.json", safe: true, kind: "file" as const }];
 function evidence(): CompletionEvidence {
-	const task = {
-		id: "task",
-		goal: "Update dependency",
-		status: "inProgress" as const,
-		requirements: ["Update dependency"],
-	};
+	const task = testContract("Update dependency", {
+		taskId: "task",
+		statements: ["Update dependency"],
+		checkIds: ["regression"],
+	});
 	const handoff: Handoff = {
 		runId: "run",
 		revision: 0,
@@ -73,6 +74,7 @@ function evidence(): CompletionEvidence {
 		executionMode: "EDIT",
 		runId: "run",
 		task,
+		taskContractDigest: taskContractDigest(task),
 		handoff,
 		revision: 0,
 		workflow: "STANDARD",
@@ -92,7 +94,7 @@ function evidence(): CompletionEvidence {
 			diffDigest: "digest",
 			evidenceRefs: ["diff"],
 			issues: [],
-			requirements: [{ requirement: "Update dependency", status: "MET", evidenceRefs: ["diff"] }],
+			criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["diff"] }],
 		},
 	};
 }

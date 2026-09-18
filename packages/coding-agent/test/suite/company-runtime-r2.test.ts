@@ -12,6 +12,7 @@ import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.t
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { formatWorkflowReport, StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import type { ExtensionCommandContext, RegisteredCommand } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -102,8 +103,8 @@ function review(verdict: Review["result"] = "PASS") {
 				diffDigest: request.verification.diffDigest,
 				evidenceRefs: request.verification.evidenceRefs,
 				issues: [],
-				requirements: request.task.requirements.map((requirement) => ({
-					requirement,
+				criteria: request.task.acceptanceCriteria.map((criterion) => ({
+					criterionId: criterion.id,
 					status: "MET",
 					evidenceRefs: request.verification.evidenceRefs,
 				})),
@@ -117,6 +118,7 @@ function create(taskGoal = goal, wrongBinding = false) {
 		executionMode: "EDIT",
 		cwd,
 		goal: taskGoal,
+		taskContract: workflowContract(taskGoal, config),
 		config,
 		events: {
 			emit: (event) => {
@@ -687,7 +689,7 @@ describe("S5B STANDARD/R2 with actual file Policy/checks and independent faux re
 			hasUI: true,
 			isIdle: () => true,
 			isProjectTrusted: () => true,
-			ui: { notify, confirm: async () => true },
+			ui: { notify, confirm: async () => true, editor: async (_title: string, prefill?: string) => prefill ?? "" },
 		} as unknown as ExtensionCommandContext;
 		const register = () =>
 			registerCompanyRuntime(

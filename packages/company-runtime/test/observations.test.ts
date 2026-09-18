@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseRuntimeConfig } from "../src/config.ts";
 import type { Run } from "../src/contracts.ts";
+import { taskContractDigest } from "../src/criterion-evidence.ts";
 import {
 	decisionEntries,
 	displayText,
@@ -14,6 +15,7 @@ import {
 	pageNumber,
 } from "../src/observations.ts";
 import { FileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 function run(): Run {
 	return {
@@ -35,7 +37,25 @@ function run(): Run {
 		},
 		risk: "R1",
 		currentTask: "task",
-		tasks: [{ id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "completed" }],
+		tasks: [
+			testContract("Fix bug", {
+				taskId: "task",
+				statements: ["Fix bug"],
+				checkIds: ["check"],
+			}),
+		],
+		taskContractDigest: taskContractDigest(
+			testContract("Fix bug", { taskId: "task", statements: ["Fix bug"], checkIds: ["check"] }),
+		),
+		acceptance: [
+			{
+				criterionId: "AC-001",
+				status: "MET",
+				evidenceRefs: ["diff"],
+				revision: 1,
+				diffDigest: "digest",
+			},
+		],
 		activeAgents: [],
 		completed: ["task"],
 		next: [],
@@ -137,7 +157,7 @@ describe("pure bounded command views", () => {
 			task: "task",
 			result: revision === 0 ? "REVISE" : "PASS",
 			issues: [],
-			requirements: [{ requirement: "Fix bug", status: "MET", evidenceRefs: ["diff"] }],
+			criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["diff"] }],
 			evidenceRefs: ["diff"],
 			diffDigest: "digest",
 		}));
@@ -278,5 +298,38 @@ describe("read-only StateStore observation", () => {
 		}
 		await expect(FileStateStore.readSnapshot(cwd)).rejects.toThrow("integrity");
 		expect(await readdir(join(cwd, ".ai"))).not.toContain("writer.lock");
+	});
+});
+
+describe("V0.3E task contract observation", () => {
+	it("shows Host-assigned criteria with recorded results instead of legacy statements", () => {
+		const state = source();
+		state.runs[0].acceptance = [
+			{
+				criterionId: "AC-001",
+				status: "MET",
+				evidenceRefs: ["check:run:self-check:1:check"],
+				revision: 1,
+				diffDigest: "digest",
+			},
+		];
+		const view = formatRunView("state", { run: state.runs[0], state, source: "fixture" });
+		expect(view).toContain("acceptance criteria (Host-assigned IDs)");
+		expect(view).toContain("AC-001: Fix bug");
+		expect(view).toContain("-> MET");
+		expect(view).toContain("check:run:self-check:1:check");
+		expect(view).toContain("Task Contract digest: sha256:");
+	});
+	it("never fabricates acceptance criteria for a legacy run", () => {
+		const state = source();
+		const legacy = state.runs[0];
+		legacy.tasks = [{ id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "completed" }];
+		legacy.taskContractDigest = undefined;
+		legacy.acceptance = undefined;
+		const view = formatRunView("state", { run: legacy, state, source: "fixture" });
+		expect(view).toContain("Acceptance criteria: UNKNOWN (legacy)");
+		expect(view).toContain("Legacy requirement: Fix bug");
+		expect(view).toContain("Task Contract digest: UNKNOWN (legacy");
+		expect(view).not.toContain("AC-001");
 	});
 });

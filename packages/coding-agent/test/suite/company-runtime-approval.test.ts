@@ -12,6 +12,7 @@ import type { AgentExecutionRequest, ApprovalPort } from "../../../company-runti
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { formatWorkflowReport, StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import type { ExtensionCommandContext, RegisteredCommand } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -100,8 +101,8 @@ function review(verdict: Review["result"] = "PASS") {
 				task: request.task.id,
 				result: verdict,
 				issues: [],
-				requirements: request.task.requirements.map((requirement) => ({
-					requirement,
+				criteria: request.task.acceptanceCriteria.map((criterion) => ({
+					criterionId: criterion.id,
 					status: "MET",
 					evidenceRefs: request.verification.evidenceRefs,
 				})),
@@ -117,6 +118,7 @@ function create(options: { goal?: string; noApproval?: boolean; timeout?: number
 		executionMode: options.goal?.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal: options.goal ?? goal,
+		taskContract: workflowContract(options.goal ?? goal, config),
 		config,
 		approvalTimeoutMs: options.timeout ?? 1500,
 		approval: options.noApproval
@@ -640,6 +642,7 @@ describe("S5C human-approved single-file deletion", () => {
 			ui: {
 				notify,
 				confirm: async () => true,
+				editor: async (_title: string, prefill?: string) => prefill ?? "",
 				select: async (_title: string, _choices: string[], options?: { signal?: AbortSignal }) => {
 					entered = true;
 					await new Promise<void>((resolve) => {
@@ -692,7 +695,12 @@ describe("S5C human-approved single-file deletion", () => {
 			hasUI: true,
 			isIdle: () => true,
 			isProjectTrusted: () => true,
-			ui: { notify, select, confirm: async () => true },
+			ui: {
+				notify,
+				select,
+				confirm: async () => true,
+				editor: async (_title: string, prefill?: string) => prefill ?? "",
+			},
 		} as unknown as ExtensionCommandContext;
 		registerCompanyRuntime(
 			{

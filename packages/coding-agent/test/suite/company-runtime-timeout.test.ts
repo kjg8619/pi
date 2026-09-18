@@ -11,6 +11,7 @@ import { CompanyKernel } from "../../../company-runtime/src/kernel.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { AgentSession, type ExtensionCommandContext, type RegisteredCommand } from "../../src/index.ts";
+import { contractOf, suiteContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 function deferred<T>() {
@@ -46,8 +47,8 @@ function submit(request: AgentExecutionRequest) {
 						issues: [],
 						diffDigest: request.verification.diffDigest,
 						evidenceRefs: request.verification.evidenceRefs,
-						requirements: request.task.requirements.map((requirement) => ({
-							requirement,
+						criteria: request.task.acceptanceCriteria.map((criterion) => ({
+							criterionId: criterion.id,
 							status: "MET",
 							evidenceRefs: request.verification.evidenceRefs,
 						})),
@@ -143,7 +144,7 @@ async function direct(role: "Developer" | "Reviewer") {
 		{
 			executionMode: "EDIT",
 			runId: "run",
-			task: { id: "task", goal: "Fix bug", requirements: ["Fix bug"], status: "pending" },
+			task: suiteContract("Fix bug", { taskId: "task", checkIds: ["check"] }),
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Fixture" },
 		},
 		{
@@ -161,7 +162,7 @@ async function direct(role: "Developer" | "Reviewer") {
 		executionMode: "EDIT" as const,
 		runId: "run",
 		revision: 0,
-		task: kernel.snapshot.tasks[0],
+		task: contractOf(kernel.snapshot),
 		onSessionCreated: async (ref: Run["roleSessionRefs"][number]) => {
 			const run = (await store!.load("run"))!;
 			await store!.save({ ...run, revision: run.revision + 1, roleSessionRefs: [...run.roleSessionRefs, ref] });
@@ -383,7 +384,11 @@ describe("RC-04 bounded worker timeout with real SDK and virtual elapsed time", 
 				hasUI: true,
 				isIdle: () => true,
 				isProjectTrusted: () => true,
-				ui: { notify, confirm: async () => true },
+				ui: {
+					notify,
+					confirm: async () => true,
+					editor: async (_title: string, prefill?: string) => prefill ?? "",
+				},
 			} as unknown as ExtensionCommandContext;
 			registerCompanyRuntime(
 				{

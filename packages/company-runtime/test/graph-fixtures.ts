@@ -1,8 +1,9 @@
-import type { ApprovalRecord, CheckResult, Review, Run } from "../src/contracts.ts";
+import type { ApprovalRecord, CheckResult, ReviewRecord, Run } from "../src/contracts.ts";
+import { testContract } from "./fixture-contract.ts";
 
 /** Shape-valid persisted fixtures; actual Kernel/SDK behavior is covered by the faux integration suite. */
 export function graphRun(workflow: "QUICK" | "STANDARD" = "STANDARD", risk: Run["risk"] = "R1", revision = 0): Run {
-	const reviews: Review[] =
+	const reviews: ReviewRecord[] =
 		workflow === "QUICK"
 			? []
 			: Array.from({ length: revision + 1 }, (_, index) => ({
@@ -12,7 +13,7 @@ export function graphRun(workflow: "QUICK" | "STANDARD" = "STANDARD", risk: Run[
 					task: "task",
 					result: index < revision ? "REVISE" : "PASS",
 					issues: [],
-					requirements: [{ requirement: "Goal", status: "MET", evidenceRefs: ["diff"] }],
+					criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["diff"] }],
 					evidenceRefs: ["diff"],
 					diffDigest: `digest-${index}`,
 				}));
@@ -50,7 +51,7 @@ export function graphRun(workflow: "QUICK" | "STANDARD" = "STANDARD", risk: Run[
 		risk,
 		classification: { intent: "bugfix", complexity: workflow, risk, confidence: null, reason: "Fixture" },
 		currentTask: "task",
-		tasks: [{ id: "task", goal: "Goal", requirements: ["Goal"], status: "completed" }],
+		tasks: [testContract("Goal", { taskId: "task", statements: ["Goal"], workflow })],
 		status: "COMPLETED",
 		phase: "COMPLETE",
 		currentStep: { stepId: "complete", attempt: revision + 1 },
@@ -66,7 +67,7 @@ export function graphRun(workflow: "QUICK" | "STANDARD" = "STANDARD", risk: Run[
 					executorResult: {
 						...handoff,
 						role: "Executor",
-						requirements: [{ requirement: "Goal", status: "MET", explanation: "Done" }],
+						criteria: [{ criterionId: "AC-001", status: "MET", explanation: "Done" }],
 					},
 				}
 			: { handoff: { ...handoff, role: "Developer" }, review: reviews.at(-1), reviewHistory: reviews }),

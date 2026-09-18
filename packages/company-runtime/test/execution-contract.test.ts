@@ -3,12 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../src/classification.ts";
+import { taskContractDigest } from "../src/criterion-evidence.ts";
 import { bindExecutionContract, proposeExecutionMode } from "../src/execution-contract.ts";
 import { assertCanComplete, CompanyKernel, type CompletionEvidence, type CreateRunRequest } from "../src/kernel.ts";
 import { formatRunView } from "../src/observations.ts";
 import { evaluatePolicy, evaluateRegisteredCheck, executePolicyAction, type PolicyContext } from "../src/policy.ts";
 import { selectQuickScope } from "../src/quick.ts";
 import { type FileRuntimeState, FileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 const reads = [
 	"오류 원인을 설명해줘",
@@ -203,6 +205,12 @@ describe("READ_ONLY Policy double enforcement", () => {
 });
 
 function completion(): CompletionEvidence {
+	const task = testContract("Explain", {
+		taskId: "task",
+		statements: ["Explain"],
+		workflow: "QUICK",
+		checkIds: ["check"],
+	});
 	const verification = {
 		runId: "run",
 		revision: 0,
@@ -231,7 +239,8 @@ function completion(): CompletionEvidence {
 		revision: 0,
 		workflow: "STANDARD",
 		risk: "R0",
-		task: { id: "task", goal: "Explain", requirements: ["Explain"], status: "inProgress" },
+		task,
+		taskContractDigest: taskContractDigest(task),
 		checks: [{ id: "check", kind: "test", required: true }],
 		handoff: {
 			runId: "run",
@@ -255,7 +264,7 @@ function completion(): CompletionEvidence {
 			task: "task",
 			result: "PASS",
 			issues: [],
-			requirements: [{ requirement: "Explain", status: "MET", evidenceRefs: ["ref"] }],
+			criteria: [{ criterionId: "AC-001", status: "MET", evidenceRefs: ["ref"] }],
 			evidenceRefs: ["ref"],
 			diffDigest: "digest",
 		},
@@ -282,7 +291,12 @@ describe("READ_ONLY completion and durable binding", () => {
 				const request: CreateRunRequest = {
 					executionMode: "READ_ONLY",
 					runId: "run",
-					task: { id: "task", goal: "Explain", requirements: ["Explain"], status: "pending" },
+					task: testContract("Explain", {
+						taskId: "task",
+						statements: ["Explain"],
+						workflow: "QUICK",
+						checkIds: ["check"],
+					}),
 					classification: {
 						intent: "question",
 						complexity: "STANDARD",

@@ -12,6 +12,7 @@ import {
 } from "../src/policy.ts";
 import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import { FileStateStore } from "../src/state-store.ts";
+import { testContract } from "./fixture-contract.ts";
 
 const context: PolicyContext = {
 	executionMode: "EDIT",
@@ -162,7 +163,7 @@ beforeEach(async () => {
 		{
 			executionMode: "EDIT",
 			runId: action.runId,
-			task: { id: "task-1", goal: "Fix bug", requirements: ["Regression covered"], status: "pending" },
+			task: testContract("Fix bug", { taskId: "task-1", statements: ["Regression covered"] }),
 			classification: { intent: "bugfix", complexity: "STANDARD", risk: "R1", confidence: null, reason: "Bug fix" },
 		},
 		{

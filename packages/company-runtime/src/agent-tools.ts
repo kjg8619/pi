@@ -44,6 +44,37 @@ const MAX_BYTES = 262144;
 // This is submission feedback, never evidence that an obligation was fulfilled or permission to filter a handoff.
 const RUNTIME_OBLIGATION_ONLY =
 	/^(?:(?:independent )?reviewer(?: pass| execution)?|self[_ -]?check|(?:final )?test|human approval) (?:(?:is )?(?:required|needed)(?: and remains pending)?|(?:is |remains )?(?:still )?pending)[.!]?$/i;
+/** Model-correctable coverage error: exact frozen AC IDs, one result each, no unknown or duplicate IDs. */
+function criterionCoverageError(
+	items: ReadonlyArray<{ criterionId: string }>,
+	criteria: ReadonlyArray<{ id: string }>,
+	source: string,
+): string | undefined {
+	const expected = new Set(criteria.map((criterion) => criterion.id));
+	const seen = new Set<string>();
+	const unknown: string[] = [];
+	const duplicates: string[] = [];
+	for (const item of items) {
+		if (!expected.has(item.criterionId)) unknown.push(item.criterionId);
+		else if (seen.has(item.criterionId)) duplicates.push(item.criterionId);
+		else seen.add(item.criterionId);
+	}
+	const missing = [...expected].filter((id) => !seen.has(id));
+	if (!unknown.length && !duplicates.length && !missing.length) return undefined;
+	const details = [
+		unknown.length ? `unknown: ${unknown.join(", ")}` : undefined,
+		duplicates.length ? `duplicate: ${duplicates.join(", ")}` : undefined,
+		missing.length ? `missing: ${missing.join(", ")}` : undefined,
+	]
+		.filter(Boolean)
+		.join("; ");
+	return (
+		`${source} criteria must match the frozen acceptance criteria exactly (${details}). ` +
+		`Expected IDs: ${[...expected].join(", ")}. Statements are not identity and cannot replace IDs. ` +
+		"Nothing was accepted. Correct the fields and resubmit alone in this same session."
+	);
+}
+
 export const WORKER_FILE_TOOLS = [
 	{ id: "runtime_read", operation: "read" },
 	{ id: "runtime_search", operation: "search" },
@@ -351,11 +382,11 @@ export function createWorkerTools(options: {
 				name: "submit_handoff",
 				label: "Submit handoff",
 				description:
-					`Submit the sole structured ${request.role} result with requirements where requested. Call alone, with no other tool calls in the same turn. ` +
+					`Submit the sole structured ${request.role} result. Call alone, with no other tool calls in the same turn. ` +
 					"runId, revision and task must be copied exactly from the current task context; task is the task id, not the goal text." +
 					(request.role === "Developer"
 						? " unresolved must contain only remaining implementation/requirement problems, not Runtime-owned pending review, SELF_CHECK, TEST or Human Approval. Preserve real blockers; correct submission errors in this session."
-						: " requirements[].status reports each task outcome; unresolved must contain only unfinished task requirements or concrete blockers, not general caveats, low confidence or Runtime-owned pending checks/review. Preserve real blockers; correct submission errors in this session."),
+						: " criteria[] must report every frozen acceptance criterion exactly once by its exact Host-assigned ID and status; never restate, rename or invent criteria. unresolved must contain only unfinished criteria or concrete blockers, not general caveats, low confidence or Runtime-owned pending checks/review. Preserve real blockers; correct submission errors in this session."),
 				executionMode: "sequential",
 				parameters: request.role === "Executor" ? ExecutorHandoffSchema : HandoffSchema,
 				execute: async (id, params) => {
@@ -378,6 +409,17 @@ export function createWorkerTools(options: {
 								`Expected runId: ${request.runId}; revision: ${request.revision}; task: ${request.task.id} (the task id, not the goal text). ` +
 								"Correct those fields and resubmit submit_handoff alone in this same session.",
 						);
+					}
+					if (request.role === "Executor") {
+						const coverage = criterionCoverageError(
+							validateContract(ExecutorHandoffSchema, handoff).criteria,
+							request.task.acceptanceCriteria,
+							"Executor",
+						);
+						if (coverage) {
+							submissionValidationErrors.set(id, "submit_handoff");
+							throw new Error(coverage);
+						}
 					}
 					if (request.role === "Developer") {
 						const invalidFields = handoff.unresolved.flatMap((item, index) =>
@@ -411,7 +453,7 @@ export function createWorkerTools(options: {
 				name: "submit_review",
 				label: "Submit review",
 				description:
-					"Submit an independent PASS/REVISE/BLOCK review. Use only exact trustedEvidenceRefs strings in all evidenceRefs arrays. Correct evidence errors and resubmit in this session. Call alone.",
+					"Submit an independent PASS/REVISE/BLOCK review. Judge every frozen acceptance criterion exactly once by its exact Host-assigned ID; criteria and statements cannot be added, removed or restated. Use only exact trustedEvidenceRefs strings in all evidenceRefs arrays; PASS also requires evidence for every criterion. Correct coverage or evidence errors and resubmit in this session. Call alone.",
 				executionMode: "sequential",
 				parameters: ReviewSchema,
 				execute: async (id, params) => {
@@ -432,15 +474,20 @@ export function createWorkerTools(options: {
 								"Correct those fields and resubmit submit_review alone in this same session.",
 						);
 					}
+					const coverage = criterionCoverageError(review.criteria, request.task.acceptanceCriteria, "Review");
+					if (coverage) {
+						submissionValidationErrors.set(id, "submit_review");
+						throw new Error(coverage);
+					}
 					const invalidFields: string[] = [];
 					if (!review.evidenceRefs.length || review.evidenceRefs.some((ref) => !trustedEvidence.has(ref)))
 						invalidFields.push("evidenceRefs");
-					for (const [index, item] of review.requirements.entries()) {
+					for (const [index, item] of review.criteria.entries()) {
 						if (
 							item.evidenceRefs.some((ref) => !trustedEvidence.has(ref)) ||
 							(review.result === "PASS" && !item.evidenceRefs.length)
 						)
-							invalidFields.push(`requirements[${index}].evidenceRefs`);
+							invalidFields.push(`criteria[${index}].evidenceRefs`);
 					}
 					if (invalidFields.length) {
 						submissionValidationErrors.set(id, "submit_review");

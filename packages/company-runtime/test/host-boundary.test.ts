@@ -29,7 +29,8 @@ it("keeps Kernel, Policy and Graph import graphs free of Pi, UI, provider and fi
 				expect(target).not.toBe(resolve(sourceRoot, "config.ts"));
 				pending.push(target);
 			} else {
-				expect(["typebox", "typebox/value"]).toContain(specifier);
+				// node:crypto is a deterministic pure module (hashing for the frozen Task Contract digest); no I/O or host coupling.
+				expect(["typebox", "typebox/value", "node:crypto"]).toContain(specifier);
 			}
 		}
 	}

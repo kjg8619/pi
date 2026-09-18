@@ -12,6 +12,7 @@ import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.t
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { formatWorkflowReport, StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { AgentSession, type ExtensionCommandContext, type RegisteredCommand } from "../../src/index.ts";
+import { executorCriteria, workflowContract } from "./company-contract.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -52,8 +53,8 @@ function handoff(context: Context, override: Partial<ExecutorHandoff> = {}) {
 			tests_run: [],
 			known_risks: [],
 			unresolved: [],
-			requirements: request.task.requirements.map((requirement) => ({
-				requirement,
+			criteria: request.task.acceptanceCriteria.map((criterion) => ({
+				criterionId: criterion.id,
 				status: "MET",
 				explanation: "Named source inspected; requested spelling corrected or explained",
 			})),
@@ -68,6 +69,7 @@ function create(taskGoal = goal) {
 		executionMode: taskGoal.startsWith("Explain") ? "READ_ONLY" : "EDIT",
 		cwd,
 		goal: taskGoal,
+		taskContract: workflowContract(taskGoal, config),
 		config,
 		events: {
 			emit: (event) => {
@@ -350,7 +352,7 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 			expect(report.run?.status).toBe(risk === "R0" ? "COMPLETED" : "BLOCKED");
 			expect(report.run?.executorResult?.known_risks).toEqual(knownRisks);
 			expect(report.run?.executorResult?.unresolved).toEqual([]);
-			expect(report.run?.executorResult?.requirements.map((item) => item.status)).toEqual(["MET"]);
+			expect(executorCriteria(report.run?.executorResult)?.map((item) => item.status)).toEqual(["MET"]);
 			expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Executor"]);
 			expect(report.run?.review).toBeUndefined();
 			expect(report.run?.verification.map((check) => [check.step?.stepId, check.status, check.exitCode])).toEqual([
@@ -541,8 +543,8 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 					if (mode === "blocker") return handoff(context, { unresolved: ["not finished"] });
 					if (mode === "changed-files") return handoff(context, { changed_files: [] });
 					return handoff(context, {
-						requirements:
-							mode === "missing" ? [] : [{ requirement: goal, status: "UNMET", explanation: "Not done" }],
+						criteria:
+							mode === "missing" ? [] : [{ criterionId: "AC-001", status: "UNMET", explanation: "Not done" }],
 					});
 				},
 			]);
@@ -573,7 +575,7 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 			hasUI: true,
 			isIdle: () => true,
 			isProjectTrusted: () => true,
-			ui: { notify, confirm: async () => true },
+			ui: { notify, confirm: async () => true, editor: async (_title: string, prefill?: string) => prefill ?? "" },
 		} as unknown as ExtensionCommandContext;
 		const register = () =>
 			registerCompanyRuntime(

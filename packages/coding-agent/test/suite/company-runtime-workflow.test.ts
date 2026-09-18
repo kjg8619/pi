@@ -21,6 +21,7 @@ import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.t
 import { FileStateStore } from "../../../company-runtime/src/state-store.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { AgentSession, type ExtensionCommandContext, type RegisteredCommand } from "../../src/index.ts";
+import { workflowContract } from "./company-contract.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 let harness: Harness;
@@ -95,8 +96,8 @@ function review(result: Review["result"] = "PASS") {
 				task: request.task.id,
 				result,
 				issues: [],
-				requirements: request.task.requirements.map((requirement) => ({
-					requirement,
+				criteria: request.task.acceptanceCriteria.map((criterion) => ({
+					criterionId: criterion.id,
 					status: "MET",
 					evidenceRefs: request.verification.evidenceRefs,
 				})),
@@ -112,6 +113,7 @@ function create(goal = "Fix app bug", options: { timeoutMs?: number } = {}) {
 		executionMode: "EDIT",
 		cwd,
 		goal,
+		taskContract: workflowContract(goal, config),
 		config,
 		events: {
 			emit: async (event) => {
@@ -528,7 +530,11 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 				hasUI: true,
 				isIdle: () => true,
 				isProjectTrusted: () => true,
-				ui: { notify, confirm: async () => true },
+				ui: {
+					notify,
+					confirm: async () => true,
+					editor: async (_title: string, prefill?: string) => prefill ?? "",
+				},
 			} as unknown as ExtensionCommandContext;
 			registerCompanyRuntime(
 				{
