@@ -3072,6 +3072,22 @@ npm run check / npm run check:ci / git diff --check / bash -n packages/company-r
 
 ---
 
+## LOG-068 — Agent Landscape 후속 로드맵 통합
+
+- **기록일:** 2026-09-18 (KST)
+- **기준 SHA:** `010567711f35db9ce786d1f7bc57b61eb52d4fd1`에서 V0.4B closure 게시 상태를 확인한 뒤 docs-only 통합을 시작했다. 안정 태그 `weavra-v0.1-rc1`은 불변이다.
+- **목적:** `WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md`의 C01~C08 제안을 기존 Post-V0.4B 로드맵에 실제 후속 순서로 반영한다. 외부 agent runtime을 중첩 실행하지 않고 현재 Kernel/Policy/Task Contract/Verifier/Evidence authority를 유지한다.
+- **로드맵 결정:** 현재 즉시 다음은 **V0.4C Verifier Sandbox**다. 이후 **V0.5A C01 Task Context Pack → V0.5B C03 Task Recipes → V0.5C C02 Bounded Verification Repair → V0.5D C04 Impact-aware Review + C05 Versioned Documentation → V0.6A C07 T3 Code Host Bridge → V0.6B C06 Provider Contract/Fitness Matrix → V0.6C C08 Jev Browser Evidence → Facts/Capability Broker → COMPLEX/Parallel** 순서로 고정했다.
+- **의존 원칙:** C02와 C08은 V0.4C 격리 경계를 선행한다. C01은 기존 list/read/search/LSP를 조합하는 bounded context부터 시작하고 별도 탐색 agent는 후속 검토다. C03은 새 Planner가 아니라 기존 Plan Preview/Task Contract의 reviewed template이다. C04/C05는 Reviewer 입력 품질을 보강하되 advisory evidence를 authority로 승격하지 않는다.
+- **제품 방향:** T3 Code는 V0.6A의 우선 Host/UI이며 Runtime의 Completion/Policy/Approval authority를 갖지 않는다. C06은 자동 fallback/router가 아니라 Provider/model/endpoint/thinking/tool-schema 조합을 같은 fixture·budget·policy로 누적하는 지속 평가 track이다. C08은 local test app·isolated profile부터 시작하고 Jev의 DONE을 Weavra completion으로 사용하지 않는다.
+- **문서 보정:** Agent Landscape 문서의 게시 당시 V0.4B actual COMPLETED 미검증 상태를 LOG-067 기준 **V0.4B CLOSED**로 보정했다. Roadmap의 단계 요약·의존 관계·즉시 다음 작업을 위 순서로 갱신했다.
+- **변경 파일:** `docs/WEAVRA_ROADMAP_2026-09-17.md`, `docs/WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md`, 이 `docs/WORK_LOG.md`만 변경했다. 제품 코드·설정·package/lockfile은 변경하지 않았다.
+- **게시:** Roadmap 통합 `f1e66f7288c7a33984e050fe5ab9af4849e87c40`, Agent Landscape 보정 `26815b6c83a92c419e8f336319da02fad41f2137`. Provider 호출·자동 regression은 docs-only 변경이라 실행하지 않았다.
+- **남은 제한:** remote GitHub Actions 실제 PASS는 계속 NOT VERIFIED다. V0.4C 및 C01~C08은 이 문서 갱신만으로 구현/검증된 것이 아니다. 각 단계 착수 시 실제 HEAD·계약·지원 OS/Provider를 다시 확인한다.
+- **다음 작업:** V0.4C — Verifier Sandbox(FEAT-07).
+
+---
+
 ## 이후 항목 형식
 
 ```markdown
