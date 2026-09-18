@@ -18,6 +18,7 @@ import type { ExecutionMode } from "./execution-contract.ts";
 import type { LspPort } from "./lsp/types.ts";
 import type { WorkerMeasurement } from "./measurement.ts";
 import type { ProjectInstructionMetadata } from "./project-instruction-types.ts";
+import type { TaskContextPack } from "./task-context-types.ts";
 
 export type { LspPort } from "./lsp/types.ts";
 
@@ -33,6 +34,8 @@ interface StepRequest {
 export type AgentExecutionRequest = StepRequest & {
 	executionMode: ExecutionMode;
 	projectInstruction?: ProjectInstructionMetadata | null;
+	/** Host-owned advisory context pack; never worker input, permission, evidence or a mutation receipt. */
+	taskContextPack?: TaskContextPack;
 	/** Trusted run-owned code intelligence; excluded from worker prompts and data clones. */
 	lsp?: LspPort;
 	/** Adapter calls once, before prompting. Rejection prevents worker execution. No Pi types cross this boundary. */

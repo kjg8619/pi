@@ -18,14 +18,17 @@ import { LspManager } from "./lsp/manager.ts";
 import type { LspServerStatus } from "./lsp/types.ts";
 import { formatRunView, type ObservationState } from "./observations.ts";
 import type { PolicyContext } from "./policy.ts";
+import { FilePolicyPathInspector } from "./policy-paths.ts";
 import type { AgentExecutor, ApprovalPort } from "./ports.ts";
 import { ProcessCleanupError } from "./process-runner.ts";
 import { captureProvenance } from "./provenance.ts";
 import { selectQuickScope } from "./quick.ts";
 import { FileStateStore } from "./state-store.ts";
+import { withTaskContext } from "./task-context-executor.ts";
 import { assertTaskContractBinding } from "./task-contract.ts";
 import { NOOP_TELEMETRY_CONTEXT, withSpan } from "./telemetry.ts";
 import { RegisteredVerifier } from "./verification.ts";
+import { resolveVerifierTrustSources } from "./verifier-trust.ts";
 import { GitWorkspace } from "./workspace.ts";
 
 export interface WorkflowOptions {
@@ -157,7 +160,7 @@ export class StandardWorkflow {
 			const r2RunId = classification.risk === "R2" ? runId : undefined;
 			store = await FileStateStore.open(this.options.cwd, { events: this.options.events });
 			this.store = store;
-			const agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope, contract);
+			let agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope, contract);
 			executor = agents.executor;
 			const configuredInstruction = this.options.config.project?.instructions.path;
 			if ((agents.policy.projectInstruction?.path ?? undefined) !== configuredInstruction)
@@ -178,6 +181,23 @@ export class StandardWorkflow {
 			const lspConfig = this.options.config.code_intelligence?.lsp;
 			if (lspConfig?.enabled) this.lsp = await LspManager.create(workspace.cwd, lspConfig, agents.policy);
 			const lsp = this.lsp;
+			agents = {
+				...agents,
+				executor: withTaskContext(agents.executor, {
+					mode: this.options.config.agents.context_pack.mode,
+					cwd: workspace!.cwd,
+					policy: agents.policy,
+					paths: await FilePolicyPathInspector.open(workspace!.cwd),
+					protectedPaths: agents.policy.protectedPaths ?? [],
+					verifierSources: [
+						...new Set(
+							this.options.config.verification.checks.flatMap((check) =>
+								resolveVerifierTrustSources(workspace!.cwd, check),
+							),
+						),
+					],
+				}),
+			};
 			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace, lsp);
 			signal.throwIfAborted();
 			this.kernel = await CompanyKernel.create(
