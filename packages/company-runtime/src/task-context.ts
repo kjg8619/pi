@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import { listFiles } from "./list-files.ts";
+import type { LspPort, LspSymbol } from "./lsp/types.ts";
 import {
 	isListablePath,
 	isPolicyPath,
@@ -9,6 +10,7 @@ import {
 	type PolicyContext,
 	type PolicyPathInspector,
 } from "./policy.ts";
+import { ProcessCleanupError } from "./process-runner.ts";
 
 /**
  * Task Context Pack (V0.5A, C01): Host-selected bounded starting context for a worker invocation.
@@ -24,6 +26,8 @@ export const CONTEXT_MAX_SYMBOLS = 32;
 export const CONTEXT_MAX_SNIPPETS = 12;
 export const CONTEXT_MAX_SNIPPET_BYTES = 4096;
 export const CONTEXT_MAX_PACK_BYTES = 49152;
+export const CONTEXT_MAX_SYMBOL_DOCUMENTS = 4;
+export const CONTEXT_MAX_REFERENCE_QUERIES = 8;
 const FILE_MAX_BYTES = 262144;
 
 export type TaskContextMode = "disabled" | "bounded";
@@ -44,8 +48,14 @@ export function taskContextPreservationScore(reasons: readonly string[]): number
 export interface TaskContextSymbol {
 	name: string;
 	path: string;
-	kind: string;
-	reason: "lsp-symbol" | "literal";
+	/** LSP symbol kind (number, unchanged from the server contract). */
+	kind: number;
+	/** 1-based UTF-16 position, exactly as reported by the LSP server. */
+	line: number;
+	column: number;
+	endLine: number;
+	endColumn: number;
+	reason: "lsp-symbol";
 }
 
 export interface TaskContextRelated {
@@ -81,11 +91,8 @@ export interface TaskContextPack {
 	truncated: boolean;
 }
 
-/** Narrow read-only LSP seam; the builder never mutates and never retries stale evidence. */
-export interface ContextLspPort {
-	documentSymbols(path: string): Promise<{ status: string; symbols: Array<{ name: string; kind: string }> }>;
-	references(path: string, line: number): Promise<{ status: string; paths: string[] }>;
-}
+/** Production LSP surface used by the builder; no drift interface, no mutation capability. */
+export type ContextLspPort = Pick<LspPort, "symbols" | "references"> & { readonly cleanupFailed?: boolean };
 
 export interface TaskContextInput {
 	cwd: string;
@@ -368,23 +375,106 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 	}
 
 	if (input.lsp) {
-		for (const path of relatedPaths.slice(0, 4)) {
+		const lsp = input.lsp;
+		const assertLspClean = () => {
+			if (lsp.cleanupFailed === true) throw new ProcessCleanupError();
+		};
+		const symbolDocuments = relatedPaths.slice(0, CONTEXT_MAX_SYMBOL_DOCUMENTS);
+		const candidates: Array<TaskContextSymbol> = [];
+		for (const path of symbolDocuments) {
+			assertLspClean();
+			let result: Awaited<ReturnType<LspPort["symbols"]>>;
 			try {
-				const symbols = await input.lsp.documentSymbols(path);
-				if (symbols.status !== "AVAILABLE") {
-					unknowns.push(`lsp symbols ${symbols.status.toLowerCase()} for ${path}`);
-					continue;
-				}
-				for (const symbol of symbols.symbols) {
-					if (targetSymbols.length >= CONTEXT_MAX_SYMBOLS) {
-						truncated = true;
-						break;
-					}
-					if (!terms.includes(symbol.name)) continue;
-					targetSymbols.push({ name: symbol.name, path, kind: symbol.kind, reason: "lsp-symbol" });
-				}
-			} catch {
+				result = await lsp.symbols({ path, signal: input.signal });
+			} catch (error) {
+				if (error instanceof ProcessCleanupError) throw error;
 				unknowns.push(`lsp symbols error for ${path}`);
+				continue;
+			}
+			if (result.status !== "AVAILABLE") {
+				unknowns.push(`lsp symbols ${result.status.toLowerCase()} for ${path}`);
+				if (result.status === "PARTIAL") truncated = true;
+				continue;
+			}
+			if (result.withheld > 0 || result.truncated > 0) {
+				truncated = true;
+				unknowns.push(`lsp symbols partially withheld for ${path}`);
+			}
+			for (const symbol of result.symbols as LspSymbol[]) {
+				if (!terms.includes(symbol.name)) continue;
+				candidates.push({
+					name: symbol.name,
+					path: symbol.path,
+					kind: symbol.kind,
+					line: symbol.line,
+					column: symbol.column,
+					endLine: symbol.endLine,
+					endColumn: symbol.endColumn,
+					reason: "lsp-symbol",
+				});
+			}
+		}
+		// Canonical order before any budget or digest decision: identical semantics must not depend on
+		// the order a language server returned symbols in.
+		candidates.sort(
+			(a, b) =>
+				a.path.localeCompare(b.path) ||
+				a.line - b.line ||
+				a.column - b.column ||
+				a.name.localeCompare(b.name) ||
+				a.kind - b.kind,
+		);
+		for (const symbol of candidates) {
+			if (targetSymbols.length >= CONTEXT_MAX_SYMBOLS) {
+				truncated = true;
+				break;
+			}
+			targetSymbols.push(symbol);
+		}
+
+		let referenceQueries = 0;
+		for (const symbol of targetSymbols) {
+			if (referenceQueries >= CONTEXT_MAX_REFERENCE_QUERIES) {
+				truncated = true;
+				unknowns.push("lsp reference query budget reached");
+				break;
+			}
+			assertLspClean();
+			referenceQueries += 1;
+			let result: Awaited<ReturnType<LspPort["references"]>>;
+			try {
+				result = await lsp.references({
+					path: symbol.path,
+					line: symbol.line,
+					column: symbol.column,
+					signal: input.signal,
+				});
+			} catch (error) {
+				if (error instanceof ProcessCleanupError) throw error;
+				unknowns.push(`lsp references error for ${symbol.name}`);
+				continue;
+			}
+			if (result.status !== "AVAILABLE") {
+				unknowns.push(`lsp references ${result.status.toLowerCase()} for ${symbol.name}`);
+				if (result.status === "PARTIAL") truncated = true;
+				continue;
+			}
+			if (result.withheld > 0 || result.truncated > 0) {
+				truncated = true;
+				unknowns.push(`lsp references partially withheld for ${symbol.name}`);
+			}
+			const locations = [...result.locations].sort(
+				(a, b) =>
+					a.path.localeCompare(b.path) ||
+					a.line - b.line ||
+					a.column - b.column ||
+					a.endLine - b.endLine ||
+					a.endColumn - b.endColumn,
+			);
+			for (const location of locations) {
+				// LSP output is not a permission source: every referenced path is re-validated.
+				if (!isContextEligible(workspace, location.path, protectedPaths, verifierSources, policy)) continue;
+				addRelated(location.path, "lsp-reference");
 			}
 		}
 	}
@@ -413,7 +503,10 @@ export async function buildTaskContextPack(input: TaskContextInput): Promise<Tas
 		};
 		return { ...body, digest: `sha256:${sha256Of(body, TASK_CONTEXT_DOMAIN)}` };
 	};
-	const relatedEntries: TaskContextRelated[] = relatedPaths.map((path) => ({
+	// Recompute after LSP enrichment so discovered references appear in the final pack.
+	const finalRelatedPaths = [...related.keys()].sort().slice(0, CONTEXT_MAX_RELATED_FILES);
+	if (related.size > finalRelatedPaths.length) truncated = true;
+	const relatedEntries: TaskContextRelated[] = finalRelatedPaths.map((path) => ({
 		path,
 		reasons: [...related.get(path)!].sort(),
 	}));

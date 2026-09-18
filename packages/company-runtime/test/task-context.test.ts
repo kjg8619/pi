@@ -9,7 +9,6 @@ import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import {
 	buildTaskContextPack,
 	CONTEXT_MAX_RELATED_FILES,
-	type ContextLspPort,
 	extractLiteralTerms,
 	summarizeTaskContextPack,
 	TASK_CONTEXT_DOMAIN,
@@ -141,33 +140,239 @@ describe("V0.5A task context pack", () => {
 		expect(after.digest).not.toBe(before.digest);
 	});
 
-	it("records unavailable LSP as an unknown instead of inventing symbols", async () => {
-		const lsp: ContextLspPort = {
-			documentSymbols: async () => ({ status: "UNAVAILABLE", symbols: [] }),
-			references: async () => ({ status: "UNAVAILABLE", paths: [] }),
-		};
-		const pack = (await build({ lsp }))!;
-		expect(pack.targetSymbols).toEqual([]);
-		expect(pack.unknowns.join(" ")).toContain("lsp symbols unavailable");
+	const lspResult = (status: string, extra: Record<string, unknown> = {}) => ({
+		serverId: "fixture",
+		status,
+		reason: "fixture",
+		startedAt: 1,
+		finishedAt: 2,
+		withheld: 0,
+		truncated: 0,
+		...extra,
 	});
 
-	it("includes advisory LSP symbols only when they match a task literal", async () => {
-		const lsp: ContextLspPort = {
-			documentSymbols: async () => ({
-				status: "AVAILABLE",
-				symbols: [
-					{ name: "formatLabel", kind: "function" },
-					{ name: "unrelatedThing", kind: "function" },
-				],
-			}),
-			references: async () => ({ status: "AVAILABLE", paths: [] }),
+	it("adopts AVAILABLE symbols and references with real positions", async () => {
+		let symbolQueries = 0;
+		let referenceQueries = 0;
+		const lsp = {
+			symbols: async (request: { path: string }) => {
+				symbolQueries += 1;
+				return lspResult("AVAILABLE", {
+					symbols: [
+						{
+							path: request.path,
+							line: 1,
+							column: 17,
+							endLine: 1,
+							endColumn: 28,
+							name: "formatLabel",
+							kind: 12,
+							depth: 0,
+						},
+						{
+							path: request.path,
+							line: 2,
+							column: 1,
+							endLine: 2,
+							endColumn: 5,
+							name: "unrelated",
+							kind: 13,
+							depth: 0,
+						},
+					],
+				}) as never;
+			},
+			references: async () => {
+				referenceQueries += 1;
+				return lspResult("AVAILABLE", {
+					locations: [
+						{ path: "src/service.ts", line: 2, column: 26, endLine: 2, endColumn: 37 },
+						{ path: "src/formatter.ts", line: 1, column: 1, endLine: 1, endColumn: 5 },
+					],
+				}) as never;
+			},
 		};
 		const pack = (await build({ lsp }))!;
-		expect(
-			pack.targetSymbols.some((symbol) => symbol.name === "formatLabel" && symbol.path === "src/service.ts"),
-		).toBe(true);
-		expect(pack.targetSymbols.some((symbol) => symbol.name === "unrelatedThing")).toBe(false);
-		expect(pack.targetSymbols.every((symbol) => symbol.reason === "lsp-symbol")).toBe(true);
+		// The fake server reports the same symbol for every queried document, so every entry carries the
+		// real position contract (1-based line/column, UTF-16 columns as reported).
+		expect(pack.targetSymbols.length).toBeGreaterThan(0);
+		for (const symbol of pack.targetSymbols) {
+			expect(symbol).toMatchObject({
+				name: "formatLabel",
+				kind: 12,
+				line: 1,
+				column: 17,
+				endLine: 1,
+				endColumn: 28,
+				reason: "lsp-symbol",
+			});
+			expect(symbol.path).toMatch(/^(src|test)\//);
+		}
+		expect(pack.targetSymbols.every((symbol) => symbol.name !== "unrelated")).toBe(true);
+		expect(pack.relatedFiles.find((file) => file.path === "src/formatter.ts")?.reasons).toContain("lsp-reference");
+		expect(symbolQueries).toBeGreaterThan(0);
+		expect(referenceQueries).toBe(pack.targetSymbols.length);
+	});
+
+	it("is order-insensitive for symbols and references", async () => {
+		const makeLsp = (reverse: boolean) => ({
+			symbols: async (request: { path: string }) =>
+				lspResult("AVAILABLE", {
+					symbols: [
+						{
+							path: request.path,
+							line: 1,
+							column: 17,
+							endLine: 1,
+							endColumn: 28,
+							name: "formatLabel",
+							kind: 12,
+							depth: 0,
+						},
+					],
+				}) as never,
+			references: async () => {
+				const locations = [
+					{ path: "src/service.ts", line: 2, column: 26, endLine: 2, endColumn: 37 },
+					{ path: "src/formatter.ts", line: 1, column: 1, endLine: 1, endColumn: 5 },
+				];
+				return lspResult("AVAILABLE", { locations: reverse ? locations.reverse() : locations }) as never;
+			},
+		});
+		const forward = (await build({ lsp: makeLsp(false) }))!;
+		const reversed = (await build({ lsp: makeLsp(true) }))!;
+		expect(reversed.digest).toBe(forward.digest);
+		expect(reversed.targetSymbols).toEqual(forward.targetSymbols);
+		expect(reversed.relatedFiles).toEqual(forward.relatedFiles);
+	});
+
+	it("degrades honestly for every non-AVAILABLE LSP status", async () => {
+		const of = (status: string, extra: Record<string, unknown> = {}) => ({
+			symbols: async (request: { path: string }) =>
+				lspResult(status, {
+					symbols: [
+						{
+							path: request.path,
+							line: 1,
+							column: 17,
+							endLine: 1,
+							endColumn: 28,
+							name: "formatLabel",
+							kind: 12,
+							depth: 0,
+						},
+					],
+					...extra,
+				}) as never,
+			references: async () =>
+				lspResult(status, {
+					locations: [{ path: "src/formatter.ts", line: 1, column: 1, endLine: 1, endColumn: 5 }],
+				}) as never,
+		});
+		const unavailable = (await build({ lsp: of("UNAVAILABLE") }))!;
+		expect(unavailable.targetSymbols).toEqual([]);
+		expect(unavailable.unknowns.join(" ")).toContain("lsp symbols unavailable");
+
+		const partial = (await build({ lsp: of("PARTIAL") }))!;
+		expect(partial.truncated).toBe(true);
+		expect(partial.unknowns.join(" ")).toContain("lsp symbols partial");
+
+		const stale = (await build({ lsp: of("STALE") }))!;
+		expect(stale.targetSymbols).toEqual([]);
+		expect(stale.unknowns.join(" ")).toContain("lsp symbols stale");
+
+		const errored = (await build({ lsp: of("ERROR") }))!;
+		expect(errored.unknowns.join(" ")).toContain("lsp symbols error");
+
+		const withheld = (await build({ lsp: of("AVAILABLE", { withheld: 2 }) }))!;
+		expect(withheld.truncated).toBe(true);
+		expect(withheld.unknowns.join(" ")).toContain("partially withheld");
+	});
+
+	it("filters protected, oracle and symlinked reference paths", async () => {
+		execFileSync("ln", ["-sf", join(cwd, ".env"), join(cwd, "src/ref-link.ts")]);
+		const lsp = {
+			symbols: async (request: { path: string }) =>
+				lspResult("AVAILABLE", {
+					symbols: [
+						{
+							path: request.path,
+							line: 1,
+							column: 17,
+							endLine: 1,
+							endColumn: 28,
+							name: "formatLabel",
+							kind: 12,
+							depth: 0,
+						},
+					],
+				}) as never,
+			references: async () =>
+				lspResult("AVAILABLE", {
+					locations: [
+						{ path: ".env", line: 1, column: 1, endLine: 1, endColumn: 2 },
+						{ path: "test/oracle.mjs", line: 1, column: 1, endLine: 1, endColumn: 2 },
+						{ path: "src/ref-link.ts", line: 1, column: 1, endLine: 1, endColumn: 2 },
+						{ path: "src/formatter.ts", line: 1, column: 1, endLine: 1, endColumn: 5 },
+					],
+				}) as never,
+		};
+		const pack = (await build({ lsp }))!;
+		const serialized = JSON.stringify(pack);
+		expect(serialized).not.toContain(".env");
+		expect(serialized).not.toContain("oracle.mjs");
+		expect(serialized).not.toContain("ref-link.ts");
+		expect(pack.relatedFiles.find((file) => file.path === "src/formatter.ts")?.reasons).toContain("lsp-reference");
+	});
+
+	it("keeps symbol document and reference query budgets bounded", async () => {
+		const roots = ["src", "test"];
+		for (let index = 0; index < 6; index += 1) write(`src/extra${index}.ts`, "export const formatLabel = 1;\n");
+		let symbolQueries = 0;
+		let referenceQueries = 0;
+		const lsp = {
+			symbols: async (request: { path: string }) => {
+				symbolQueries += 1;
+				return lspResult("AVAILABLE", {
+					symbols: Array.from({ length: 20 }, () => ({
+						path: request.path,
+						line: 1,
+						column: 17,
+						endLine: 1,
+						endColumn: 28,
+						name: "formatLabel",
+						kind: 12,
+						depth: 0,
+					})),
+				}) as never;
+			},
+			references: async () => {
+				referenceQueries += 1;
+				return lspResult("AVAILABLE", { locations: [] }) as never;
+			},
+		};
+		const pack = (await build({ lsp, listingRoots: roots }))!;
+		expect(symbolQueries).toBeLessThanOrEqual(4);
+		expect(referenceQueries).toBeLessThanOrEqual(8);
+		expect(pack.targetSymbols.length).toBeLessThanOrEqual(32);
+	});
+
+	it("rethrows cleanup failures instead of hiding them as unknowns", async () => {
+		const { ProcessCleanupError } = await import("../src/process-runner.ts");
+		const cleanupError = {
+			symbols: async () => {
+				throw new ProcessCleanupError();
+			},
+			references: async () => lspResult("AVAILABLE", { locations: [] }) as never,
+		};
+		await expect(build({ lsp: cleanupError })).rejects.toBeInstanceOf(ProcessCleanupError);
+
+		const failed = {
+			symbols: async () => lspResult("AVAILABLE", { symbols: [] }) as never,
+			references: async () => lspResult("AVAILABLE", { locations: [] }) as never,
+			cleanupFailed: true,
+		};
+		await expect(build({ lsp: failed })).rejects.toBeInstanceOf(ProcessCleanupError);
 	});
 
 	it("enforces the related-file and snippet budgets", async () => {
