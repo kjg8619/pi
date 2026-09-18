@@ -181,23 +181,27 @@ export class StandardWorkflow {
 			const lspConfig = this.options.config.code_intelligence?.lsp;
 			if (lspConfig?.enabled) this.lsp = await LspManager.create(workspace.cwd, lspConfig, agents.policy);
 			const lsp = this.lsp;
-			agents = {
-				...agents,
-				executor: withTaskContext(agents.executor, {
-					mode: this.options.config.agents.context_pack.mode,
-					cwd: workspace!.cwd,
-					policy: agents.policy,
-					paths: await FilePolicyPathInspector.open(workspace!.cwd),
-					protectedPaths: agents.policy.protectedPaths ?? [],
-					verifierSources: [
-						...new Set(
-							this.options.config.verification.checks.flatMap((check) =>
-								resolveVerifierTrustSources(workspace!.cwd, check),
+			// Disabled mode keeps the existing path untouched (no extra inspector, no context work).
+			const contextWorkspace = workspace;
+			if (this.options.config.agents.context_pack.mode === "bounded" && contextWorkspace) {
+				agents = {
+					...agents,
+					executor: withTaskContext(agents.executor, {
+						mode: "bounded",
+						cwd: contextWorkspace.cwd,
+						policy: agents.policy,
+						paths: await FilePolicyPathInspector.open(contextWorkspace.cwd),
+						protectedPaths: agents.policy.protectedPaths ?? [],
+						verifierSources: [
+							...new Set(
+								this.options.config.verification.checks.flatMap((check) =>
+									resolveVerifierTrustSources(contextWorkspace.cwd, check),
+								),
 							),
-						),
-					],
-				}),
-			};
+						],
+					}),
+				};
+			}
 			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace, lsp);
 			signal.throwIfAborted();
 			this.kernel = await CompanyKernel.create(
