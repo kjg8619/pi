@@ -56,6 +56,8 @@ export interface WeavraEvalOptions {
 	verifierTrust?: "compatible" | "strict";
 	/** Test/smoke fixture verifier sandbox mode; absent means the production default (disabled). */
 	verifierSandbox?: "disabled" | "required";
+	/** Test/smoke fixture task-context mode; absent means the production default (disabled). */
+	contextPack?: "disabled" | "bounded";
 }
 
 export interface WeavraEvalResult {
@@ -97,6 +99,7 @@ export function materializeFixture(
 		mutation?: "compatible" | "strict";
 		verifierTrust?: "compatible" | "strict";
 		verifierSandbox?: "disabled" | "required";
+		contextPack?: "disabled" | "bounded";
 	},
 ): { cwd: string; config: RuntimeConfig } {
 	const cwd = join(root, fixture.id);
@@ -117,6 +120,7 @@ export function materializeFixture(
 			runtime: { workflow: fixture.workflow },
 			files: { allowed_paths: fixture.allowedPaths },
 			...(options.mutation ? { mutation: { mode: options.mutation } } : {}),
+			...(options.contextPack ? { agents: { context_pack: { mode: options.contextPack } } } : {}),
 			verification: {
 				...(options.verifierTrust ? { trust: { mode: options.verifierTrust } } : {}),
 				...(options.verifierSandbox ? { sandbox: { mode: options.verifierSandbox } } : {}),
@@ -143,6 +147,7 @@ export function materializeFixture(
 			...(options.mutation ? [`mutation: { mode: ${options.mutation} }`] : []),
 			...(options.verifierTrust ? [`verification: { trust: { mode: ${options.verifierTrust} } }`] : []),
 			...(options.verifierSandbox ? [`verification: { sandbox: { mode: ${options.verifierSandbox} } }`] : []),
+			...(options.contextPack ? [`agents: { context_pack: { mode: ${options.contextPack} } }`] : []),
 			"",
 		].join("\n"),
 	);
@@ -170,6 +175,7 @@ export async function runWeavraFixture(
 			...(options.mutation ? { mutation: options.mutation } : {}),
 			...(options.verifierTrust ? { verifierTrust: options.verifierTrust } : {}),
 			...(options.verifierSandbox ? { verifierSandbox: options.verifierSandbox } : {}),
+			...(options.contextPack ? { contextPack: options.contextPack } : {}),
 		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
