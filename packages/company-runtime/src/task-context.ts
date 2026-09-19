@@ -99,7 +99,7 @@ export function isContextEligible(
 ): boolean {
 	if (!isListablePath(path, policy) || !isPolicyPath(path)) return false;
 	if (isProtectedPath(path, protectedPaths)) return false;
-	if (verifierSources.some((source) => source === path)) return false;
+	if (isProtectedPath(path, verifierSources)) return false;
 	if (!policy.allowedPaths.some((root) => path === root || path.startsWith(`${root}/`))) return false;
 	// Lexical path safety: the declared path and every parent component must be real directory entries.
 	// A symlink that happens to resolve to a safe target is still denied; realpath is never the authority.

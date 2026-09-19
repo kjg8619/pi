@@ -5,6 +5,8 @@ import { type Static, Type } from "typebox";
 import { Check } from "typebox/value";
 import { parseDocument } from "yaml";
 import { CheckKindSchema, WorkflowSchema } from "./contracts.ts";
+import { validateDocumentationConfig } from "./documentation-pack.ts";
+import { DocumentationConfigSchema } from "./documentation-pack-types.ts";
 import { LspConfigSchema, normalizeLspConfig } from "./lsp/config.ts";
 import { isPolicyPath, isProtectedPath } from "./policy.ts";
 
@@ -54,7 +56,23 @@ export const RuntimeConfigSchema = Type.Object(
 				strict,
 			),
 		),
-		review: Type.Optional(Type.Object({ enabled: Type.Optional(Type.Literal(true)) }, strict)),
+		review: Type.Optional(
+			Type.Object(
+				{
+					enabled: Type.Optional(Type.Literal(true)),
+					context: Type.Optional(
+						Type.Object(
+							{
+								impact: Type.Enum(["disabled", "bounded"]),
+								documentation: Type.Optional(DocumentationConfigSchema),
+							},
+							strict,
+						),
+					),
+				},
+				strict,
+			),
+		),
 		// Optional bounded budget; absent means no configured budget (explicit unlimited). Not a billing hard cap.
 		budget: Type.Optional(
 			Type.Object(
@@ -204,6 +222,7 @@ export function parseRuntimeConfig(source: string) {
 	)
 		throw new Error("Project instruction path must be an unprotected literal workspace-relative file");
 	const allowedPaths = value.files?.allowed_paths ?? [];
+	if (value.review?.context?.documentation) validateDocumentationConfig(value.review.context.documentation);
 	for (const path of allowedPaths) validateRelativePath(path);
 	const ids = new Set<string>();
 	const checks = (value.verification?.checks ?? []).map((check) => {
@@ -234,7 +253,10 @@ export function parseRuntimeConfig(source: string) {
 			worker_timeout_ms: value.agents?.worker_timeout_ms ?? 180_000,
 			context_pack: { mode: value.agents?.context_pack?.mode ?? ("disabled" as const) },
 		},
-		review: { enabled: true as const },
+		review: {
+			enabled: true as const,
+			...(value.review?.context ? { context: structuredClone(value.review.context) } : {}),
+		},
 		...(value.budget ? { budget: structuredClone(value.budget) } : {}),
 		state: { enabled: true as const, directory: ".ai" as const },
 		risk: { approval_required: ["R3"] as ["R3"] },
