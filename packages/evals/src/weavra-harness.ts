@@ -58,6 +58,10 @@ export interface WeavraEvalOptions {
 	verifierSandbox?: "disabled" | "required";
 	/** Test/smoke fixture task-context mode; absent means the production default (disabled). */
 	contextPack?: "disabled" | "bounded";
+	/** Host-owned Reviewer advisory composition; never permission or verifier evidence. */
+	reviewerContext?: RuntimeConfig["review"]["context"];
+	/** Explicit trusted server registration for deterministic fixtures or opt-in smoke. */
+	lsp?: NonNullable<RuntimeConfig["code_intelligence"]>["lsp"];
 }
 
 export interface WeavraEvalResult {
@@ -93,13 +97,12 @@ function git(cwd: string, args: string[]): void {
 export function materializeFixture(
 	fixture: WeavraEvalFixture,
 	root: string,
-	options: {
+	options: Pick<
+		WeavraEvalOptions,
+		"mutation" | "verifierTrust" | "verifierSandbox" | "contextPack" | "reviewerContext" | "lsp"
+	> & {
 		provider: string;
 		model: string;
-		mutation?: "compatible" | "strict";
-		verifierTrust?: "compatible" | "strict";
-		verifierSandbox?: "disabled" | "required";
-		contextPack?: "disabled" | "bounded";
 	},
 ): { cwd: string; config: RuntimeConfig } {
 	const cwd = join(root, fixture.id);
@@ -121,6 +124,8 @@ export function materializeFixture(
 			files: { allowed_paths: fixture.allowedPaths },
 			...(options.mutation ? { mutation: { mode: options.mutation } } : {}),
 			...(options.contextPack ? { agents: { context_pack: { mode: options.contextPack } } } : {}),
+			...(options.reviewerContext ? { review: { context: options.reviewerContext } } : {}),
+			...(options.lsp ? { code_intelligence: { lsp: options.lsp } } : {}),
 			verification: {
 				...(options.verifierTrust ? { trust: { mode: options.verifierTrust } } : {}),
 				...(options.verifierSandbox ? { sandbox: { mode: options.verifierSandbox } } : {}),
@@ -134,25 +139,9 @@ export function materializeFixture(
 			},
 		}),
 	);
-	writeFileSync(
-		join(cwd, ".ai/config.yaml"),
-		[
-			"schemaVersion: 1",
-			"models:",
-			"  profiles:",
-			`    coding: { provider: ${options.provider}, model: ${options.model} }`,
-			`    reasoning: { provider: ${options.provider}, model: ${options.model} }`,
-			`runtime: { workflow: ${fixture.workflow} }`,
-			`files: { allowed_paths: [${fixture.allowedPaths.join(", ")}] }`,
-			...(options.mutation ? [`mutation: { mode: ${options.mutation} }`] : []),
-			...(options.verifierTrust ? [`verification: { trust: { mode: ${options.verifierTrust} } }`] : []),
-			...(options.verifierSandbox ? [`verification: { sandbox: { mode: ${options.verifierSandbox} } }`] : []),
-			...(options.contextPack ? [`agents: { context_pack: { mode: ${options.contextPack} } }`] : []),
-			"",
-		].join("\n"),
-	);
+	writeFileSync(join(cwd, ".ai/config.yaml"), JSON.stringify(config));
 	git(cwd, ["init", "-q"]);
-	git(cwd, ["add", "--", "."]);
+	git(cwd, ["add", "--", ...Object.keys(fixture.files), ".ai/config.yaml"]);
 	git(cwd, ["commit", "-qm", `eval fixture ${fixture.id}`]);
 	return { cwd, config };
 }
@@ -176,6 +165,8 @@ export async function runWeavraFixture(
 			...(options.verifierTrust ? { verifierTrust: options.verifierTrust } : {}),
 			...(options.verifierSandbox ? { verifierSandbox: options.verifierSandbox } : {}),
 			...(options.contextPack ? { contextPack: options.contextPack } : {}),
+			...(options.reviewerContext ? { reviewerContext: options.reviewerContext } : {}),
+			...(options.lsp ? { lsp: options.lsp } : {}),
 		});
 		const proposal = proposeExecutionMode(fixture.goal);
 		if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
@@ -186,6 +177,8 @@ export async function runWeavraFixture(
 			statements: fixture.statements,
 			workflow: selection.workflow,
 			config,
+			// Stable fixture identity makes paired runs use the same frozen Task Contract.
+			taskId: fixture.id,
 		});
 		const startedAt = Date.now();
 		const workflow = new StandardWorkflow({
@@ -234,7 +227,7 @@ export async function runWeavraFixture(
 		}
 		const run = runs.at(-1);
 		const pack = run ? projectEvidencePack({ run, report }) : undefined;
-		const reportedTokens = pack
+		const reportedTokens = pack?.workers.length
 			? pack.workers.reduce<number | null>(
 					(sum, worker) => (sum === null || worker.reportedTokens === null ? null : sum + worker.reportedTokens),
 					0,
@@ -252,7 +245,7 @@ export async function runWeavraFixture(
 			changedFiles: report.changedFiles,
 			durationMs,
 			reportedTokens,
-			toolCalls: pack?.workers.reduce((sum, worker) => sum + worker.toolCalls, 0) ?? null,
+			toolCalls: pack?.workers.length ? pack.workers.reduce((sum, worker) => sum + worker.toolCalls, 0) : null,
 			measurementPresent: (run?.workerMeasurements?.length ?? 0) > 0,
 			taskContractDigest: run?.taskContractDigest ?? null,
 			evidencePack: pack ? formatEvidencePack(pack) : "",

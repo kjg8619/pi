@@ -430,6 +430,70 @@ Developer #1 → SELF_CHECK #1 FAIL
 - 검증: 실제 SDK/faux+Git+Node checks, macOS required sandbox, production recipe command/Plan Preview/ASCII graph/Evidence Pack smoke와 positive/negative 회귀. LOG-084의 actual `codex-lb/gpt-6-astra`는 기존 Weavra `openai-responses` route로 production `/workflow run`을 실행해 **SELF_CHECK exit 7 → 새 Developer repair 1회 → fresh SELF_CHECK PASS → 독립 Reviewer PASS → TEST PASS → COMPLETED**를 확인했다. strict mutation/trust·bounded context·required sandbox를 유지했고 oraclePass true / falseCompletion false, worker 3회·model turn 10회·reported tokens 34,035를 기록했다. 초기 Developer에만 결함을 남기도록 지시한 통제 실험이며 가짜 verifier나 Host 사후 소스 변경은 없다.
 - **NOT VERIFIED:** Linux sandbox actual, 모든 Provider/model/OS, TUI overlay rendering. R2/R3 repair는 지원하지 않으며 expected-failure TDD lifecycle, 일반 retry/resume/rollback, Oracle 자동 수정도 구현하지 않았다. actual positive smoke에서 의도적으로 공격하지 않은 stale receipt/review·권한 확장·UNKNOWN budget 등의 거부 경계는 별도의 deterministic 회귀 결과로 구분한다.
 
+## V0.5D Reviewer Impact / Versioned Documentation
+
+기존 C01 Task Context Pack과 별개인 **Reviewer 전용 advisory envelope**다. 새 Kernel guard/Workflow/Policy/도구 권한/승인 시스템이 아니며 기본 동작을 바꾸지 않는다. `review.context` 생략 시 이전 config shape와 동작을 유지한다.
+
+기존 trusted config에 아래를 합친다. 예제의 `label`은 프로젝트가 직접 검토·등록한 snapshot 형식이며 원격 공식 문서를 자동 인증하는 기능이 아니다. manifest는 current `files.allowed_paths` 안에 있어야 한다.
+
+```yaml
+files:
+  allowed_paths: [src, test, package.json]
+review:
+  enabled: true
+  context:
+    impact: bounded                 # disabled | bounded
+    documentation:
+      mode: bounded                 # disabled | bounded
+      manifest: package.json
+      requested: [label]
+      entries:
+        - id: label-1.2.3
+          source:
+            kind: reviewed-local
+            reference: local:label-1.2.3
+          component: label
+          version: 1.2.3
+          capturedAt: "2026-01-01T00:00:00.000Z"
+          digest: sha256:2b5222070a7fc3abcfbf539c05276fdcc02c96037143b156370dc8815e453f6e
+          reviewStatus: REVIEWED
+          content: "label 1.2.3 trims boundary whitespace and preserves letter case."
+```
+
+### C04: actual diff → bounded impact
+
+- GitWorkspace의 실제 before/after를 bounded line LCS·UTF-16 edit extent로 비교한다. current full symbol range와 navigation selection을 분리하고, 본문 변경·중첩 symbol·같은 행의 별개 함수·삭제 boundary를 구분한다. 삭제된 source는 metadata만 보존하며 과거 symbol이나 인접 sibling의 변경을 지어내지 않는다.
+- changed symbol의 references와 definition만 조회한다. `callers`는 **reference 후보**이지 모두 호출이거나 완전한 call graph라는 뜻이 아니다. `declarations`는 서버가 반환한 직접 definition/interface 후보다. 관련 테스트에는 `lsp-reference`, `same-stem`, `same-directory`, `c01-heuristic` 근거를 붙인다. public contract 호환성은 증명하지 않는다.
+- C01 read/listable/Policy 경계를 재사용한다. protected/oracle/project instruction/secret/outside-root/symlink/hardlink를 제외한다. 초기 최대 64개 eligible source digest와 query 전후·마지막 source 재검증을 사용하며 각 read는 최대 256 KiB다. 관찰 중 변경된 symbol/reference를 버린다.
+- changed files 32, symbol documents 4, changed symbols 32, reference query 8 + definition query 8, callers/declarations 각각 64, 관련 tests 24다. 정렬·중복 제거 후 우선순위/byte cap을 적용한다. LSP 정규화는 최대 1,024 input nodes/depth 16을 검사한 뒤 canonical output 128개/8 KiB로 제한하며, input cap을 넘으면 임의 prefix 대신 unavailable/error로 닫는다.
+- LCS는 2,000,000 cells/총 40,000 lines를 넘으면 UNKNOWN으로 남긴다. LSP unavailable/stale/error·불완전 response·누락 full range·예산 초과는 unknown/truncated이며 이름 위치로 본문을 추정하지 않는다. target digest는 현재 파일 bytes에 대한 관찰일 뿐 **서버 내부 target cache freshness 보증이 아니다**. 범용 indexer/vector DB/cross-language graph는 없다.
+
+### C05: reviewed snapshot의 exact declaration binding
+
+Registry는 기존 Host-frozen config 안의 inert data다. 최대 16 entries/16 requested components, content당 8 KiB UTF-8와 전체 YAML 64 KiB 제한을 적용한다. `source.kind`는 `reviewed-local`만 지원하며 reference는 조회하지 않는 provenance다. HTTPS reference의 userinfo/query/fragment와 비지원 URI scheme, 알 수 없는 executable/hook/tool/credential 필드는 거부한다. 임의 이름의 비밀을 자동 식별하지 않으므로 원문에 credential을 넣지 않는다.
+
+| 상태 | 의미와 content 전달 |
+|---|---|
+| MATCHED | REVIEWED bytes digest·capture/expiry·exact valid SemVer 선언이 일치함. content 전달, 권한/최신성/설치 증명 아님 |
+| VERSION_MISMATCH | 명확한 선언 버전이 snapshot version과 다름. content 없음 |
+| STALE | 명시적 STALE, content digest 불일치 또는 `validUntil` 만료. content 없음 |
+| UNAVAILABLE | UNREVIEWED이거나 manifest가 missing/malformed/Policy 제외됨. content 없음 |
+| UNKNOWN | range/충돌/비정상 선언/정확한 버전 부재 또는 미래 capturedAt. content 없음 |
+
+Version source는 `npm-package-json-declaration`이며 dependencies/devDependencies/peerDependencies/optionalDependencies의 literal exact 값만 쓴다. lockfile resolution, 설치 검사, 날짜만으로 최신 판정, 자동 fetch/install과 실행 hook은 없다. 선택적 `validUntil`은 capturedAt 이후의 ISO timestamp이며 경계 시각부터 만료다.
+
+### Freshness, 저장, authority
+
+실행 순서는 fresh C01 → fresh C04/C05 → 기존 Reviewer Adapter다. envelope는 run ID/code revision/Task Contract/diff/C01 digest에 bound되고 workspace inspect 전후가 verified diff와 같아야 전달한다. timestamp는 content identity에서 제외한다. production composition은 C04/C05 각각 23,552 bytes, 추가 envelope 합계 최대 49,152 bytes다. 큰 entry를 통째로 제거하고 truncation을 표시하며, 만족할 수 없는 최소 cap은 유한하게 거부한다.
+
+Adapter는 outer/nested version·shape·digest·docs status/content를 Provider/session 전에 검사한다. repair revision 1에서도 새 symbol/source/docs binding을 만든다. C04/C05 digest는 strict mutation `readReceipt`나 `trustedEvidenceRefs`가 아니며, 문서의 MATCHED와 Reviewer PASS도 required SELF_CHECK/TEST·trust/sandbox·최신 diff·Kernel COMPLETE를 대체하지 않는다.
+
+`WorkerMeasurement.reviewerContext`는 optional digest/count/byte/truncated 요약이고 Evidence Pack도 명시적 allowlist로 같은 요약만 투영한다. source/doc body·reference·전체 LSP payload·reasoning/credential을 이 경로에 저장하지 않는다. 과거 필드 없는 run은 그대로 읽는다. Reviewer raw prompt는 기존 Pi transcript 소유권을 따르며 새로운 raw durable store/cache는 만들지 않는다.
+
+현재 로컬 검증: Runtime 1,385 / Weavra SDK slice 480 / deterministic eval 35 PASS, 격리 `bash ./test.sh` 전체 PASS. 기존 `codex-lb/gpt-6-astra` route의 actual smoke **1회 PASS**: production command handler + real SDK + TypeScript language server 5.1.3, changed symbol 1·reference 6·관련 test 1, TypeScript 5.9.3 exact 선언 문서 MATCHED, 4,289-byte envelope, strict mutation/trust·macOS required sandbox·SELF_CHECK/TEST·독립 review·oracle PASS·COMPLETED·writer release. Provider-reported usage는 28,274 tokens, 도구 호출 10회였다. response model 별도 echo는 UNKNOWN이다.
+
+UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 아니다. deterministic A/B의 고정 알고리즘 결과를 모델 품질·일반 결함 탐지율·token 절감으로 일반화하지 않는다. 정확한 구현 HEAD CI와 별도 closure docs HEAD CI는 아직 남아 있으며 최신 판정은 WORK_LOG를 따른다(LOG-090~091).
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
@@ -829,6 +893,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 ```sh
 # packages/company-runtime에서
 node ../../node_modules/vitest/dist/cli.js --run test/verification-repair.test.ts test/verification-repair-boundary.test.ts test/sandbox.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/impact-review.test.ts test/documentation-pack.test.ts test/reviewer-context.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/project-context.test.ts test/list-files.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/execution-contract.test.ts test/trust-baseline.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts

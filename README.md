@@ -25,6 +25,7 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.3F: worker별 실제 provider/model·usage·latency·tool 호출 측정(provider-reported usage, UNKNOWN 규칙), optional budget(호출 수 사전 차단·token fail-closed), Run 시작 provenance snapshot, `/state evidence` read-only Evidence Pack, `packages/evals` 기반 Weavra eval adapter와 deterministic fixture 6개.
 - V0.5B: built-in reviewed recipe 4종(`bugfix`, `safe-refactor`, `test-addition`, `read-only-investigation`). recipe는 **Planner가 아니고 permission·approval·evidence·skill runtime·completion authority도 아니다**. JSON editor 입력으로 초안을 만들고 기존 AC 편집기에서 사용자가 수정·확인한 최종 AC만 Task Contract로 freeze한다. 현재 recipe command는 **STANDARD 전용**이며 QUICK 선택은 실행 전에 거부한다(일반 `/workflow run <goal>`은 QUICK/STANDARD 유지). scope/check는 Host의 `allowed_paths`와 required registered check를 그대로 매핑하며 별도 scope narrowing은 구현하지 않았다. provenance의 `recipe{id,version,digest}`는 초안에 사용된 정의만 식별하고 최종 Task Contract digest와 별개다. 자동 discovery/install/hooks/임의 skill 실행은 없다. **Expected-failure TDD lifecycle: NOT IMPLEMENTED**.
 - V0.5C Bounded Verification Repair: 기본 disabled인 `verification.repair.mode: self-check-once`. Host가 지정한 check의 deterministic normal exit에 한해 **STANDARD/EDIT/R1·SELF_CHECK 최대 1회** 새 attempt를 연다. failed parent/evidence·원래 계약/정책·누적 budget을 보존하며 새 session/context/read receipt → fresh checks → 독립 Reviewer → TEST → Kernel COMPLETE가 필요하다. 인프라/Provider/auth/Policy/cleanup/cancel/oracle 변경은 repair 대상이 아니다. **`codex-lb/gpt-6-astra` actual smoke에서 strict mutation/trust·bounded context·macOS required sandbox로 COMPLETED / oraclePass true / falseCompletion false**를 확인했다(LOG-084). 초기 결함을 의도적으로 남긴 통제 실험이며 자연 발생 오류 복구율·모든 모델/OS 보장이 아니다. Linux sandbox actual은 NOT VERIFIED다. [실행 계약](packages/company-runtime/README.md#v05c-bounded-verification-repair).
+- V0.5D(remote closure 대기): opt-in Reviewer impact/context. 실제 diff의 changed symbol·bounded references/declarations·관련 테스트와 exact 선언 버전에 맞는 reviewed 문서를 fresh 입력으로 제공한다. **advisory이며 receipt·Policy·검증 evidence·완료 권한이 아니다.** 전체 로컬 회귀와 `codex-lb/gpt-6-astra` actual 1회에서 fresh impact/docs·독립 review·strict trust/macOS sandbox·oracle PASS·COMPLETED를 확인했다(LOG-090~091).
 - V0.3E: Host-confirmed Task Contract(순차 AC ID·scope·check mapping), `/workflow run` Plan Preview(AC editor·확인), frozen contract digest, Reviewer/Executor의 AC ID별 결과와 Kernel AC 완료 guard. Plan 확인은 approval이 아니며 legacy state는 `UNKNOWN (legacy)`로 읽는다.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek 공식 API는 NOT VERIFIED**다. CommandCode Provider 경유 `deepseek/deepseek-v4.1-flash` worker smoke는 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)과 [V0.3E smoke](docs/WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md)를 따른다: hardening 전 STANDARD 1/5·QUICK 0/3, hardening 후 STANDARD 2/3·QUICK 1/3, V0.3E 2 AC run은 DeepSeek·GPT 교차 모두 COMPLETED(provider 오류 3회 포함, 실패는 모두 fail-closed이고 workspace 무변경).
 
@@ -503,6 +504,17 @@ runtime_list_files({path:"src", maxDepth:2})    허용 범위 안에서 좁히�
 R1에서 해당 mutation을 만나면 계속 실행하도록 자동 승격하지 않고 새 STANDARD/R2 run을 요구한다. READ_ONLY read/list/search는 가능하지만 mutation 권한은 없으며 bound R2·독립 Reviewer/R3 승인 의미도 그대로다.
 
 자동 회귀와 실제 검증 범위는 [WORK_LOG LOG-048](docs/WORK_LOG.md)를 따른다. [Provider smoke 1회](docs/WEAVRA_V03D_PROVIDER_SMOKE_2026-09-17.md)는 snapshot 전달/list tool 선택까지 확인했으나 모델의 `path:"."` 요청이 Policy에서 거부돼 완료하지 못했다. 설명 보완 후 실제 Provider 재실행은 하지 않았으며 end-to-end 성공으로 표시하지 않는다. self-hosting claim도 하지 않는다.
+
+## V0.5D — Reviewer Impact / Versioned Documentation
+
+기존 `.ai/config.yaml`의 `review.context.impact: bounded`로 C04를 켠다. 생략하면 기존 동작을 유지하며, C01 `agents.context_pack`과 독립적인 Reviewer 전용 입력이다. C05는 같은 context의 reviewed inline registry를 사용한다. 설정 예제와 상태별 의미는 [Runtime 문서](packages/company-runtime/README.md#v05d-reviewer-impact--versioned-documentation)를 따른다.
+
+- 현재 diff와 full symbol range를 교차하고 Policy로 다시 확인한 references/declarations/test 후보를 제한된 범위에서 제공한다. 삭제된 함수를 인접 함수로 추정하지 않는다. 완전한 call/dependency graph나 public API 호환성 증명이 아니다.
+- 문서는 정책상 읽을 수 있는 package.json의 **exact 선언 버전**과 검토된 source/version/capturedAt/digest를 대조한다. `MATCHED`도 installed/resolved version, 최신 공식 문서, approval 또는 PASS가 아니다. range/불명확한 버전은 UNKNOWN이며 stale/unmatched content는 전달하지 않는다. fetch/install/hook 실행은 없다.
+- Reviewer 호출마다 재구성하고 run/revision/Task Contract/diff/C01 digest에 묶는다. 추가 envelope는 최대 48 KiB이며 state/measurement/evidence에는 digest·count·byte·truncated 요약만 남긴다. 원문은 기존 Pi worker prompt/transcript 경로를 따르므로 registry에 비밀을 넣지 않는다.
+- 결정적 A/B의 고정된 리뷰 알고리즘에서 파일 조회는 6→3, 실제 tool 호출은 10→7이었다. 대신 Reviewer payload는 약 3.1 KiB 증가했다. clean/defect 양쪽 false-positive·false-completion은 0이며 **Provider token/일반 모델 품질·성능 향상은 UNKNOWN**이다.
+
+전체 로컬 회귀와 Astra actual 1회는 PASS다. 실제 TypeScript language server의 changed `formatLabel`, caller/관련 test, TypeScript `5.9.3` 선언의 MATCHED reviewed snapshot을 Reviewer가 받았고 SELF_CHECK/TEST·독립 review·oracle·writer release가 통과했다. 실제 TUI rendering이나 일반 모델 품질 향상을 검증한 것은 아니다. 정확한 구현/별도 closure HEAD의 remote CI는 별도 gate다(LOG-090~091).
 
 ## Workflow & Risk
 

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -53,7 +53,6 @@ function fauxAgents(cwd: string) {
 			});
 			const measurement = accumulator.finish("SUCCEEDED");
 			if (input.role === "Developer") {
-				const { readFileSync, writeFileSync } = await import("node:fs");
 				const source = readFileSync(join(cwd, "src/greeting.js"), "utf8");
 				writeFileSync(join(cwd, "src/greeting.js"), source.replace("Helo,", "Hello,"));
 				return {
@@ -101,37 +100,41 @@ function fauxAgents(cwd: string) {
 
 async function runWith(contextPack: "disabled" | "bounded") {
 	const root = mkdtempSync(join(tmpdir(), `weavra-ab-${contextPack}-`));
-	const agentDir = join(root, "agent");
-	mkdirSync(agentDir, { recursive: true });
-	const state: {
-		summaries: ContextSummary[];
-		packs: Array<AgentExecutionRequest["taskContextPack"]>;
-	} = {
-		summaries: [],
-		packs: [],
-	};
-	const result = await runWeavraFixture(fixture!, {
-		agentDir,
-		timeoutMs: 60_000,
-		contextPack,
-		createAgents: async ({ cwd, config, args }) => {
-			const contract = args[4];
-			const policy = {
-				executionMode: contract.mode,
-				executionRunId: contract.runId,
-				tools: [...WORKER_FILE_TOOLS],
-				allowedPaths: [...config.files.allowed_paths],
-				protectedPaths: ["test/eval.test.mjs"],
-				projectInstruction: null,
-				configDigest: "faux-config-digest",
-			};
-			const faux = fauxAgents(cwd);
-			state.summaries = faux.summaries;
-			state.packs = faux.packs;
-			return { executor: faux.executor, policy };
-		},
-	});
-	return { result, ...state };
+	try {
+		const agentDir = join(root, "agent");
+		mkdirSync(agentDir, { recursive: true });
+		const state: {
+			summaries: ContextSummary[];
+			packs: Array<AgentExecutionRequest["taskContextPack"]>;
+		} = {
+			summaries: [],
+			packs: [],
+		};
+		const result = await runWeavraFixture(fixture!, {
+			agentDir,
+			timeoutMs: 60_000,
+			contextPack,
+			createAgents: async ({ cwd, config, args }) => {
+				const contract = args[4];
+				const policy = {
+					executionMode: contract.mode,
+					executionRunId: contract.runId,
+					tools: [...WORKER_FILE_TOOLS],
+					allowedPaths: [...config.files.allowed_paths],
+					protectedPaths: ["test/eval.test.mjs"],
+					projectInstruction: null,
+					configDigest: "faux-config-digest",
+				};
+				const faux = fauxAgents(cwd);
+				state.summaries = faux.summaries;
+				state.packs = faux.packs;
+				return { executor: faux.executor, policy };
+			},
+		});
+		return { result, ...state };
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 }
 
 describe("V0.5A deterministic context A/B", () => {
