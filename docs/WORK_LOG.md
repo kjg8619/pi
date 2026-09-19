@@ -54,7 +54,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.4B Verifier Trust Closure | 구현·자동 회귀 PASS / DeepSeek strict-trust run **COMPLETED** / 게시 `96b1d8366` | LOG-067. registration digest가 실제 filtered env(canonical)를 bind, executableDigest는 real SHA-256 identity digest, digest schema 강화(`^sha256:[0-9a-f]{64}$`), Kernel이 Host-frozen registration digest까지 비교(wrong/malformed VERIFIED 거부), Reviewer/Worker protected-oracle 비열람 guidance. 자동 53개 파일·1,696개 PASS. DeepSeek: self-check·test `PASS`+`VERIFIED` 동일 digest, Reviewer PASS(독립)·oracle 직접 접근 0회, oraclePass true, 22,515 tokens |
 | V0.4C Verifier Sandbox | 구현·자동 회귀 PASS / macOS actual PASS / **Linux actual NOT VERIFIED** / remote CI PASS / DeepSeek strict+trust+sandbox **COMPLETED** / 게시 `acfbac0fd`·문서 `aa43b9f9f` | LOG-069·LOG-070. `verification.sandbox.mode`(기본 disabled), SRT 0.0.76 exact pin, SandboxPort(argv·canonical path·0600 temp settings), fixed deny-all network + workspace write allow + oracle/protected read·write deny, Host-frozen `sandboxPolicyDigest` + Kernel guard. 자동 54개 파일·1,710 PASS(경계 테스트는 backend 동작 플랫폼에서만 실행) |
 | V0.5A Task Context Pack | CLOSED | LOG-071; bounded context actual COMPLETED, historical regression·CI PASS |
-| V0.5B Task Recipes | actual PASS / closure 회귀 진행 | LOG-075·076; production recipe command, edited AC 3개, strict/trust/sandbox actual COMPLETED·oraclePass true. 현재 전체 회귀와 closure HEAD CI 확인 중 |
+| V0.5B Task Recipes | CLOSED | LOG-075~079; production recipe command·edited AC 3개·strict/trust/sandbox actual COMPLETED·oraclePass true. 현재 전체 회귀 PASS, 구현 HEAD `f4c3298f6` remote CI PASS. closure 문서 HEAD CI는 게시 후 최종 확인 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -66,9 +66,9 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.4B Verifier Trust(LOG-066 구현 + LOG-067 closure)는 opt-in strict registration/source freeze, env-bound registration digest, real executable identity digest, pre/post process 재검증, Worker protected source, Kernel의 Host-frozen digest guard, Reviewer oracle 비열람 guidance, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek strict-trust run이 **COMPLETED**했고 self-check/test가 같은 registration digest로 `VERIFIED`를 기록했다. V0.4B는 LOG-067로 종료한다.
 - V0.4C Verifier Sandbox(LOG-069 구현 + LOG-070 closure)는 option 3 기준으로 CLOSED다: macOS actual PASS, Linux actual **NOT VERIFIED**(runner 외부 blocker 2건 — 명시), deterministic cross-platform contract PASS, remote CI PASS(전체 run success), DeepSeek strict+trust+sandbox actual **COMPLETED**.
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
-- 현재 작업은 **V0.5B — C03 Task Recipes / Reviewed Skill Packs closure**다. LOG-075 actual Provider PASS 후 LOG-076 회귀를 수행 중이며, V0.5C는 V0.5B closure 이후에만 시작한다.
+- **V0.5B — C03 Task Recipes / Reviewed Skill Packs는 LOG-079 기준 CLOSED**다. 다음은 V0.5C — C02 Bounded Verification Repair 설계 재검증과 첫 vertical slice다. closure 문서 HEAD의 remote CI PASS 확인 전에는 V0.5C를 시작하지 않는다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
-- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 최신 HEAD remote GitHub Actions 실제 PASS는 final docs HEAD `b957cfada`의 run `35402788620` = success로 확인됐다.
+- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 현재 검증된 구현 HEAD remote CI는 `f4c3298f6`의 run `35441207575` = success다. 이전 SHA의 CI를 closure 문서 HEAD의 결과로 대체하지 않는다.
 
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
@@ -3313,3 +3313,37 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 변경 파일: `packages/coding-agent/test/suite/company-runtime-lsp.test.ts`, 이 로그. 현재 단독 파일 **34/34 PASS**, `npm run check` PASS(1,429 files, 변경 없음). 수정 후 full `bash ./test.sh` 결과를 기다린다.
 - 새로운 runtime 기능이나 repair는 추가하지 않았다. local full 및 수정 HEAD remote CI가 확인되기 전까지 V0.5B는 미종료다. 이 변경은 검증 결과와 함께 별도 commit/push한다.
 - 후속 실제 결과(20:50 KST): 수정 후 `bash ./test.sh` **exit 0 / 전체 PASS**. coding-agent **278 files / 2,702 PASS / 50 skipped**(Weavra integration 포함), company-runtime **45 files / 1,276 PASS**, deterministic eval **7 files / 34 PASS**. 나머지 workspace 및 script/TUI 테스트도 정상 종료했다. skip은 기존 Provider/env 조건이며 이번 변경으로 추가하지 않았다. 앞선 실패 실행은 LOG-076~078에 그대로 남긴다.
+
+## LOG-079 — 2026-09-19 (Asia/Seoul) — V0.5B Task Recipes closure
+
+**판정: V0.5B CLOSED.** actual Provider + production command 회귀 + full local + 구현 HEAD remote CI가 통과했다. 이 항목·README·로드맵만 별도 closure commit으로 게시하고, 그 문서 HEAD CI까지 PASS인 것을 확인한 후에만 V0.5C를 시작한다.
+
+### 실제 구현 및 권한
+
+- 출발점은 `2809b407dc7a706b6f6142ccbb059a21271fdc9a`(local/origin 일치)였다. reviewed recipe 4종, strict 입력, STANDARD-only `/workflow run --recipe <id> <goal>`, compiler prefill → 사용자 AC 편집/확정 → Plan Preview → 기존 StandardWorkflow/Kernel 경로, bounded recipe provenance를 확인했다.
+- recipe는 Planner/Policy/승인/COMPLETE authority가 아니다. 최종 confirmed Task Contract를 사용하고 Host의 allowed paths와 registered checks를 그대로 유지한다. 현재 compiler는 scope를 더 좁히지 않는다. ordinary command와 QUICK 경로는 그대로다.
+- expected-failure TDD lifecycle은 **미구현**이다. 외부 skill 자동 탐색·임의 hook·command·Tool·protected oracle 읽기나 trust baseline 변경 권한도 없다. README의 scope narrowing 표현과 로드맵의 premature V0.5C 안내를 정정했다.
+- `RunCreated`에서 기록한 bounded recipe `id/version/digest`와 최종 run provenance가 동일하다. Task Contract digest와 recipe digest는 다른 identity다. raw recipe 입력 JSON·credential·protected 내용·전체 Provider transcript를 provenance에 저장하지 않는다. recipe에서 유래한 최종 AC는 의도적으로 Task Contract와 evidence에 나타난다. EvidencePack에 별도 recipe metadata 필드가 있다고 주장하지 않는다.
+
+### actual Provider 증거
+
+- LOG-075: `commandcode` / `deepseek/deepseek-v4.1-flash` / `https://api.commandcode.ai/provider/v1`, run `54a89a9a-a193-4491-93c7-a2ca458591c9`, **COMPLETED / oraclePass true / falseCompletion false / retry 0**.
+- actual UI adapter가 production 등록 command의 recipe JSON 입력·prefill 확인·AC 4→3 편집·Plan Preview 확인을 수행했다. 실제 terminal 키 입력/화면 rendering 검증으로 확대하지 않는다.
+- Developer fresh session → SELF_CHECK PASS → 독립 Reviewer PASS(AC 3개 MET) → TEST PASS → Kernel RunCompleted. strict read receipt와 anchored edit 사용, SELF_CHECK/TEST trust VERIFIED 및 동일 registration/executable/oracle digest, required sandbox ENFORCED(srt 0.0.76) 및 동일 policy digest를 확인했다. oracle 직접 도구 접근 0, oracle/private marker 변경 없음, writer lock 해제.
+- recipe `bugfix@1` digest `sha256:8eba00c5f95cbc75da431c17dc2c3ff7b3dfa0e251fc465b1bfc8408a6899cfe`; Task Contract digest `sha256:2b066ceea7ba526f1ea4c5d8dbf99fdd95f80a6bc32299d7f30ec3b2dbb0ffd0`. 상세 신뢰/격리 digest와 AC는 LOG-075에 보존한다.
+- Provider 보고 token 32,472, tool calls 9. session의 thinking은 medium, measurement의 thinking 표시는 UNKNOWN이며 둘을 혼동하지 않는다. 임시 smoke driver는 삭제했고 실제 run evidence 디렉터리는 조사 가능하도록 보존했다.
+
+### 이번 실행의 회귀와 게시
+
+- recipe unit/helper **3 files / 13 PASS**. production manual-vs-recipe A/B, 사용자 편집 AC, preflight 거부, 실제 required check exit 7의 false-completion 방지를 포함하는 새 command 통합 **12 PASS**. 동일 literal을 비교하던 helper A/B는 제거했다.
+- readiness 및 native watcher 실패/수정은 LOG-076~078에 분리 기록했다. timeout 확대·skip·runtime 안전 경계 변경 없이 실제 준비 신호/소비자 동작을 검증했다. 수정 후 동일 Weavra subset 재실행 **12 files / 464 PASS**.
+- 최종 `bash ./test.sh` **exit 0**: coding-agent **278 files / 2,702 PASS / 50 skipped**, company-runtime **45 files / 1,276 PASS**, deterministic eval **7 files / 34 PASS**. script 및 모든 나머지 workspace/TUI도 정상 종료했다. 이전 실패 실행을 이 PASS로 소급 수정하지 않는다.
+- `npm run check`, `npm run hydrate:model-data`, `npm run check:ci`, `npm run check:shrinkwrap`, `npm run check:install-lock:coding-agent`, `git diff --check`, `bash -n packages/company-runtime/bin/weavra`를 실제 실행해 PASS했다. ignored model JSON은 hydrate했지만 tracked generated source·lockfile은 변경하지 않았고 로컬 full build는 실행하지 않았다.
+- 구현 HEAD `f4c3298f645c65232136925cf6a52acf9cf5fe3b`의 [CI run 35441207575](https://github.com/kjg8619/pi/actions/runs/35441207575) **success**: hydrate / committed-source build / non-mutating check / isolated tests / launcher syntax / tracked-source unchanged 모두 PASS.
+- phase commits: `cfa2d002b` actual 기록, `c97a35665` recipe 회귀·worker readiness, `6ef51700c` native watcher assertion, `f4c3298f6` LSP readiness. 모두 일반 push했다. 중간 `cfa2d002b`·`c97a35665` CI는 후속 push 때문에 cancelled였으며 PASS로 세지 않는다. `6ef51700c` CI `35440812793`도 success였지만 최종 구현 판단은 위 `f4c3298f6` run을 사용했다.
+
+### 제한과 다음 단계
+
+- 이 closure는 bugfix recipe actual 1회와 deterministic 4종/negative 경로 검증이다. 모든 recipe의 Provider actual, 모든 OS/모델, Linux sandbox actual, terminal rendering, expected-failure TDD를 검증했다고 주장하지 않는다.
+- V0.5C 코드는 아직 없다. closure 문서 commit/push 후 해당 HEAD CI PASS를 확인하고, opt-in STANDARD/EDIT/R1·SELF_CHECK 최대 1회·fresh linked attempt·누적 budget·infrastructure failure 제외 계약을 재검증한다.
+- 이 항목의 변경 파일은 `README.md`, `docs/WEAVRA_ROADMAP_2026-09-17.md`, `docs/WORK_LOG.md`다. changelog는 `devlop` 규칙에 따라 추가하지 않는다. 안정 태그 `weavra-v0.1-rc1`은 변경하지 않는다. closure 문서 HEAD의 SHA/CI 결과는 후속 작업 기록에서 확정한다.

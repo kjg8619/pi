@@ -115,7 +115,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.4B — Verifier Trust** | 검증 기준/entrypoint의 신뢰성 강화 | FIX-08 | **완료**(LOG-066·LOG-067) |
 | **V0.4C — Verifier Sandbox** | registered check process에 OS 경계 추가 | FEAT-07 | **CLOSED**(LOG-069·LOG-070). macOS actual PASS / Linux actual **NOT VERIFIED**(runner 외부 blocker, PASS로 표기하지 않음) / deterministic cross-platform contract PASS / remote CI PASS / DeepSeek strict+trust+sandbox actual **COMPLETED** |
 | **V0.5A — Task Context Pack / Repo Map** | Host-selected bounded advisory context | C01 | **CLOSED**(LOG-071). opt-in `agents.context_pack.mode`, 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/preview projection, leakage·freshness·A/B 회귀, DeepSeek actual COMPLETED |
-| **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | **진행 중**(LOG-073). reviewed recipe 4종·strict input·`/workflow run --recipe <id> <goal>`·Plan Preview 표시·bounded provenance. deepseek actual은 미실행 |
+| **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | **CLOSED**(LOG-075~079). STANDARD-only reviewed recipe 4종·strict input·사용자 edited AC·Plan Preview·bounded provenance. DeepSeek actual COMPLETED/oraclePass true, production command A/B·negative 및 full local 회귀 PASS, 구현 HEAD remote CI PASS |
 | **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | V0.4C + V0.5B 이후 |
 | **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | C01 재사용 |
 | **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | Runtime authority 유지 |
@@ -793,7 +793,7 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**현재 다음 작업은 V0.5C — C02 Bounded Verification Repair다.** V0.5A Task Context Pack은 LOG-071로 CLOSED, V0.5B Task Recipes는 LOG-073까지 구현·게시했으나 full regression·DeepSeek actual·closure docs가 남아 CLOSED가 아니다. V0.4C Verifier Sandbox는 LOG-069 구현 + LOG-070 closure로 option 3 기준 CLOSED다(macOS actual PASS, Linux actual NOT VERIFIED, remote CI PASS, DeepSeek strict+trust+sandbox COMPLETED).
+**다음 작업은 V0.5C — C02 Bounded Verification Repair다.** V0.5A는 LOG-071, V0.5B는 actual DeepSeek·production command 회귀·full local·구현 HEAD remote CI를 포함한 LOG-075~079로 CLOSED다. V0.5B closure 문서 HEAD의 CI까지 PASS인 것을 확인한 뒤에만 V0.5C 설계/구현을 시작한다. V0.5B의 expected-failure TDD lifecycle은 미구현이며 recipe가 scope/check/Policy를 확장하거나 자동으로 축소한다고 주장하지 않는다. V0.4C는 LOG-069~070의 option 3 기준 CLOSED다(macOS actual PASS, Linux actual NOT VERIFIED).
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 
