@@ -3233,3 +3233,25 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
   - expected-failure TDD lifecycle은 구현하지 않았다. Linux verifier sandbox actual은 NOT VERIFIED.
 - 다음 작업: B7/B8 회귀 확장 → B9 full regression → B10 DeepSeek actual(bugfix/STANDARD/EDIT/bounded/strict/strict/required) → B11 LOG-072 통합·README·Roadmap 마감.
 - 커밋: `f704c67a8`(B3), `2a3c0c41f`(B6), `96fd2ee60`(게이트 예산), `674f4c654`(B4/B5). V0.5B는 CLOSED 아님.
+
+---
+## LOG-074 - V0.5B: B9 회귀 실행 결과와 B10 미실행
+- 기록일: 2026-09-19 (UTC+09:00)
+- 상태: 진행 중(V0.5B CLOSED 아님)
+- 목적: B9 회귀 목록을 실제로 실행해 결과를 남기고, B10 actual Provider smoke의 실행 여부를 사실대로 기록한다.
+- 검증 명령·결과(이번 항목에서 실행):
+  - `npm run hydrate:model-data` exit 0
+  - `npm run check` exit 0
+  - `npm run check:shrinkwrap` exit 0
+  - `npm run check:install-lock:coding-agent` exit 0
+  - `git diff --check` exit 0
+  - `bash -n packages/company-runtime/bin/weavra` exit 0
+  - `npm run check:ci`는 같은 세션 앞선 커밋(`674f4c654`, `2c1909569` staging)에서 exit 0을 확인했다. B9 전체 체인의 `check:ci` 단계는 이번 항목에서 완주를 확인하지 못했다(미확인).
+  - `bash ./test.sh`: **실패**. `company-runtime-hardening` Reviewer 행 중 일부가 fixture 기동 게이트에서 실패하며, 취소 순서 assertion은 실행되지 않는다(LOG-073의 부하 민감 문제와 동일).
+- 문제와 해결:
+  - B10 DeepSeek actual smoke는 **실행하지 않았다.** 이전 smoke는 `~/.weavra/agent/models.json`의 commandcode provider와 `~/.weavra/cmd.env`(mode 600, 사용자 승인 하에 source)로 실행했는데, 이번 세션에서는 해당 credential sourcing과 대화형 편집기/확인 단계를 구동하지 않았다. 따라서 recipe→Plan Preview→Task Contract→Developer/Reviewer/Verifier 경로는 actual Provider로 검증되지 않았고, provenance·oraclePass·falseCompletion도 actual run 기준으로 미확인이다.
+- 남은 제한:
+  - actual smoke 0회(이번 V0.5B 범위), Linux verifier sandbox actual NOT VERIFIED, expected-failure TDD lifecycle 미구현.
+  - V0.5B CLOSED 조건 중 actual 관련 항목과 final CI 확인이 미충족이다.
+- 다음 작업: B10 actual smoke(bugfix/STANDARD/EDIT/bounded/strict/strict/required) 1회 → 결과에 따라 LOG-072 통합 → final docs HEAD CI 확인.
+- 커밋: 이 항목은 docs commit으로 게시한다. V0.5B는 CLOSED 아님.
