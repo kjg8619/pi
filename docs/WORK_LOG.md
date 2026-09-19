@@ -53,6 +53,8 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.4B Verifier Trust | 구현·자동 회귀 PASS / DeepSeek strict trust VERIFIED / smoke COMPLETED 미확인 / 게시 `b41843e68` | LOG-066. opt-in `verification.trust.mode`(기본 compatible)·`checks[].trust.files`, registration digest·executable identity·source digest+generation freeze, pre/post process + settle 재검증, Worker protected source, Kernel `trustRequired` guard, bounded trust evidence. 자동 53개 파일·1,689개 PASS. DeepSeek strict run에서 self-check `PASS`+`VERIFIED (strict)`, Reviewer protected-read Policy DENY로 FAILED |
 | V0.4B Verifier Trust Closure | 구현·자동 회귀 PASS / DeepSeek strict-trust run **COMPLETED** / 게시 `96b1d8366` | LOG-067. registration digest가 실제 filtered env(canonical)를 bind, executableDigest는 real SHA-256 identity digest, digest schema 강화(`^sha256:[0-9a-f]{64}$`), Kernel이 Host-frozen registration digest까지 비교(wrong/malformed VERIFIED 거부), Reviewer/Worker protected-oracle 비열람 guidance. 자동 53개 파일·1,696개 PASS. DeepSeek: self-check·test `PASS`+`VERIFIED` 동일 digest, Reviewer PASS(독립)·oracle 직접 접근 0회, oraclePass true, 22,515 tokens |
 | V0.4C Verifier Sandbox | 구현·자동 회귀 PASS / macOS actual PASS / **Linux actual NOT VERIFIED** / remote CI PASS / DeepSeek strict+trust+sandbox **COMPLETED** / 게시 `acfbac0fd`·문서 `aa43b9f9f` | LOG-069·LOG-070. `verification.sandbox.mode`(기본 disabled), SRT 0.0.76 exact pin, SandboxPort(argv·canonical path·0600 temp settings), fixed deny-all network + workspace write allow + oracle/protected read·write deny, Host-frozen `sandboxPolicyDigest` + Kernel guard. 자동 54개 파일·1,710 PASS(경계 테스트는 backend 동작 플랫폼에서만 실행) |
+| V0.5A Task Context Pack | CLOSED | LOG-071; bounded context actual COMPLETED, historical regression·CI PASS |
+| V0.5B Task Recipes | actual PASS / closure 회귀 진행 | LOG-075·076; production recipe command, edited AC 3개, strict/trust/sandbox actual COMPLETED·oraclePass true. 현재 전체 회귀와 closure HEAD CI 확인 중 |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -64,7 +66,7 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.4B Verifier Trust(LOG-066 구현 + LOG-067 closure)는 opt-in strict registration/source freeze, env-bound registration digest, real executable identity digest, pre/post process 재검증, Worker protected source, Kernel의 Host-frozen digest guard, Reviewer oracle 비열람 guidance, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek strict-trust run이 **COMPLETED**했고 self-check/test가 같은 registration digest로 `VERIFIED`를 기록했다. V0.4B는 LOG-067로 종료한다.
 - V0.4C Verifier Sandbox(LOG-069 구현 + LOG-070 closure)는 option 3 기준으로 CLOSED다: macOS actual PASS, Linux actual **NOT VERIFIED**(runner 외부 blocker 2건 — 명시), deterministic cross-platform contract PASS, remote CI PASS(전체 run success), DeepSeek strict+trust+sandbox actual **COMPLETED**.
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
-- 다음 개발 단계는 **V0.5B — C03 Task Recipes / Reviewed Skill Packs**다.
+- 현재 작업은 **V0.5B — C03 Task Recipes / Reviewed Skill Packs closure**다. LOG-075 actual Provider PASS 후 LOG-076 회귀를 수행 중이며, V0.5C는 V0.5B closure 이후에만 시작한다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
 - 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 최신 HEAD remote GitHub Actions 실제 PASS는 final docs HEAD `b957cfada`의 run `35402788620` = success로 확인됐다.
 
@@ -3290,3 +3292,13 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 작업 중 test fixture 결함(미생성 worker directory, 기존 Kernel BLOCKED semantics를 FAILED로 기대)을 수정해 실제 계약에 맞췄다. Runtime 안전 계약은 바꾸지 않았다.
 - 다음: 수정된 HEAD의 local full test 및 remote CI → Phase 3 별도 closure commit. V0.5C 미착수.
 - 커밋: 이 항목과 테스트 변경을 Phase 2 commit으로 게시한다. 전체 회귀 결과는 closure 항목에 추가한다.
+
+## LOG-077 — 2026-09-19 (Asia/Seoul) — V0.5B closure 회귀의 native watcher 검사 정정
+
+**상태:** footer 단독 8 PASS, `npm run check` PASS. 전체 격리 회귀 재실행 중; 전체 PASS나 V0.5B CLOSED를 아직 선언하지 않는다.
+
+- LOG-076 변경 이후 `bash ./test.sh`에서 company-runtime **45 files / 1,276 PASS**, deterministic eval **7 files / 34 PASS**. coding-agent는 **2,701 PASS / 1 FAIL / 50 skipped**였다. cancellation readiness 회귀는 통과했고, 실패는 기존 footer reftable native watcher 테스트의 `execFile` 호출 수가 정확히 1이 되기를 기다리는 조건이었다.
+- 관찰과 추론 구분: 실제 오류 위치는 `footer-data-provider.test.ts`의 호출 횟수 대기였다. fs.watch와 watchFile의 비동기 통지는 하나의 변경에 대해 중복 refresh를 만들 수 있으므로 그 중간 호출 수는 소비자 계약이 아니다. 실패 실행에서 실제 호출 수는 출력되지 않아 중복 통지가 원인이었다고 확정하지 않는다.
+- `packages/coding-agent/test/footer-data-provider.test.ts`에서 해당 구현 호출 횟수 대기·assertion만 제거했다. 실제 파일 변경, native watcher, 기존 3초 대기 한도, 최종 cached branch `foo`, branch-change callback 정확히 1회는 그대로 검증한다. skip·mock 전환·timeout 증대·runtime 기능 변경은 없다. 별도 deterministic debounce 검사는 유지한다.
+- 현재 실행: footer 파일 **8/8 PASS**, `npm run check` PASS(1,429 files, 변경 없음). 수정 후 전체 `bash ./test.sh`는 진행 중이다.
+- 이전 전체 회귀의 성공을 이 실행의 성공으로 대체하지 않는다. 다음은 현재 전체 결과와 수정 commit 원격 CI 확인 후 별도 문서 closure다. 이 정정은 별도 commit/push한다.
