@@ -381,6 +381,7 @@ export function registerCompanyRuntime(
 									verifierTrustMode: config.verification.trust.mode,
 									verifierSandboxMode: config.verification.sandbox.mode,
 									contextPackMode: config.agents.context_pack.mode,
+									verificationRepairMode: config.verification.repair.mode,
 									...(recipeMeta ? { recipe: recipeMeta } : {}),
 									verifierTrustSources: [
 										...new Set(config.verification.checks.flatMap((check) => check.trust.files)),

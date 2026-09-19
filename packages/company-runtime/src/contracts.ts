@@ -172,6 +172,8 @@ export const CheckResultSchema = Type.Object(
 		trust: Type.Optional(VerifierTrustEvidenceSchema),
 		// Bounded sandbox metadata only: no settings JSON, env, HOME or absolute protected paths.
 		sandbox: Type.Optional(SandboxEvidenceSchema),
+		/** Positive attribution only; absence is never repair authority. */
+		failureKind: Type.Optional(Type.Literal("COMMAND_NONZERO")),
 	},
 	strict,
 );
@@ -188,6 +190,7 @@ export const CheckRequirementSchema = Type.Object(
 		// Host-frozen sandbox requirement and policy digest; ENFORCED alone is never authority.
 		sandboxRequired: Type.Optional(Type.Boolean()),
 		sandboxPolicyDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
+		repairableExitCodes: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 255 }), { uniqueItems: true })),
 	},
 	strict,
 );
@@ -201,6 +204,8 @@ export const VerificationResultSchema = Type.Object(
 		checks: Type.Array(CheckResultSchema),
 		lspEvidence: Type.Optional(Type.Array(LspEvidenceSchema, { maxItems: 9 })),
 		changedFiles: Type.Optional(texts),
+		/** Verifier-owned settlement of workspace, original trust snapshot and cleanup. */
+		integrity: Type.Optional(Type.Enum(["CLEAN", "BLOCKED"])),
 		// Explicit verifier-owned review material; no Pi messages or implicit worker context.
 		reviewContext: Type.Optional(
 			Type.Object(
@@ -392,6 +397,21 @@ export const ApprovalRecordSchema = Type.Object(
 );
 export type ApprovalRecord = Static<typeof ApprovalRecordSchema>;
 
+export const VerificationRepairAttemptSchema = Type.Object(
+	{
+		fromRevision: counter,
+		fromStep: Type.Object({ stepId: Type.Literal("self-check"), attempt: Type.Integer({ minimum: 1 }) }, strict),
+		toRevision: counter,
+		toStep: Type.Object({ stepId: Type.Literal("implement"), attempt: Type.Integer({ minimum: 1 }) }, strict),
+		diffDigest: text,
+		evidenceRefs: Type.Array(text, { minItems: 1, uniqueItems: true }),
+		failedCheckIds: Type.Array(text, { minItems: 1, uniqueItems: true }),
+		taskContractDigest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+	},
+	strict,
+);
+export type VerificationRepairAttempt = Static<typeof VerificationRepairAttemptSchema>;
+
 export const RunSchema = Type.Object(
 	{
 		schemaVersion: Type.Literal(1),
@@ -428,6 +448,15 @@ export const RunSchema = Type.Object(
 		roleSessionRefs: Type.Array(RoleSessionReferenceSchema),
 		revisionCycle: counter,
 		maxRevisionCycles: Type.Optional(Type.Integer({ minimum: 0, maximum: 3 })),
+		verificationRepair: Type.Optional(
+			Type.Object(
+				{
+					mode: Type.Enum(["disabled", "self-check-once"]),
+					attempts: Type.Array(VerificationRepairAttemptSchema, { maxItems: 1 }),
+				},
+				strict,
+			),
+		),
 		handoff: Type.Optional(HandoffSchema),
 		reviewHistory: Type.Optional(Type.Array(ReviewRecordSchema)),
 		workspace: Type.Optional(

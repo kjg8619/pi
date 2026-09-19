@@ -125,12 +125,12 @@ TUI에서 현재 Host가 소유한 `StandardWorkflow.snapshot`(기존 Kernel sna
 `src/graph.ts`의 `projectRunGraph(snapshot)`과 `renderGraphText(graph)`는 순수 함수다. `GraphProjection`은 `{runId, workflow, risk, status, stateRevision, recordedAt, nodes, edges, diagnostics}`이며 원본 Run status를 유지한다. node에는 deterministic `id`, `kind`, `label`, 정규화 `status`, 선택적 `stepId/attempt/role/parentId/verdict/approvalStatus/checks/detail`이 있다. edge의 `kind`는 `sequence/pass/revise/next_attempt/contains/approved`다. 실행 명령이나 scheduler dependency로 사용하지 않는다.
 
 - `implement:1`, `self-check:1`, `review:1` 등 실제 Step/attempt를 사용한다. QUICK은 implement/self-check/test/complete, STANDARD는 review를 포함한다. role은 해당 workflow 단계의 Executor/Developer/Reviewer이며 per-attempt 정보가 없는 session 참조를 임의 배정하지 않는다.
-- `revisionCycle + 1`까지 기록된 attempt만 펼친다. 이전 attempt는 implement/self-check/review까지만 표시하고 현재 attempt에는 남은 TEST/COMPLETE를 포함한다. 실제 REVISE 기록이면 다음 attempt로 `revise` edge를, 과거 review가 누락됐으면 `next_attempt`와 UNKNOWN을 표시한다. 순환·추가 실행 attempt를 만들지 않는다.
+- `revisionCycle + 1`까지 기록된 attempt만 펼친다. 이전 attempt는 implement/self-check/review까지만 표시하고 현재 attempt에는 남은 TEST/COMPLETE를 포함한다. 실제 REVISE 기록이면 다음 attempt로 `revise` edge를 표시한다. V0.5C repair parent는 failed self-check에서 새 implement로 `next_attempt`를 연결하며 실행하지 않은 Reviewer를 만들지 않는다. 그 밖의 누락 review는 UNKNOWN이다. 순환·추가 실행 attempt를 만들지 않는다.
 - 현재 node는 Run의 현재 단계/종료 결과를 반영한다. 이전 implement는 같은 attempt의 수락된 handoff 또는 후속 check/review로 확인한다. verification은 정확한 step/attempt에 연결된 결과를 정렬해 표시하며 required 미실행·FAIL과 원본 PASS/exit를 구분한다. 이력의 PASS는 현재 diff/check 재검증이나 전체 완료 판정이 아니다.
 - node 상태는 `pending/running/passed/failed/blocked/cancelled/skipped/waiting_approval/revised/unknown`이다. current 단계 RUNNING은 선택된 단계 표시이며 실제 process 생존 증명이 아니다. 미진입 terminal 후속 단계는 skipped, 기록 누락/INTERRUPTED의 실행 결과 미확인은 unknown이다. 원본의 INTERRUPTED를 CANCELLED로 재기록하지 않는다.
 - R3 `approval:1`/`mutation:1`은 `parentId: implement:1`, `stepId: implement`을 가진 projection-only detail이다. `contains` 관계는 Developer 완료나 새로운 Kernel step을 뜻하지 않는다. PENDING은 waiting_approval, DENIED/EXPIRED는 blocked, APPROVED/CONSUMED는 승인 결과 passed다. mutation은 CONSUMED만 passed이며, 승인 후 소비 기록 없이 종료되면 effect를 unknown으로 남긴다. action audit 추가 확인은 `/state decisions`를 사용한다. 소비 이후 실패/취소는 이미 기록된 mutation을 rollback하지 않는다.
 - Run shape 및 identity/phase/attempt/중복 metadata가 잘못됐으면 `GraphProjectionError`로 거부한다. 선택적 과거 기록 누락은 UNKNOWN과 진단으로 표시한다. COMPLETED 헤더를 보존하더라도 current-attempt 근거가 불완전하면 completion node는 unknown이다. Kernel guard를 실행하거나 완료 상태를 수정하는 기능이 아니다.
-- V0.2A 한도는 attempt 4개, review 4개, scoped approval 1개, check 1,000개다. 출력은 약 32,000자로 제한하고 원본 데이터의 terminal/bidi 제어 문자를 escape한다. malformed/과대 state를 무제한 node로 확장하지 않는다.
+- 한도는 기본 attempt 4개 + 유효한 verification repair 최대 1개, review 4개, scoped approval 1개, check 1,000개다. 출력은 약 32,000자로 제한하고 원본 데이터의 terminal/bidi 제어 문자를 escape한다. malformed/과대 state를 무제한 node로 확장하지 않는다.
 
 `/graph`, `/graph latest`, `/graph <full-run-id>`는 기존 Extension `inspect`와 `FileStateStore.readSnapshot`의 read-only 경계를 공유한다. live owner snapshot 또는 저장 Run만 읽고 lock/repair/recovery/resume, config/model/auth, Provider/Agent, Approval/State 변경, Git 호출을 하지 않는다. missing source/orphan/corrupt state는 이전 graph/export로 대체하지 않는다. source/recorded 정보, 저장 active 상태의 liveness 미확인, local failure/durable status 차이를 기존 조회처럼 알린다. 별도 graph 저장·캐시·polling·RuntimeEvent 재생은 없다.
 
@@ -390,6 +390,45 @@ Host가 확인한 수용 기준(Acceptance Criteria)을 run 단위로 고정한�
 - `/state evidence [runId]`는 기존 state의 read-only projection을 출력한다: AC별 결과·evidence, checks, Reviewer/approval, partial changes, cleanup confirmed/uncertain, worker measurement, budget, provenance, failure category(구조화 신호만 사용). execution authority가 아니다.
 - telemetry는 optional `TelemetryContext`(기본 NOOP)로 `weavra.run`/`weavra.worker` span만 내보내며 exporter 실패는 실행 결과를 바꾸지 않는다.
 
+## V0.5C Bounded Verification Repair — 첫 vertical slice
+
+기본값은 **disabled**다. Host가 검토한 check의 특정 정상 종료 코드를 deterministic source-check failure로 명시한 경우에만 **STANDARD / EDIT / R1 / SELF_CHECK에서 Run당 최대 1회** 새 Developer attempt를 허용한다.
+
+```yaml
+verification:
+  repair:
+    mode: self-check-once
+  trust:
+    mode: strict
+  sandbox:
+    mode: required
+  checks:
+    - id: regression
+      kind: test
+      executable: node
+      args: [oracle/check.mjs]
+      trust:
+        files: [oracle/check.mjs]
+      repairable_exit_codes: [7]
+```
+
+`7`은 예시이며 범용 오류 코드가 아니다. Host는 해당 프로그램이 이 코드로 **검증된 source failure만** 보고하는지 검토해야 한다. 인프라 오류와 같은 코드를 공유한다면 등록하지 않는다. 각 allowlist는 중복 없는 정수 1–255이며 생략/빈 배열은 repair 후보가 없다는 뜻이다. stderr 문구나 `FAIL`만으로 원인을 추정하지 않는다.
+
+```text
+Developer #1 → SELF_CHECK #1 FAIL
+  → durable repair parent 저장 → 새 Developer #2
+  → fresh SELF_CHECK #2 PASS → 독립 Reviewer #2 PASS
+  → fresh TEST #2 PASS → Kernel COMPLETE
+```
+
+- 실제 normal target exit, 등록 allowlist, 원래 trust/executable/source snapshot, 현재 diff·safe workspace, sandbox가 required이면 ENFORCED+동일 policy, cleanup 완료를 모두 확인해야 한다. 이후 check/LSP/settlement에서 무결성이 깨지면 앞의 failed 후보도 취소한다. repair를 켠 compatible trust도 원래 snapshot을 재검증하지만 결과 표시는 `UNVERIFIED`이며 strict로 승격하지 않는다.
+- optional을 포함해 관측된 비PASS check 중 하나라도 후보가 아니면 repair를 거부한다. signal/timeout/output limit/background process, unavailable executable, Provider/auth, Policy, storage/audit, cleanup 불확실, cancellation, oracle/backend mutation, READ_ONLY/QUICK/R0/R2/R3, TEST 실패에는 이 repair를 적용하지 않는다. 동일 코드가 계속 실패해도 두 번째 repair는 없다.
+- 같은 Run/Kernel/Verifier와 원래 Task Contract·scope·checks·config/policy/trust/sandbox를 유지한다. `Run.verificationRepair.attempts`의 parent revision/step/diff/evidence/check IDs/Task Contract digest와 이전 failed check는 append-only로 보존한다. 저장 실패 후 새 worker를 시작하지 않는다. terminal Run을 되살리거나 Workflow를 새로 만들어 budget을 초기화하지 않는다.
+- 새 SDK session·도구 closure·bounded context pack(활성화된 경우)을 만들고 strict mutation의 read receipt를 새로 발급한다. 이전 handoff/PASS/Reviewer/session/receipt는 새 attempt의 authority가 아니다. 실패 설명은 최대 8개 check·stdout/stderr 각각 512 UTF-16 units의 **untrusted advisory**이며 로그 지시가 scope나 permission을 바꾸지 않는다.
+- worker 호출 수·provider-reported token은 Run 전체에 누적된다. token accounting UNKNOWN과 소진된 예산은 다음 invocation을 차단한다. token 한도는 in-flight 호출의 billing hard cap이 아니다. verification repair는 기존 `agents.max_revision_cycles`의 Reviewer REVISE 한도를 소비하지 않지만 모든 실제 worker는 같은 누적 budget을 쓴다.
+- Plan Preview/config/status에 mode·한도를 표시하고 graph는 failed parent→새 attempt를, Evidence Pack은 check revision/step/attempt와 parent를 구분한다. 이전 failure를 지우거나 새로운 Provider failure를 과거 check failure로 가리지 않는다. 최종 완료 권한은 Kernel에만 있다.
+- 검증: 실제 SDK/faux+Git+Node checks, macOS required sandbox, production recipe command/Plan Preview/ASCII graph/Evidence Pack smoke와 positive/negative 회귀. **V0.5C 유료 Provider actual, Linux sandbox actual, TUI overlay rendering은 NOT VERIFIED**다. expected-failure TDD lifecycle, 일반 retry/resume/rollback, Oracle 자동 수정은 구현하지 않았다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
@@ -432,12 +471,12 @@ verification:
 
 - 필수: `schemaVersion: 1`, `models.profiles.coding`, `models.profiles.reasoning`. 각 profile에는 비어 있지 않은 `provider`, `model`이 필요하다. `fast`, `creative`는 선택이다.
 - `runtime.workflow`: `adaptive` 기본값 또는 `QUICK`/`STANDARD`/`COMPLEX`. 설정 파싱은 workflow 판정·실행이 아니다.
-- `agents`: 병렬 수는 현재 `1`만 허용. STANDARD 재작업 횟수는 `0..3`, 기본 `1`이며 S5D부터 Host 실행에서도 그대로 적용한다. 최초 구현 이후 재작업 횟수다. QUICK/R3의 effective 한도는 항상 0이다.
+- `agents`: 병렬 수는 현재 `1`만 허용. STANDARD의 Reviewer REVISE 한도는 `0..3`, 기본 `1`이다. QUICK/R3의 effective 한도는 항상 0이며 V0.5C verification repair 최대 1회와 별개다.
 - `agents.worker_timeout_ms`: 기본 `180000`(180초), 정수 `10000..600000`(10~600초). Developer·Reviewer·Executor의 각 역할 호출에 동일하게 적용한다. 전체 run이나 개별 Provider 요청의 timeout이 아니며 여러 tool/retry turns를 포함한 역할 실행 총 예산이다. 역할별 설정·무제한 값은 지원하지 않는다. `/workflow config`로 현재 값을 확인할 수 있다.
 - `review.enabled`, `state.enabled`: `true`만 허용. state 디렉터리는 `.ai`로 고정한다.
 - `risk.approval_required`: 현재 `[R3]`만 허용. 프로젝트 설정으로 review·state·승인 요구를 끌 수 없다.
 - `files.allowed_paths`: 기본 `[]`. 문자 그대로의 workspace 상대 파일/디렉터리 경로이며 glob이 아니다. S2 Policy와 경로 Adapter가 이 범위 및 보호 파일·symlink를 검사한다.
-- `verification.checks`: 기본 `[]`. check마다 `id`, `kind`, `executable`, 문자열 배열 `args`가 필수다. `kind`는 `build`/`lint`/`test`/`typecheck`/`format`/`custom`이다. 선택 필드는 `cwd`(기본 `.`), `timeout_ms`(기본 `60000`, 범위 `1..3600000`), `required`(기본 `true`)다. ID 중복을 거부한다.
+- `verification.checks`: 기본 `[]`. check마다 `id`, `kind`, `executable`, 문자열 배열 `args`가 필수다. `kind`는 `build`/`lint`/`test`/`typecheck`/`format`/`custom`이다. 선택 필드는 `cwd`(기본 `.`), `timeout_ms`(기본 `60000`, 범위 `1..3600000`), `required`(기본 `true`), `trust.files`, `repairable_exit_codes`다. ID 중복을 거부한다. `verification.repair.mode`는 `disabled` 기본값 또는 `self-check-once`이며 위 V0.5C 계약을 따른다.
 
 파일/cwd 경로에는 절대 경로, `..`, Windows 드라이브/역슬래시, glob, 제어 문자를 허용하지 않는다. executable은 명시적 PATH에서 해석한 절대 경로로 고정한다. 설정 파싱 자체가 경로·프로그램의 안전성을 증명하지 않는다. **check 등록과 실행 확인은 신뢰한 코드에 대한 허가이지 OS sandbox가 아니다.** 실행은 필수 check 한 개 이상을 요구한다. S4 첫 Slice의 기본 재작업 1회는 유지하며, STANDARD는 설정한 0~3회까지 지원한다.
 
@@ -759,7 +798,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ### 기록과 revision
 
-- Run의 `maxRevisionCycles`는 실제 적용한 한도다. STANDARD는 config 0~3(기본 1), QUICK/R3는 0이다. `handoff`는 구조화 Developer 결과이며 승인이 아니다. `reviewHistory`는 수락한 회차별 REVISE/PASS/BLOCK을 보존한다.
+- Run의 `maxRevisionCycles`는 실제 적용한 Reviewer REVISE 한도다. STANDARD는 config 0~3(기본 1), QUICK/R3는 0이다. `revisionCycle`은 verification repair도 포함한 코드 revision이고 status는 두 한도를 구분한다. `handoff`는 구조화 Developer 결과이며 승인이 아니다. `reviewHistory`는 수락한 회차별 REVISE/PASS/BLOCK을 보존한다.
 - 실제 `CheckResult.step`을 저장해 SELF_CHECK/TEST와 attempt를 구분한다. 이전 기록에 없는 step/timing/limit는 `not recorded`로 표시하고 추정하지 않는다.
 - 운영 결정 ID는 classification/run, review/run/revision, approval/run/action, policy/run/action, outcome/run에 기반한다. 조직 선택·검토·승인·정책·종료 사실을 projection하며 별도 LLM로 기술적 ADR/숨은 reasoning을 만들어내지 않는다. 이벤트 delivery 실패는 local 진단이지 성공/실패 판정을 바꾸는 입력이 아니다.
 
@@ -788,6 +827,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 
 ```sh
 # packages/company-runtime에서
+node ../../node_modules/vitest/dist/cli.js --run test/verification-repair.test.ts test/verification-repair-boundary.test.ts test/sandbox.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/project-context.test.ts test/list-files.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/execution-contract.test.ts test/trust-baseline.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts
@@ -797,6 +837,7 @@ node ../../node_modules/vitest/dist/cli.js --run test/graph.test.ts test/graph-c
 node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/config.test.ts test/extension.test.ts test/classification.test.ts test/kernel.test.ts test/host-boundary.test.ts test/state-store.test.ts test/policy.test.ts test/agent-metadata.test.ts test/verification-boundary.test.ts test/quick.test.ts test/r2-review.test.ts test/approval.test.ts test/observations.test.ts test/observation-files.test.ts test/hardening.test.ts test/kernel-hardening.test.ts
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-repair.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-context.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-lsp.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-timeout.test.ts test/suite/agent-session-prompt.test.ts

@@ -15,18 +15,12 @@ vi.mock("child_process", () => ({
 			callback: (error: Error | null, stdout: string, stderr: string) => void,
 		) => {
 			if (args[1] === "symbolic-ref") {
-				setTimeout(
-					() =>
-						callback(
-							resolvedBranch ? null : new Error("detached"),
-							resolvedBranch ? `${resolvedBranch}\n` : "",
-							"",
-						),
-					0,
+				queueMicrotask(() =>
+					callback(resolvedBranch ? null : new Error("detached"), resolvedBranch ? `${resolvedBranch}\n` : "", ""),
 				);
 				return;
 			}
-			setTimeout(() => callback(new Error("unsupported"), "", ""), 0);
+			queueMicrotask(() => callback(new Error("unsupported"), "", ""));
 		},
 	),
 	spawnSync: vi.fn((_command: string, args: readonly string[]) => {
@@ -83,6 +77,7 @@ function emitReftableChange(provider: FooterDataProvider): void {
 	reftableWatcher?.emit("change", "change", "tables.list");
 }
 
+// Native fs.watch/watchFile readiness and delivery require the OS loop; fake clocks cannot advance them.
 async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void> {
 	const startedAt = Date.now();
 	while (!condition()) {
@@ -231,6 +226,12 @@ describe("FooterDataProvider reftable branch detection", () => {
 		const provider = new FooterDataProvider(worktreeDir);
 		try {
 			expect(provider.getGitBranch()).toBe("main");
+			// Establish observable watcher readiness before the branch mutation under test.
+			await waitFor(() => {
+				if (vi.mocked(execFile).mock.calls.length > 0) return true;
+				writeFileSync(join(reftableDir, "tables.list"), "ready\n");
+				return false;
+			});
 			resolvedBranch = "foo";
 			const onBranchChange = vi.fn();
 			provider.onBranchChange(onBranchChange);

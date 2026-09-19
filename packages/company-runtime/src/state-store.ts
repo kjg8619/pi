@@ -451,6 +451,58 @@ export class FileStateStore implements StateStore, ActionAudit {
 			const previous = next.runs[index];
 			if (previous && JSON.stringify(previous.projectInstruction) !== JSON.stringify(run.projectInstruction))
 				throw new Error("Project instruction metadata cannot change within a run");
+			if (previous && previous.verificationRepair?.mode !== run.verificationRepair?.mode)
+				throw new Error("Verification repair mode cannot change within a run");
+			const repairAttempts = run.verificationRepair?.attempts ?? [];
+			for (const [index, attempt] of (previous?.verificationRepair?.attempts ?? []).entries())
+				if (JSON.stringify(attempt) !== JSON.stringify(repairAttempts[index]))
+					throw new Error("Verification repair history cannot be removed or rewritten");
+			if (run.verificationRepair?.mode === "self-check-once" && previous) {
+				if (
+					previous.taskContractDigest !== run.taskContractDigest ||
+					previous.verification.some(
+						(check, index) => JSON.stringify(check) !== JSON.stringify(run.verification[index]),
+					)
+				)
+					throw new Error("Repair must preserve the original Task Contract and failed evidence");
+			}
+			for (const attempt of repairAttempts) {
+				if (
+					run.verificationRepair?.mode !== "self-check-once" ||
+					run.workflow !== "STANDARD" ||
+					run.executionMode !== "EDIT" ||
+					run.risk !== "R1" ||
+					attempt.toRevision !== attempt.fromRevision + 1 ||
+					attempt.toRevision > run.revisionCycle ||
+					attempt.fromStep.attempt !== attempt.fromRevision + 1 ||
+					attempt.toStep.attempt !== attempt.toRevision + 1 ||
+					attempt.taskContractDigest !== run.taskContractDigest ||
+					attempt.failedCheckIds.some(
+						(id) =>
+							!run.verification.some(
+								(check) =>
+									check.id === id &&
+									check.revision === attempt.fromRevision &&
+									check.step?.stepId === "self-check" &&
+									check.step.attempt === attempt.fromStep.attempt &&
+									check.status === "FAIL" &&
+									check.failureKind === "COMMAND_NONZERO" &&
+									check.diffDigest === attempt.diffDigest,
+							),
+					)
+				)
+					throw new Error("Invalid verification repair parent evidence");
+				if (
+					!previous?.verificationRepair?.attempts.length &&
+					(previous?.status !== "RUNNING" ||
+						previous.currentStep?.stepId !== "self-check" ||
+						previous.revisionCycle !== attempt.fromRevision ||
+						run.currentStep?.stepId !== "implement" ||
+						run.currentStep.attempt !== attempt.toStep.attempt ||
+						run.revisionCycle !== attempt.toRevision)
+				)
+					throw new Error("Repair must link a failed SELF_CHECK to one fresh implementation attempt");
+			}
 			if (
 				(!isExecutionMode(run.executionMode) && (!previous || active(run))) ||
 				(previous && previous.executionMode !== run.executionMode)

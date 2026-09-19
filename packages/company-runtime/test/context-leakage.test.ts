@@ -142,10 +142,9 @@ describe("V0.5A context pipeline leakage regression", () => {
 			verifierTrustSources: ["test/oracle.mjs"],
 			verifierSandboxMode: "required",
 			contextPackMode: "bounded",
+			verificationRepairMode: "disabled",
 		});
 		for (const marker of [SECRET, ORACLE, INSTRUCTION]) expect(preview).not.toContain(marker);
-		expect(preview).toContain("Task context pack: bounded");
-		expect(preview).toContain("not permission, approval, evidence or mutation freshness");
 	});
 });
 

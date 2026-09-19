@@ -3,6 +3,7 @@ import type {
 	ApprovalProposal,
 	ApprovalRequest,
 	CheckRequirement,
+	CheckResult,
 	ExecutorHandoff,
 	Handoff,
 	QuickScope,
@@ -11,6 +12,7 @@ import type {
 	Run,
 	StepReference,
 	TaskContract,
+	VerificationRepairAttempt,
 	VerificationResult,
 } from "./contracts.ts";
 import type { RuntimeEventSink } from "./events.ts";
@@ -31,6 +33,13 @@ interface StepRequest {
 	signal?: AbortSignal;
 }
 
+export interface VerificationRepairContext {
+	parent: VerificationRepairAttempt;
+	/** Bounded advisory failure logs, never a changed Task Contract or permission. */
+	failures: Pick<CheckResult, "id" | "exitCode" | "evidenceRefs" | "stdout" | "stderr">[];
+	omittedChecks: number;
+}
+
 export type AgentExecutionRequest = StepRequest & {
 	executionMode: ExecutionMode;
 	projectInstruction?: ProjectInstructionMetadata | null;
@@ -43,7 +52,12 @@ export type AgentExecutionRequest = StepRequest & {
 	onApprovalRequested?: (proposal: ApprovalProposal, signal?: AbortSignal) => Promise<ApprovalDecision>;
 	onApprovalConsumed?: (actionId: string) => Promise<void>;
 } & (
-		| { role: "Developer"; profile: "coding"; previousReview?: Review }
+		| {
+				role: "Developer";
+				profile: "coding";
+				previousReview?: Review;
+				verificationRepair?: VerificationRepairContext;
+		  }
 		| { role: "Executor"; profile: "coding"; scope: QuickScope }
 		| { role: "Reviewer"; profile: "reasoning"; handoff: Handoff; verification: VerificationResult }
 	);

@@ -70,8 +70,9 @@ export function projectRunGraph(value: unknown): GraphProjection {
 	} catch {
 		throw new GraphProjectionError("Graph unavailable: invalid or incomplete Run snapshot");
 	}
+	const repairs = run.verificationRepair?.attempts ?? [];
 	requireGraph(
-		run.revisionCycle <= 3 &&
+		run.revisionCycle <= (run.maxRevisionCycles ?? 3) + repairs.length &&
 			run.verification.length <= 1000 &&
 			(run.reviewHistory?.length ?? 0) <= 4 &&
 			(run.approvals?.length ?? 0) <= 1,
@@ -202,6 +203,33 @@ export function projectRunGraph(value: unknown): GraphProjection {
 		group.push(check);
 		checks.set(key, group);
 	}
+	for (const repair of repairs) {
+		const parentChecks = checks.get(`self-check:${repair.fromStep.attempt}`) ?? [];
+		const failed = parentChecks.filter((check) => check.status !== "PASS");
+		requireGraph(
+			run.verificationRepair?.mode === "self-check-once" &&
+				run.workflow === "STANDARD" &&
+				run.executionMode === "EDIT" &&
+				run.risk === "R1" &&
+				repair.toRevision === repair.fromRevision + 1 &&
+				repair.toRevision <= run.revisionCycle &&
+				repair.fromStep.attempt === repair.fromRevision + 1 &&
+				repair.toStep.attempt === repair.toRevision + 1 &&
+				repair.taskContractDigest === run.taskContractDigest &&
+				!reviews.has(repair.fromRevision) &&
+				failed.length === repair.failedCheckIds.length &&
+				failed.every(
+					(check) =>
+						repair.failedCheckIds.includes(check.id) &&
+						check.status === "FAIL" &&
+						check.failureKind === "COMMAND_NONZERO" &&
+						check.diffDigest === repair.diffDigest &&
+						check.evidenceRefs.length > 0 &&
+						check.evidenceRefs.every((ref) => repair.evidenceRefs.includes(ref)),
+				),
+			"inconsistent verification repair parent",
+		);
+	}
 	if (run.verification.some((check) => !check.step))
 		graph.diagnostics.push("Checks without step metadata are not assigned to SELF_CHECK or TEST.");
 	if (!current)
@@ -214,8 +242,9 @@ export function projectRunGraph(value: unknown): GraphProjection {
 		});
 	let previous: GraphNode | undefined = graph.nodes[0];
 	for (let number = 1; number <= attempt; number++) {
-		// Unroll only recorded attempts. TEST/COMPLETE were not selected on earlier REVISE paths.
-		const selected = number < attempt ? STANDARD_STEP_IDS.slice(0, 3) : steps;
+		// A repair parent stops at failed SELF_CHECK; only actual Reviewer REVISE paths contain a review.
+		const repairParent = repairs.some((repair) => repair.fromStep.attempt === number);
+		const selected = number < attempt ? STANDARD_STEP_IDS.slice(0, repairParent ? 2 : 3) : steps;
 		for (const step of selected) {
 			const id = `${step}:${number}`;
 			const review = reviews.get(number - 1);
@@ -309,7 +338,9 @@ export function projectRunGraph(value: unknown): GraphProjection {
 									? "revise"
 									: "next_attempt"
 								: "pass"
-							: "sequence",
+							: previous.stepId === "self-check" && step === "implement"
+								? "next_attempt"
+								: "sequence",
 				});
 			previous = node;
 			if (step === "implement" && run.risk === "R3") {

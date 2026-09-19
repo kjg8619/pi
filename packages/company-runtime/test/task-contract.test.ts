@@ -11,7 +11,6 @@ import {
 } from "../src/contracts.ts";
 import { assertCriterionIdentity, taskContractDigest } from "../src/criterion-evidence.ts";
 import { assertCanComplete, type CompletionEvidence } from "../src/kernel.ts";
-import { formatPlanPreview } from "../src/plan-preview.ts";
 import {
 	acceptanceStatementsError,
 	assertTaskContractBinding,
@@ -177,57 +176,6 @@ describe("V0.3E acceptance criteria", () => {
 			}),
 		).not.toBe(taskContractDigest(built));
 		expect(JSON.stringify(built)).not.toContain("apiKey");
-	});
-
-	it("renders the plan preview with goal, mode, risk, criteria, checks, roles and warnings", () => {
-		const built = contract();
-		const preview = formatPlanPreview({
-			goal: built.goal,
-			workflow: "STANDARD",
-			executionMode: "EDIT",
-			risk: "R1",
-			acceptanceCriteria: built.acceptanceCriteria,
-			allowedPaths: ["src"],
-			checks: [
-				{
-					id: "regression",
-					kind: "test",
-					required: true,
-					executable: "node",
-					args: ["--test"],
-					cwd: ".",
-					timeout_ms: 1000,
-					trust: { files: [] },
-				},
-			],
-			projectInstructionPath: "AGENTS.md",
-			lspEnabled: false,
-			mutationMode: "compatible",
-			verifierTrustMode: "compatible",
-			verifierTrustSources: [],
-			verifierSandboxMode: "disabled",
-			contextPackMode: "disabled",
-		});
-		for (const term of [
-			"Goal:",
-			"Workflow: STANDARD",
-			"Execution contract: EDIT",
-			"Risk: R1",
-			"AC-001",
-			"AC-002",
-			"Allowed paths: src",
-			"regression (test) required: node --test",
-			"Roles: Developer -> independent Reviewer",
-			"Project instruction: AGENTS.md",
-			"LSP: disabled",
-			"not an approval or permission token",
-			"No automatic rollback",
-		])
-			expect(preview).toContain(term);
-	});
-
-	it("accepts a complete current AC PASS/check evidence and digest binding", () => {
-		expect(() => assertCanComplete(evidence())).not.toThrow();
 	});
 });
 

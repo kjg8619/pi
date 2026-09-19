@@ -93,7 +93,7 @@ export function decisionEntries(run: Run, actions: readonly ObservationAction[])
 				`Goal: ${run.goal}`,
 				`Intent: ${run.classification.intent}; complexity: ${run.classification.complexity}`,
 				`Execution contract: ${run.executionMode ?? "UNKNOWN (legacy; no permission inferred)"}`,
-				`Revision limit: ${run.maxRevisionCycles ?? "not recorded"}`,
+				`Reviewer revision limit: ${run.maxRevisionCycles ?? "not recorded"}`,
 			],
 		},
 		...reviewRecords(run).map((review) => ({
@@ -163,7 +163,8 @@ export function formatConfiguration(config: RuntimeConfig): string {
 	const output = [
 		"Current config (not an active run's frozen configuration):",
 		`Workflow: ${config.runtime.workflow}; COMPLEX execution unsupported`,
-		`Revision limit: STANDARD ${config.agents.max_revision_cycles} (default 1, range 0..3); QUICK/R3 0`,
+		`Reviewer revision limit: STANDARD ${config.agents.max_revision_cycles} (default 1, range 0..3); QUICK/R3 0`,
+		`Verification repair: ${config.verification.repair.mode}; maximum one separate STANDARD/EDIT/R1 SELF_CHECK repair; cumulative budget retained`,
 		`Worker timeout: ${config.agents.worker_timeout_ms}ms per role invocation (default 180000, range 10000..600000); cancel signals immediately, awaits cleanup`,
 		...Object.entries(config.models.profiles).map(
 			([profile, model]) =>
@@ -172,7 +173,7 @@ export function formatConfiguration(config: RuntimeConfig): string {
 		`Allowed paths: ${config.files.allowed_paths.map((path) => displayText(path)).join(", ") || "none"}`,
 		...config.verification.checks.map(
 			(check) =>
-				`${displayText(check.id)}: ${check.kind}/${check.required ? "required" : "optional"}; ${displayText(check.executable)} (${check.args.length} args); cwd=${displayText(check.cwd)}; timeout=${check.timeout_ms}ms`,
+				`${displayText(check.id)}: ${check.kind}/${check.required ? "required" : "optional"}; ${displayText(check.executable)} (${check.args.length} args); cwd=${displayText(check.cwd)}; timeout=${check.timeout_ms}ms; repairable normal exits=${check.repairable_exit_codes?.join(", ") || "none"}`,
 		),
 		"Required checks, project trust and clean Git remain mandatory. No resume, fallback or approval bypass.",
 	].join("\n");
@@ -312,7 +313,8 @@ export function formatRunView(
 	} else {
 		lines.push(
 			`Goal: ${displayText(run.goal)}`,
-			`Step: ${run.currentStep ? `${run.currentStep.stepId}@${run.currentStep.attempt}` : "not started"}; code revision ${run.revisionCycle}/${run.maxRevisionCycles ?? "limit not recorded"}`,
+			`Step: ${run.currentStep ? `${run.currentStep.stepId}@${run.currentStep.attempt}` : "not started"}; code revision ${run.revisionCycle}; Reviewer revisions ${run.revisionCycle - (run.verificationRepair?.attempts.length ?? 0)}/${run.maxRevisionCycles ?? "limit not recorded"}`,
+			`Verification repair: ${run.verificationRepair?.mode ?? "UNKNOWN (legacy)"}; used ${run.verificationRepair?.attempts.length ?? 0}/1 (separate from Reviewer revisions)`,
 			`Next steps: ${run.next.join(", ") || "none"}`,
 		);
 		if (command === "state") {

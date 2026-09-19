@@ -17,6 +17,7 @@ export interface PlanPreview {
 	verifierTrustSources: readonly string[];
 	verifierSandboxMode: "disabled" | "required";
 	contextPackMode: "disabled" | "bounded";
+	verificationRepairMode: "disabled" | "self-check-once";
 	/** Bounded reviewed-recipe metadata; never the raw recipe inputs and never an authority. */
 	recipe?: { id: string; version: number; digest: string };
 }
@@ -47,6 +48,14 @@ export function formatPlanPreview(plan: PlanPreview): string {
 		`Verifier trust: ${plan.verifierTrustMode}${plan.verifierTrustMode === "strict" ? " (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)" : " (not strictly pinned)"}`,
 		`Verifier sandbox: ${plan.verifierSandboxMode === "required" ? "required (network denied; Host-owned fixed policy; not a sandbox for workers and not approval)" : "disabled"}`,
 		`Task context pack: ${plan.contextPackMode === "bounded" ? "bounded (Host-selected advisory context; policy-filtered; not permission, approval, evidence or mutation freshness)" : "disabled"}`,
+		`Verification repair: ${plan.verificationRepairMode} (maximum one fresh attempt; STANDARD/EDIT/R1 SELF_CHECK only; original policy and cumulative budget retained)`,
+		...(plan.verificationRepairMode === "self-check-once"
+			? plan.checks
+					.filter((check) => check.repairable_exit_codes?.length)
+					.map(
+						(check) => `  Repair-eligible normal exits: ${check.id}: ${check.repairable_exit_codes!.join(", ")}`,
+					)
+			: []),
 		...(plan.verifierTrustSources.length
 			? ["Trusted verifier sources:", ...plan.verifierTrustSources.map((path) => `  ${path}`)]
 			: []),

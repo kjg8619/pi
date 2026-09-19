@@ -106,6 +106,9 @@ export const RuntimeConfigSchema = Type.Object(
 		verification: Type.Optional(
 			Type.Object(
 				{
+					repair: Type.Optional(
+						Type.Object({ mode: Type.Optional(Type.Enum(["disabled", "self-check-once"])) }, strict),
+					),
 					// Verifier sandbox is an OS boundary for registered check processes; not permission or approval.
 					sandbox: Type.Optional(
 						Type.Object(
@@ -131,6 +134,10 @@ export const RuntimeConfigSchema = Type.Object(
 									cwd: Type.Optional(text),
 									timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 3_600_000 })),
 									required: Type.Optional(Type.Boolean()),
+									// Host contract: these normal exits mean a deterministic check failure, not infrastructure.
+									repairable_exit_codes: Type.Optional(
+										Type.Array(Type.Integer({ minimum: 1, maximum: 255 }), { uniqueItems: true }),
+									),
 									trust: Type.Optional(
 										Type.Object({ files: Type.Array(text, { uniqueItems: true, maxItems: 64 }) }, strict),
 									),
@@ -236,6 +243,7 @@ export function parseRuntimeConfig(source: string) {
 			checks,
 			trust: { mode: value.verification?.trust?.mode ?? ("compatible" as const) },
 			sandbox: { mode: value.verification?.sandbox?.mode ?? ("disabled" as const) },
+			repair: { mode: value.verification?.repair?.mode ?? ("disabled" as const) },
 		},
 		mutation: { mode: value.mutation?.mode ?? ("compatible" as const) },
 		...(value.project ? { project: structuredClone(value.project) } : {}),

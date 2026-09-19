@@ -30,6 +30,7 @@ import {
 	type StepId,
 	type TaskContract,
 	TaskContractSchema,
+	type VerificationRepairAttempt,
 	type VerificationResult,
 	VerificationResultSchema,
 	validateContract,
@@ -63,6 +64,7 @@ export interface CreateRunRequest {
 	classification: Classification;
 	workflow?: Workflow | "adaptive";
 	maxRevisionCycles?: number;
+	verificationRepairMode?: "disabled" | "self-check-once";
 	checks?: CheckRequirement[];
 	approvalTimeoutMs?: number;
 }
@@ -85,6 +87,7 @@ function assertVerification(
 	runId: string,
 	revision: number,
 	checks: CheckRequirement[],
+	allowCommandFailures = false,
 ): void {
 	validateContract(VerificationResultSchema, result);
 	assertIdentity(result, runId, revision);
@@ -93,7 +96,9 @@ function assertVerification(
 	for (const check of result.checks) {
 		assertIdentity(check, runId, revision);
 		requireEvidence(
-			!check.step || (check.step.stepId === result.step.stepId && check.step.attempt === result.step.attempt),
+			check.step
+				? check.step.stepId === result.step.stepId && check.step.attempt === result.step.attempt
+				: !allowCommandFailures,
 			"Check step metadata is stale",
 		);
 		const expected = checks.find((item) => item.id === check.id);
@@ -107,12 +112,26 @@ function assertVerification(
 			"Verification changed the check contract",
 		);
 		requireEvidence(check.diffDigest === result.diffDigest, "Verification evidence is stale");
-		requireEvidence(check.status !== "FAIL", "A verification check failed");
+		const repairFailure =
+			allowCommandFailures &&
+			check.status === "FAIL" &&
+			check.failureKind === "COMMAND_NONZERO" &&
+			check.exitCode !== null &&
+			expected?.repairableExitCodes?.includes(check.exitCode) === true &&
+			check.evidenceRefs.length > 0;
+		requireEvidence(check.status !== "FAIL" || repairFailure, "A verification check failed");
+		if (allowCommandFailures)
+			requireEvidence(
+				!!expected?.trustRegistrationDigest &&
+					check.trust?.registrationDigest === expected.trustRegistrationDigest &&
+					(check.trust.status === "VERIFIED" || check.trust.status === "UNVERIFIED"),
+				"Repair requires the original fresh verifier registration",
+			);
 		// Independent Host guard: a strict verifier-trust requirement is never satisfied by exit 0 alone.
-		if (expected?.trustRequired === true && check.required) {
+		if (expected?.trustRequired === true && (check.required || allowCommandFailures)) {
 			const trust = check.trust;
 			requireEvidence(
-				check.status === "PASS" && trust?.mode === "strict" && trust.status === "VERIFIED",
+				(check.status === "PASS" || repairFailure) && trust?.mode === "strict" && trust.status === "VERIFIED",
 				"A required check is not verifier-trust verified",
 			);
 			// The VERIFIED flag alone is not authority: the digest must match the Host-frozen registration.
@@ -121,7 +140,7 @@ function assertVerification(
 				"A required check does not match the frozen verifier registration",
 			);
 		}
-		if (expected?.sandboxRequired === true && check.required) {
+		if (expected?.sandboxRequired === true && (check.required || allowCommandFailures)) {
 			const sandbox = check.sandbox;
 			requireEvidence(
 				sandbox?.mode === "required" && sandbox.status === "ENFORCED",
@@ -133,13 +152,16 @@ function assertVerification(
 				"A required check does not match the frozen verifier sandbox policy",
 			);
 		}
-		requireEvidence(!check.required || check.status === "PASS", "A required verification check was not performed");
+		requireEvidence(
+			!check.required || check.status === "PASS" || repairFailure,
+			"A required verification check was not performed",
+		);
 		if (check.status === "PASS") {
 			requireEvidence(
 				check.exitCode === 0 && check.evidenceRefs.length > 0,
 				"PASS requires exit code zero and evidence",
 			);
-		} else {
+		} else if (!repairFailure) {
 			requireEvidence(check.exitCode === null, "Unexecuted checks cannot have an exit code");
 		}
 	}
@@ -449,6 +471,7 @@ export class CompanyKernel {
 			roleSessionRefs: [],
 			revisionCycle: 0,
 			maxRevisionCycles: selection.workflow === "QUICK" || request.classification.risk === "R3" ? 0 : limit,
+			verificationRepair: { mode: request.verificationRepairMode ?? "disabled", attempts: [] },
 			reviewHistory: [],
 			workerMeasurements: [],
 			...(request.provenance ? { provenance: request.provenance } : {}),
@@ -839,6 +862,23 @@ export class CompanyKernel {
 				case "implement": {
 					this.reserveBudget(role ?? "Worker");
 					budgetReserved = true;
+					const repairParent = this.state.verificationRepair?.attempts.find(
+						(attempt) => attempt.toRevision === revision,
+					);
+					const failedChecks = repairParent
+						? this.state.verification.filter(
+								(check) =>
+									check.revision === repairParent.fromRevision &&
+									check.step?.stepId === "self-check" &&
+									check.step.attempt === repairParent.fromStep.attempt &&
+									repairParent.failedCheckIds.includes(check.id),
+							)
+						: [];
+					if (repairParent)
+						requireEvidence(
+							failedChecks.length === repairParent.failedCheckIds.length,
+							"Repair parent evidence is missing",
+						);
 					const result = await this.ports.agents.execute({
 						...structuredClone(request),
 						signal,
@@ -849,6 +889,21 @@ export class CompanyKernel {
 							: {
 									role: "Developer",
 									previousReview: structuredClone(this.review),
+									...(repairParent
+										? {
+												verificationRepair: {
+													parent: structuredClone(repairParent),
+													failures: failedChecks.slice(0, 8).map((check) => ({
+														id: check.id,
+														exitCode: check.exitCode,
+														evidenceRefs: [...check.evidenceRefs],
+														stdout: check.stdout?.slice(0, 512),
+														stderr: check.stderr?.slice(0, 512),
+													})),
+													omittedChecks: Math.max(0, failedChecks.length - 8),
+												},
+											}
+										: {}),
 									...(this.state.risk === "R3" ? { onApprovalRequested, onApprovalConsumed } : {}),
 								}),
 					});
@@ -869,6 +924,8 @@ export class CompanyKernel {
 					requireEvidence(handoff.task === task.id, "Handoff belongs to another task");
 					if (this.state.risk === "R2" || this.state.risk === "R3")
 						requireEvidence(sessionRef?.role === "Developer", "R2 Developer session reference is required");
+					if (this.state.verificationRepair?.attempts.length)
+						requireEvidence(sessionRef?.role === "Developer", "Repair requires a fresh Developer session");
 					this.developerSession = sessionRef;
 					this.reviewerSession = undefined;
 					this.handoff = handoff;
@@ -914,6 +971,81 @@ export class CompanyKernel {
 					if (this.ports.verifier.inspect)
 						await this.persist({ workspace: await this.ports.verifier.inspect() }, []);
 					signal?.throwIfAborted();
+					const repair = this.state.verificationRepair;
+					const failed = result.checks.filter((check) => check.status !== "PASS");
+					if (
+						expectedStep === "self-check" &&
+						this.state.workflow === "STANDARD" &&
+						this.state.executionMode === "EDIT" &&
+						this.state.risk === "R1" &&
+						repair?.mode === "self-check-once" &&
+						repair.attempts.length === 0 &&
+						result.integrity === "CLEAN" &&
+						failed.length > 0 &&
+						failed.every(
+							(check) =>
+								check.status === "FAIL" &&
+								check.failureKind === "COMMAND_NONZERO" &&
+								check.exitCode !== null &&
+								this.checks
+									.find((expected) => expected.id === check.id)
+									?.repairableExitCodes?.includes(check.exitCode),
+						)
+					) {
+						assertVerification(result, this.state.runId, revision, this.checks, true);
+						requireEvidence(
+							this.ports.agents.safeToRelease !== false &&
+								this.ports.verifier.safeToRelease !== false &&
+								this.state.workspace?.safe === true &&
+								this.state.workspace.diffDigest === result.diffDigest,
+							"Repair requires fresh safe workspace evidence and confirmed cleanup",
+						);
+						requireEvidence(
+							this.developerSession?.role === "Developer",
+							"Repair requires a persisted parent Developer session",
+						);
+						requireEvidence(
+							this.state.taskContractDigest === taskContractDigest(task),
+							"Repair cannot change the Task Contract",
+						);
+						const parent: VerificationRepairAttempt = {
+							fromRevision: revision,
+							fromStep: { stepId: "self-check", attempt: step.attempt },
+							toRevision: revision + 1,
+							toStep: { stepId: "implement", attempt: revision + 2 },
+							diffDigest: result.diffDigest,
+							evidenceRefs: [
+								...new Set([...result.evidenceRefs, ...failed.flatMap((check) => check.evidenceRefs)]),
+							],
+							failedCheckIds: failed.map((check) => check.id),
+							taskContractDigest: this.state.taskContractDigest!,
+						};
+						this.handoff = undefined;
+						this.review = undefined;
+						this.selfCheck = undefined;
+						this.finalCheck = undefined;
+						this.developerSession = undefined;
+						this.reviewerSession = undefined;
+						const reason = "Deterministic SELF_CHECK failure; one bounded repair scheduled";
+						await this.persist(
+							{
+								verificationRepair: { mode: repair.mode, attempts: [parent] },
+								revisionCycle: parent.toRevision,
+								phase: "IMPLEMENT",
+								currentStep: parent.toStep,
+								handoff: undefined,
+								review: undefined,
+								activeAgents: [],
+								next: ["implement"],
+							},
+							[
+								{ type: "VerificationFailed", step, reason },
+								{ type: "StepFailed", step, reason },
+								{ type: "VerificationRepairScheduled", parent },
+							],
+						);
+						return this.snapshot;
+					}
 					assertVerification(result, this.state.runId, revision, this.checks);
 					if (expectedStep === "self-check") this.selfCheck = result;
 					else this.finalCheck = result;
@@ -950,6 +1082,11 @@ export class CompanyKernel {
 							sessionRef?.role === "Reviewer",
 							"R2 independent Reviewer session reference is required",
 						);
+					if (this.state.verificationRepair?.attempts.length)
+						requireEvidence(
+							sessionRef?.role === "Reviewer",
+							"Repair requires a fresh independent Reviewer session",
+						);
 					this.reviewerSession = sessionRef;
 					const review = structuredClone(result.review);
 					assertReview(review, task, this.selfCheck);
@@ -967,7 +1104,11 @@ export class CompanyKernel {
 						{ type: type[review.result], step, review },
 						{ type: "StepCompleted", step },
 					);
-					if (review.result === "BLOCK" || (review.result === "REVISE" && revision >= this.maxRevisionCycles)) {
+					const reviewCycles = revision - (this.state.verificationRepair?.attempts.length ?? 0);
+					if (
+						review.result === "BLOCK" ||
+						(review.result === "REVISE" && reviewCycles >= this.maxRevisionCycles)
+					) {
 						await this.finish(
 							"BLOCKED",
 							review.result === "BLOCK" ? "Reviewer blocked the task" : "Revision limit reached",

@@ -1,4 +1,11 @@
-import type { ApprovalRecord, Review, RoleSessionReference, Run, StepReference } from "./contracts.ts";
+import type {
+	ApprovalRecord,
+	Review,
+	RoleSessionReference,
+	Run,
+	StepReference,
+	VerificationRepairAttempt,
+} from "./contracts.ts";
 
 interface EventIdentity {
 	schemaVersion: 1;
@@ -41,6 +48,7 @@ export type RuntimeEventDetail =
 	| { type: "VerificationStarted"; step: StepReference }
 	| { type: "VerificationCompleted"; step: StepReference; diffDigest: string; checkIds: string[] }
 	| { type: "VerificationFailed"; step: StepReference; reason: string }
+	| { type: "VerificationRepairScheduled"; parent: VerificationRepairAttempt }
 	| { type: "ApprovalRequested"; step: StepReference; actionId: string }
 	| {
 			type: "ApprovalResolved";

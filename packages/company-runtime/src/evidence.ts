@@ -74,6 +74,9 @@ export interface EvidencePack {
 	workspace: { diffDigest: string | null; changedFiles: string[]; changedLines: number | null };
 	checks: Array<{
 		id: string;
+		revision: number;
+		attempt: number | null;
+		diffDigest: string;
 		step: string;
 		status: string;
 		required: boolean;
@@ -94,6 +97,7 @@ export interface EvidencePack {
 			policyDigest: string;
 		} | null;
 	}>;
+	verificationRepair: NonNullable<Run["verificationRepair"]> | null;
 	lsp: { available: boolean; stale: boolean } | null;
 	review: {
 		result: string;
@@ -138,10 +142,17 @@ function failureCategory(run: Run, error: string | undefined): EvidenceFailureCa
 		)
 	)
 		return "APPROVAL";
-	if (run.verification.some((check) => check.status === "FAIL" || (check.required && check.status === "UNAVAILABLE")))
+	if (
+		run.verification.some(
+			(check) =>
+				check.revision === run.revisionCycle &&
+				(check.status === "FAIL" || (check.required && check.status === "UNAVAILABLE")),
+		)
+	)
 		return "VERIFICATION";
 	if (run.review && !isCriteriaReview(run.review)) return "UNKNOWN";
-	if (run.review && (run.review.result === "REVISE" || run.review.result === "BLOCK")) return "REVIEW";
+	if (run.review?.revision === run.revisionCycle && (run.review.result === "REVISE" || run.review.result === "BLOCK"))
+		return "REVIEW";
 	const text = (error ?? run.lastError ?? "").trim();
 	if (!text) return "UNKNOWN";
 	if (text.startsWith("Policy ")) return "POLICY";
@@ -202,6 +213,9 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 		},
 		checks: run.verification.map((check) => ({
 			id: check.id,
+			revision: check.revision,
+			attempt: check.step?.attempt ?? null,
+			diffDigest: check.diffDigest,
 			step: check.step?.stepId ?? "unrecorded",
 			status: check.status,
 			required: check.required,
@@ -227,6 +241,7 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 					}
 				: null,
 		})),
+		verificationRepair: run.verificationRepair ? structuredClone(run.verificationRepair) : null,
 		lsp: lspChecks.length
 			? { available: true, stale: (run.workspace?.evidenceRefs ?? []).some((ref) => ref.startsWith("stale:")) }
 			: null,
@@ -328,9 +343,20 @@ export function formatEvidencePack(pack: EvidencePack): string {
 	lines.push(
 		`Workspace: diff ${unknown(pack.workspace.diffDigest)}; changed files ${pack.workspace.changedFiles.length ? pack.workspace.changedFiles.map((path) => displayText(path)).join(", ") : "none recorded"}; changed lines ${unknown(pack.workspace.changedLines)}`,
 	);
+	lines.push(
+		`Verification repair: ${
+			pack.verificationRepair
+				? `${pack.verificationRepair.mode}; used ${pack.verificationRepair.attempts.length}/1`
+				: "UNKNOWN (not recorded)"
+		}`,
+	);
+	for (const repair of pack.verificationRepair?.attempts ?? [])
+		lines.push(
+			`  Failed SELF_CHECK #${repair.fromStep.attempt} (revision ${repair.fromRevision}) -> Developer #${repair.toStep.attempt} (revision ${repair.toRevision}); parent diff ${displayText(repair.diffDigest)}; checks ${repair.failedCheckIds.map((id) => displayText(id)).join(", ")}`,
+		);
 	for (const check of pack.checks) {
 		lines.push(
-			`Check ${displayText(check.id)} (${check.step}${check.required ? ", required" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
+			`Check ${displayText(check.id)} (${check.step} #${check.attempt ?? "unknown"}, revision ${check.revision}${check.required ? ", required" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
 		);
 		lines.push(
 			check.sandbox

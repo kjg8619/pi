@@ -221,16 +221,24 @@ export class StandardWorkflow {
 					classification,
 					workflow: selection.workflow,
 					maxRevisionCycles: classification.risk === "R3" ? 0 : this.options.config.agents.max_revision_cycles,
+					verificationRepairMode: this.options.config.verification.repair.mode,
 					approvalTimeoutMs: this.options.approvalTimeoutMs,
 					// Host-frozen guard input from the verifier's Run-start snapshot, never from a result.
 					checks: verifier.trustRequirements.map((requirement) => ({
 						id: requirement.id,
 						kind: requirement.kind,
 						required: requirement.required,
+						...(requirement.repairableExitCodes?.length
+							? { repairableExitCodes: requirement.repairableExitCodes }
+							: {}),
+						...((requirement.trustRequired ||
+							this.options.config.verification.repair.mode === "self-check-once") &&
+						requirement.trustRegistrationDigest
+							? { trustRegistrationDigest: requirement.trustRegistrationDigest }
+							: {}),
 						...(requirement.trustRequired
 							? {
 									trustRequired: true,
-									trustRegistrationDigest: requirement.trustRegistrationDigest,
 								}
 							: {}),
 						...(requirement.sandboxRequired

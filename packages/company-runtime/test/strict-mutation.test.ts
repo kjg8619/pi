@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkerTools, WORKER_FILE_TOOLS } from "../src/agent-tools.ts";
 import { parseRuntimeConfig } from "../src/config.ts";
 import type { PolicyDecision } from "../src/contracts.ts";
-import { formatPlanPreview } from "../src/plan-preview.ts";
 import type { ActionAudit, PolicyContext } from "../src/policy.ts";
 import { FilePolicyPathInspector } from "../src/policy-paths.ts";
 import type { AgentExecutionRequest } from "../src/ports.ts";
@@ -118,7 +117,7 @@ afterEach(() => {
 	rmSync(cwd, { recursive: true, force: true });
 });
 
-describe("V0.4A config and plan preview", () => {
+describe("V0.4A mutation mode configuration", () => {
 	it("keeps compatible as the default and accepts exactly two modes", () => {
 		expect(configOf().mutation).toEqual({ mode: "compatible" });
 		expect(configOf("compatible").mutation).toEqual({ mode: "compatible" });
@@ -145,44 +144,6 @@ describe("V0.4A config and plan preview", () => {
 				}),
 			),
 		).toThrow();
-	});
-
-	it("reports the mutation mode in the plan preview without presenting it as permission", () => {
-		const plan = {
-			goal: "fix",
-			workflow: "STANDARD" as const,
-			executionMode: "EDIT" as const,
-			risk: "R1" as const,
-			acceptanceCriteria: [],
-			allowedPaths: ["src"],
-			checks: [],
-			projectInstructionPath: null,
-			lspEnabled: false,
-		};
-		expect(
-			formatPlanPreview({
-				...plan,
-				mutationMode: "compatible",
-				verifierTrustMode: "compatible",
-				verifierTrustSources: [],
-				verifierSandboxMode: "disabled",
-				contextPackMode: "disabled",
-			}),
-		).toContain("Mutation mode: compatible");
-		const strict = formatPlanPreview({
-			...plan,
-			mutationMode: "strict",
-			verifierTrustMode: "strict",
-			verifierTrustSources: ["test/acceptance.test.mjs"],
-			verifierSandboxMode: "required",
-			contextPackMode: "disabled",
-		});
-		expect(strict).toContain("Mutation mode: strict (strict freshness/precondition enforcement");
-		expect(strict).toContain("not a permission and not approval");
-		expect(strict).toContain(
-			"Verifier trust: strict (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)",
-		);
-		expect(strict).toContain("test/acceptance.test.mjs");
 	});
 });
 

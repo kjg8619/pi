@@ -185,6 +185,7 @@ export class RegisteredVerifier implements Verifier {
 		trustRegistrationDigest: string;
 		sandboxRequired: boolean;
 		sandboxPolicyDigest: string;
+		repairableExitCodes: number[];
 	}> {
 		return this.config.verification.checks.map((check, index) => ({
 			id: check.id,
@@ -194,6 +195,7 @@ export class RegisteredVerifier implements Verifier {
 			trustRegistrationDigest: this.trustSnapshots[index]?.registrationDigest ?? "",
 			sandboxRequired: this.sandbox !== undefined,
 			sandboxPolicyDigest: this.sandbox?.policyDigest ?? "",
+			repairableExitCodes: [...(check.repairable_exit_codes ?? [])],
 		}));
 	}
 
@@ -218,6 +220,7 @@ export class RegisteredVerifier implements Verifier {
 		if (this.policy.r2RunId && request.runId !== this.policy.r2RunId)
 			throw new Error("R2 verifier run binding mismatch");
 		const configured = this.config.verification.checks;
+		const repairEnabled = this.config.verification.repair.mode === "self-check-once";
 		const requirementOf = (check: {
 			id: string;
 			kind: string;
@@ -226,6 +229,7 @@ export class RegisteredVerifier implements Verifier {
 			trustRegistrationDigest?: string;
 			sandboxRequired?: boolean;
 			sandboxPolicyDigest?: string;
+			repairableExitCodes?: number[];
 		}) => ({
 			id: check.id,
 			kind: check.kind,
@@ -234,18 +238,20 @@ export class RegisteredVerifier implements Verifier {
 			...(check.trustRegistrationDigest ? { trustRegistrationDigest: check.trustRegistrationDigest } : {}),
 			...(check.sandboxRequired === true ? { sandboxRequired: true } : {}),
 			...(check.sandboxPolicyDigest ? { sandboxPolicyDigest: check.sandboxPolicyDigest } : {}),
+			...(check.repairableExitCodes?.length ? { repairableExitCodes: check.repairableExitCodes } : {}),
 		});
 		const strictTrust = (this.config.verification.trust?.mode ?? "compatible") === "strict";
 		if (
 			JSON.stringify(request.checks.map(requirementOf)) !==
 			JSON.stringify(
-				configured.map(({ id, kind, required }, index) =>
+				configured.map(({ id, kind, required, repairable_exit_codes }, index) =>
 					requirementOf({
 						id,
 						kind,
 						required,
+						repairableExitCodes: repairable_exit_codes,
 						...(strictTrust ? { trustRequired: true } : {}),
-						...(strictTrust && this.trustSnapshots[index]?.registrationDigest
+						...((strictTrust || repairEnabled) && this.trustSnapshots[index]?.registrationDigest
 							? { trustRegistrationDigest: this.trustSnapshots[index]!.registrationDigest }
 							: {}),
 						...(this.sandbox
@@ -339,16 +345,19 @@ export class RegisteredVerifier implements Verifier {
 					continue;
 				}
 				const trustSnapshot = this.trustSnapshots[index];
+				const preTrust =
+					trustSnapshot && (trustSnapshot.mode === "strict" || repairEnabled)
+						? validateVerifierTrust(this.workspace.cwd, trustSnapshot)
+						: undefined;
 				if (trustSnapshot?.mode === "strict") {
-					const pre = validateVerifierTrust(this.workspace.cwd, trustSnapshot);
-					if (!pre.ok) {
+					if (!preTrust?.ok) {
 						intentOpen = false;
 						await this.audit.finish(decision.runId, decision.actionId, "FAILED");
 						checks.push({
 							...base,
 							// A trust violation is never PASS and never silently optional.
 							status: "FAIL",
-							reason: `${pre.reason ?? "Verifier trust source changed"} before execution`,
+							reason: `${preTrust?.reason ?? "Verifier trust source changed"} before execution`,
 							trust: verifierTrustEvidence(trustSnapshot, "STALE"),
 						});
 						continue;
@@ -426,6 +435,18 @@ export class RegisteredVerifier implements Verifier {
 					stdout: result.stdout,
 					stderr: result.stderr,
 					diffDigest: current.diffDigest,
+					...(repairEnabled &&
+					result.reason === "exited" &&
+					result.exitCode !== null &&
+					(check.repairable_exit_codes ?? []).includes(result.exitCode) &&
+					result.cleanupConfirmed &&
+					preTrust?.ok &&
+					post?.ok &&
+					current.safe &&
+					!request.signal?.aborted &&
+					(!this.sandbox || sandboxRun?.status === "ENFORCED")
+						? { failureKind: "COMMAND_NONZERO" as const }
+						: {}),
 					...(trustSnapshot
 						? {
 								trust: verifierTrustEvidence(
@@ -494,30 +515,39 @@ export class RegisteredVerifier implements Verifier {
 			}
 			markStaleLspEvidence(lspEvidence, final.diffDigest, final.safe);
 		}
+		let integrity = final.safe && !request.signal?.aborted && this.safeToRelease;
 		if (this.sandbox) {
 			const backendState = validateSandboxBackend(this.sandbox.backend);
-			if (!backendState.ok)
+			if (!backendState.ok) {
+				integrity = false;
 				for (const check of checks)
-					if (check.status === "PASS" && check.sandbox) {
-						check.status = "FAIL";
+					if (check.sandbox) {
+						if (check.status === "PASS") check.status = "FAIL";
 						check.reason = backendState.reason ?? "Verifier sandbox backend changed";
 						check.sandbox = sandboxEvidence(this.sandbox, "STALE");
+						delete check.failureKind;
 					}
+			}
+			if (checks.some((check) => check.sandbox?.status !== "ENFORCED")) integrity = false;
 		}
-		for (const [index, check] of checks.entries())
-			if (check.status === "PASS" && this.trustSnapshots[index]?.mode === "strict") {
-				const settled = validateVerifierTrust(this.workspace.cwd, this.trustSnapshots[index]!);
-				if (!settled.ok) {
-					check.status = "FAIL";
-					check.reason = `${settled.reason ?? "Verifier trust source changed"} before result settlement`;
-					check.trust = verifierTrustEvidence(this.trustSnapshots[index]!, "STALE");
+		for (const [index, check] of checks.entries()) {
+			const snapshot = this.trustSnapshots[index];
+			if (repairEnabled || (check.status === "PASS" && snapshot?.mode === "strict")) {
+				const settled = snapshot ? validateVerifierTrust(this.workspace.cwd, snapshot) : undefined;
+				if (!settled?.ok) {
+					integrity = false;
+					if (check.status === "PASS") check.status = "FAIL";
+					check.reason = `${settled?.reason ?? "Verifier trust unavailable"} before result settlement`;
+					if (snapshot) check.trust = verifierTrustEvidence(snapshot, "STALE");
+					delete check.failureKind;
 				}
 			}
+		}
 		for (const check of checks)
-			if (
-				check.status === "PASS" &&
-				(request.signal?.aborted || !final.safe || check.diffDigest !== final.diffDigest)
-			) {
+			if (request.signal?.aborted || !final.safe || check.diffDigest !== final.diffDigest) {
+				integrity = false;
+				delete check.failureKind;
+				if (check.status !== "PASS") continue;
 				check.status = "FAIL";
 				check.reason = request.signal?.aborted
 					? "Verification cancelled before result settlement"
@@ -532,6 +562,7 @@ export class RegisteredVerifier implements Verifier {
 			...(lspEvidence ? { lspEvidence } : {}),
 			changedFiles: final.changedFiles,
 			checks,
+			...(repairEnabled ? { integrity: integrity ? ("CLEAN" as const) : ("BLOCKED" as const) } : {}),
 			reviewContext: {
 				diff: final.diff,
 				evidence: [
