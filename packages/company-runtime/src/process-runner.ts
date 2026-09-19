@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
+import { Readable } from "node:stream";
 
 export async function resolveExecutable(executable: string, path: string): Promise<string> {
 	const candidates = isAbsolute(executable)
@@ -38,6 +39,8 @@ export interface ProcessRequest {
 	timeoutMs: number;
 	signal?: AbortSignal;
 	maxOutputBytes?: number;
+	/** Host-only bounded outcome channel, separate from untrusted program stdout/stderr. */
+	controlFd?: boolean;
 }
 export interface ProcessResult {
 	exitCode: number | null;
@@ -47,6 +50,7 @@ export interface ProcessResult {
 	finishedAt: number;
 	reason: "exited" | "unavailable" | "cancelled" | "timeout" | "output-limit" | "background-process" | "stream-error";
 	cleanupConfirmed: boolean;
+	controlOutput?: string;
 }
 
 /** POSIX process-group supervision; no shell, inherited credentials, detached background service or retry. */
@@ -58,6 +62,8 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 		let stdout = Buffer.alloc(0);
 		let stderr = Buffer.alloc(0);
 		let bytes = 0;
+		let controlOutput = "";
+		let controlBytes = 0;
 		let reason: ProcessResult["reason"] = "exited";
 		let killTimer: ReturnType<typeof setTimeout> | undefined;
 		const child = spawn(request.executable, [...request.argv], {
@@ -65,7 +71,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 			env: { ...request.env },
 			shell: false,
 			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: ["ignore", "pipe", "pipe", request.controlFd ? "pipe" : "ignore"],
 		});
 		const kill = (signal: NodeJS.Signals) => {
 			if (child.pid)
@@ -94,10 +100,19 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 			else stderr = Buffer.concat([stderr, chunk.subarray(0, remaining)]);
 			if (bytes > limit) stop("output-limit");
 		};
-		child.stdout.on("data", (chunk: Buffer) => collect(chunk, "stdout"));
-		child.stderr.on("data", (chunk: Buffer) => collect(chunk, "stderr"));
-		child.stdout.on("error", () => stop("stream-error"));
-		child.stderr.on("error", () => stop("stream-error"));
+		child.stdout!.on("data", (chunk: Buffer) => collect(chunk, "stdout"));
+		child.stderr!.on("data", (chunk: Buffer) => collect(chunk, "stderr"));
+		child.stdout!.on("error", () => stop("stream-error"));
+		child.stderr!.on("error", () => stop("stream-error"));
+		const control = child.stdio[3];
+		if (request.controlFd && control instanceof Readable) {
+			control.on("data", (chunk: Buffer) => {
+				controlBytes += chunk.length;
+				if (controlBytes > 2048) stop("output-limit");
+				else controlOutput += chunk.toString("utf8");
+			});
+			control.on("error", () => stop("stream-error"));
+		}
 		child.on("error", () => {
 			reason = "unavailable";
 		});
@@ -137,6 +152,7 @@ export async function runProcess(request: ProcessRequest): Promise<ProcessResult
 				finishedAt: Date.now(),
 				reason,
 				cleanupConfirmed,
+				...(request.controlFd ? { controlOutput } : {}),
 			});
 		});
 	});

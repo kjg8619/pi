@@ -54,7 +54,7 @@ Personal AI Runtime의 작업 내용과 검증 결과를 누적 기록한다. �
 | V0.4B Verifier Trust Closure | 구현·자동 회귀 PASS / DeepSeek strict-trust run **COMPLETED** / 게시 `96b1d8366` | LOG-067. registration digest가 실제 filtered env(canonical)를 bind, executableDigest는 real SHA-256 identity digest, digest schema 강화(`^sha256:[0-9a-f]{64}$`), Kernel이 Host-frozen registration digest까지 비교(wrong/malformed VERIFIED 거부), Reviewer/Worker protected-oracle 비열람 guidance. 자동 53개 파일·1,696개 PASS. DeepSeek: self-check·test `PASS`+`VERIFIED` 동일 digest, Reviewer PASS(독립)·oracle 직접 접근 0회, oraclePass true, 22,515 tokens |
 | V0.4C Verifier Sandbox | 구현·자동 회귀 PASS / macOS actual PASS / **Linux actual NOT VERIFIED** / remote CI PASS / DeepSeek strict+trust+sandbox **COMPLETED** / 게시 `acfbac0fd`·문서 `aa43b9f9f` | LOG-069·LOG-070. `verification.sandbox.mode`(기본 disabled), SRT 0.0.76 exact pin, SandboxPort(argv·canonical path·0600 temp settings), fixed deny-all network + workspace write allow + oracle/protected read·write deny, Host-frozen `sandboxPolicyDigest` + Kernel guard. 자동 54개 파일·1,710 PASS(경계 테스트는 backend 동작 플랫폼에서만 실행) |
 | V0.5A Task Context Pack | CLOSED | LOG-071; bounded context actual COMPLETED, historical regression·CI PASS |
-| V0.5B Task Recipes | CLOSED | LOG-075~079; production recipe command·edited AC 3개·strict/trust/sandbox actual COMPLETED·oraclePass true. 현재 전체 회귀 PASS, 구현 HEAD `f4c3298f6` remote CI PASS. closure 문서 HEAD CI는 게시 후 최종 확인 |
+| V0.5B Task Recipes | CLOSED | LOG-075~080; actual COMPLETED/oraclePass true, full local PASS, closure HEAD `a5023eb98` CI `35441610636` success |
 
 S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork-local launcher를 완료했다. 실제 GPT 판정은 [GPT_RC_VALIDATION_2026-09-16.md](GPT_RC_VALIDATION_2026-09-16.md)의 사용자 수동 evidence다. Branding은 `632ad3bcd`, Status Projection은 `2205dec84`, fork-local launcher는 commit `14c3f6992`에 반영되어 있다. 각각의 당시 검증은 LOG-021~027에 보존한다.
 
@@ -66,7 +66,7 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.4B Verifier Trust(LOG-066 구현 + LOG-067 closure)는 opt-in strict registration/source freeze, env-bound registration digest, real executable identity digest, pre/post process 재검증, Worker protected source, Kernel의 Host-frozen digest guard, Reviewer oracle 비열람 guidance, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek strict-trust run이 **COMPLETED**했고 self-check/test가 같은 registration digest로 `VERIFIED`를 기록했다. V0.4B는 LOG-067로 종료한다.
 - V0.4C Verifier Sandbox(LOG-069 구현 + LOG-070 closure)는 option 3 기준으로 CLOSED다: macOS actual PASS, Linux actual **NOT VERIFIED**(runner 외부 blocker 2건 — 명시), deterministic cross-platform contract PASS, remote CI PASS(전체 run success), DeepSeek strict+trust+sandbox actual **COMPLETED**.
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
-- **V0.5B — C03 Task Recipes / Reviewed Skill Packs는 LOG-079 기준 CLOSED**다. 다음은 V0.5C — C02 Bounded Verification Repair 설계 재검증과 첫 vertical slice다. closure 문서 HEAD의 remote CI PASS 확인 전에는 V0.5C를 시작하지 않는다.
+- **V0.5B는 closure HEAD `a5023eb98`의 CI PASS까지 확인해 CLOSED**다. V0.5C는 사용자 선택에 따라 sandbox target 종료 경계를 먼저 보강했다(LOG-081). macOS smoke 및 sandbox 회귀 PASS이며, 다음 단계는 opt-in STANDARD/EDIT/R1·SELF_CHECK 최대 1회의 linked repair다. 아직 repair를 활성화하지 않았다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
 - 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 현재 검증된 구현 HEAD remote CI는 `f4c3298f6`의 run `35441207575` = success다. 이전 SHA의 CI를 closure 문서 HEAD의 결과로 대체하지 않는다.
 
@@ -3347,3 +3347,32 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 이 closure는 bugfix recipe actual 1회와 deterministic 4종/negative 경로 검증이다. 모든 recipe의 Provider actual, 모든 OS/모델, Linux sandbox actual, terminal rendering, expected-failure TDD를 검증했다고 주장하지 않는다.
 - V0.5C 코드는 아직 없다. closure 문서 commit/push 후 해당 HEAD CI PASS를 확인하고, opt-in STANDARD/EDIT/R1·SELF_CHECK 최대 1회·fresh linked attempt·누적 budget·infrastructure failure 제외 계약을 재검증한다.
 - 이 항목의 변경 파일은 `README.md`, `docs/WEAVRA_ROADMAP_2026-09-17.md`, `docs/WORK_LOG.md`다. changelog는 `devlop` 규칙에 따라 추가하지 않는다. 안정 태그 `weavra-v0.1-rc1`은 변경하지 않는다. closure 문서 HEAD의 SHA/CI 결과는 후속 작업 기록에서 확정한다.
+
+## LOG-080 — 2026-09-19 21:16 (Asia/Seoul) — V0.5B 게시 완료 및 V0.5C 종료 원인 경계 재검증
+
+**상태:** V0.5B 최종 CLOSED. V0.5C는 설계 재검증 중이며 runtime 변경 없음. sandbox 종료 원인 구분 문제로 구현 범위 결정을 요청한다.
+
+- closure commit `a5023eb98a26d6299c7ee7faa8ec4add3fb359e7`을 일반 push했고, [CI 35441610636](https://github.com/kjg8619/pi/actions/runs/35441610636)은 **success**다. hydrate, committed-source build, non-mutating check, isolated tests, launcher syntax, tracked-source unchanged 모두 PASS. 원격 `devlop` SHA 일치, 원격 RC tag peeled target `183f85de1897d8b9f4fadb368a54e2b1390e5a84` 불변을 확인한 후 V0.5C 조사를 시작했다.
+- 조사 결과 fresh Pi session/tool closure/read receipt와 bounded context 재구성은 기존 invocation 경계에 있다. 같은 Kernel/Workflow 안에서 code revision과 step attempt를 함께 증가시키고 failed SELF_CHECK의 parent/evidence를 durable state에 연결해야 budget·Host-frozen verifier/trust/policy를 유지할 수 있다. `previousReview`에 가짜 REVISE를 넣거나 Workflow를 재생성하는 방식은 사용하지 않는다. graph는 과거 attempt가 모두 Reviewer에 도달했다고 가정하고 evidence pack은 check attempt를 생략하므로 함께 정정해야 한다.
+- `CheckResult.FAIL`은 일반 command nonzero뿐 아니라 timeout, signal, output limit, Policy, trust/oracle mutation, sandbox, workspace/cancellation을 포함한다. reason 문자열을 파싱하거나 FAIL만으로 repair를 허용할 수 없다. 현재 verifier의 최종 freshness 재검증이 PASS에만 적용되므로 failed 후보도 settlement까지 재검증해야 한다.
+- 구체적 선행 문제: runtime-local pinned SRT **0.0.76** CLI는 sandbox wrapper의 exit를 target의 exit와 합친다. `sandbox.ts`는 wrapper가 정상 종료하면 `ENFORCED`를 표시한다. 설치된 CLI의 signal/exception 처리까지 읽어 확인했다. stdout/stderr 문구나 exit-code allowlist만으로 sandbox infrastructure 실패를 제외할 수 없다.
+- 실제 macOS 임시 재현(`node --import tsx /tmp/weavra-repair-attribution.mts`, 유료 Provider 호출 없음, backend probe 성공):
+  - target `process.exit(1)` → `ENFORCED / reason=exited / exitCode=1 / cleanupConfirmed=true`.
+  - target self-SIGKILL → **동일하게** `ENFORCED / exited / 1 / true`.
+  - 앞선 self-SIGTERM 실행 → `ENFORCED / exited / 0 / true`. SRT CLI가 child SIGINT/SIGTERM을 `process.exit(0)`으로 변환하는 코드와 일치한다. 이것은 target 성공의 증거가 아니다. 전체 Workflow가 COMPLETED했다고 재현한 것은 아니며, 기존 verifier의 exit-zero PASS 판정에 잘못 들어갈 가능성은 소스 근거의 추론이다.
+- 임시 driver와 fixture는 제거했다. node_modules/source/lockfile은 수정하지 않았다. 이번 조사에서 추가 code check/full test/Provider run은 실행하지 않았으며 앞 단계 PASS와 구분한다.
+- 결정 필요: (A) trusted target 종료/실패 원인 경계를 먼저 보강하고 sandboxed repair까지 포함, 또는 (B) 첫 slice를 명시적으로 direct registered check에 한정하고 sandbox 결과는 원인 불명으로 repair 거부. B에서도 기존 required sandbox를 끄거나 정책을 낮추지 않는다. 일반 command의 application exit 의미도 Host가 고정한 check 계약으로 명시해야 하며 임의 비영 종료를 source defect로 추정하지 않는다.
+- V0.5B의 실제 성공 run과 회귀/CI 결과는 유효한 역사적 증거다. 이번 발견으로 sandbox의 모든 종료 상태가 검증됐다고 확대하지 않는다. 새 조사 결과를 기존 LOG에 소급 덮어쓰지 않는다. 이 로그는 현재 미커밋이며, 결정 후 해당 phase commit에 포함한다.
+
+## LOG-081 — 2026-09-19 21:40 (Asia/Seoul) — V0.5C 선행 target 종료 판정 경계
+
+**상태:** 사용자가 LOG-080의 A(종료 판정 경계부터 보강)를 선택했다. direct-only 축소나 sandbox 비활성화 없이 선행 경계를 구현·검증했다. bounded repair 자체는 다음 단계다.
+
+- 변경: `process-runner.ts`에 Host 전용 bounded control FD를 추가했다. `sandbox-driver.mjs`는 check별 독립 SRT SDK process이며 고정 settings·정리 경계를 유지한다. `sandbox-target.mjs`는 sandbox 안에서 실제 executable을 shell 없이 spawn하고 target에 전달하지 않은 FD로 normal exit/signal/spawn failure를 보고한다. stdout/stderr와 SRT wrapper exit는 target 종료 증거로 사용하지 않는다.
+- `sandbox.ts`의 preflight와 check가 같은 경계를 사용한다. wrapper 비정상 종료·누락/잘못된 보고·정리 실패는 PASS가 될 수 없다. SIGTERM/SIGKILL은 exitCode null이다. SDK entry 및 Host driver/supervisor의 generation/content digest를 동결·재검증하며 policy digest domain을 v2로 변경했다. fixed network/oracle/protected path 정책과 no-fallback은 그대로다.
+- `packages/company-runtime/README.md`의 실행·digest 계약을 수정했다. 기존 설명의 shell 미사용 주장을 SDK 내부 shell wrapper와 등록 target의 `shell:false`로 구분했다. Linux의 Host bwrap wrapper는 supervisor FD 하나만 보존하지만 **Linux actual NOT VERIFIED**는 유지한다. dependency/lockfile, 안정 태그는 변경하지 않았다.
+- 실제 macOS 임시 smoke: `node --import tsx /tmp/weavra-target-outcome.mts`. 초기 probe의 workspace 밖 cwd가 새 Node supervisor의 `process.cwd()`에서 EPERM이 되어, probe를 고정된 workspace allow-read root에서 실행하도록 수정했다. 수정 후 probe PASS, target exit 0→0·7→7, SIGTERM/SIGKILL→null, 위조 stdout+exit 7→7, 모두 cleanupConfirmed true. Provider 호출 없음. 임시 driver/fixture 제거.
+- `node ../../node_modules/vitest/dist/cli.js --run test/sandbox.test.ts`(company-runtime cwd) 최종 **19 PASS**. 실제 OS 경계에서 literal argv, signal, 위조 stdout/target FD 비상속, supervisor kill, target launch failure, 실제 RegisteredVerifier의 SIGTERM FAIL을 포함했다. 최초 새 verifier test는 fixture oracle 수정 후 baseline commit 누락으로 dirty-workspace 거부되었고 fixture를 바로잡았다. 기존 경계 테스트도 통과했다.
+- `npm run check` 최종 **PASS**(현재 작업 실행). 전체 local test/remote CI 결과를 이 단계에서 아직 주장하지 않는다.
+- 다음 계약: Host가 `verification.repair.mode=self-check-once`와 check별 deterministic failure exit code를 명시해야 한다. typed normal target exit·fresh trust/sandbox/workspace·정리 완료만 후보이며 reason 문자열은 authority가 아니다. 동일 Run/Kernel/Verifier에서 failed evidence를 보존하고 parent SELF_CHECK→새 implement attempt를 연결한다. 새 worker/session/context/read receipt, 독립 Reviewer/TEST, 기존 누적 budget과 정책을 유지한다.
+- 이 단계 변경 파일은 위 source 4개, `test/sandbox.test.ts`, runtime README, WORK_LOG다. phase commit 후 일반 push하고, 후속 로그에서 SHA/CI 결과를 기록한다. changelog는 `devlop` 규칙에 따라 추가하지 않는다.

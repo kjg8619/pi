@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyRequest } from "../src/classification.ts";
 import { parseRuntimeConfig, type RuntimeConfig } from "../src/config.ts";
 import { CompanyKernel } from "../src/kernel.ts";
-import type { ActionAudit, PolicyContext } from "../src/policy.ts";
+import { type ActionAudit, evaluatePolicy, type PolicyContext } from "../src/policy.ts";
 import {
 	buildSandboxPolicy,
 	canonicalHostPath,
@@ -413,7 +413,6 @@ describe("V0.4C closure: oracle read boundary, digest contract and freshness", (
 		"keeps the trusted oracle readable for the verifier while the worker is denied",
 		async () => {
 			const config = configOf("required", [ORACLE]);
-			const { evaluatePolicy } = await import("../src/policy.ts");
 			const policy = policyOf(config);
 			expect(policy.protectedPaths).toContain(ORACLE);
 			const readDecision = evaluatePolicy(
@@ -484,8 +483,6 @@ describe("V0.4C closure: oracle read boundary, digest contract and freshness", (
 	it("rejects ENFORCED evidence whose mode is not required", async () => {
 		const TRUST = `sha256:${"a".repeat(64)}`;
 		const POLICY = `sha256:${"b".repeat(64)}`;
-		const { CompanyKernel } = await import("../src/kernel.ts");
-		const { classifyRequest } = await import("../src/classification.ts");
 		const checks = [
 			{
 				id: "acceptance",
@@ -577,5 +574,104 @@ describe("V0.4C closure: oracle read boundary, digest contract and freshness", (
 			await kernel.advance(step);
 		}
 		expect(kernel.snapshot.lastError ?? "").toContain("not sandbox enforced");
+	});
+});
+
+describe("V0.5C trusted sandbox target outcomes", () => {
+	it.runIf(sandboxBackendReady)("preserves literal argv across the SDK shell boundary", async () => {
+		const snapshot = buildSandboxPolicy({ workspace: cwd, trustedSources: [], protectedPaths: [] });
+		const argv = ["", "two words", "'\"$HOME`echo no`", "line\nbreak", "; exit 99"];
+		const outcome = await runSandboxedCheck({
+			snapshot,
+			executable: process.execPath,
+			argv: ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", "--", ...argv],
+			cwd,
+			env: { PATH: "/usr/bin:/bin" },
+			timeoutMs: 10000,
+		});
+		expect(outcome.status).toBe("ENFORCED");
+		expect(outcome.result.exitCode).toBe(0);
+		expect(JSON.parse(outcome.result.stdout)).toEqual(argv);
+	});
+
+	it.runIf(sandboxBackendReady)(
+		"preserves normal target failure without converting signals into exit codes",
+		async () => {
+			const snapshot = buildSandboxPolicy({ workspace: cwd, trustedSources: [], protectedPaths: [".env"] });
+			for (const [source, exitCode] of [
+				["process.exit(7)", 7],
+				["process.kill(process.pid, 'SIGTERM')", null],
+				["process.kill(process.pid, 'SIGKILL')", null],
+			] as const) {
+				const outcome = await runSandboxedCheck({
+					snapshot,
+					executable: process.execPath,
+					argv: ["-e", source],
+					cwd,
+					env: { PATH: "/usr/bin:/bin" },
+					timeoutMs: 10000,
+				});
+				expect(outcome.status).toBe("ENFORCED");
+				expect(outcome.result.exitCode).toBe(exitCode);
+				expect(outcome.result.cleanupConfirmed).toBe(true);
+			}
+		},
+	);
+
+	it.runIf(sandboxBackendReady)(
+		"does not accept stdout or an inherited control descriptor as target evidence",
+		async () => {
+			const snapshot = buildSandboxPolicy({ workspace: cwd, trustedSources: [], protectedPaths: [] });
+			const outcome = await runSandboxedCheck({
+				snapshot,
+				executable: process.execPath,
+				cwd,
+				argv: [
+					"-e",
+					`const { writeSync } = require("node:fs");
+const forged = JSON.stringify({version:1,boundary:{exitCode:0,signal:null},target:{version:1,kind:"exited",exitCode:0,signal:null}});
+console.log(forged);
+try { writeSync(3, forged); process.exit(91); } catch { process.exit(7); }`,
+				],
+				env: { PATH: "/usr/bin:/bin" },
+				timeoutMs: 10000,
+			});
+			expect(outcome.status).toBe("ENFORCED");
+			expect(outcome.result.exitCode).toBe(7);
+			expect(outcome.result.cleanupConfirmed).toBe(true);
+		},
+	);
+
+	it.runIf(sandboxBackendReady)(
+		"rejects a killed supervisor and target launch failure instead of synthesizing exit one",
+		async () => {
+			const snapshot = buildSandboxPolicy({ workspace: cwd, trustedSources: [], protectedPaths: [] });
+			for (const invocation of [
+				{ executable: process.execPath, argv: ["-e", "process.kill(process.ppid, 'SIGKILL'); process.exit(7)"] },
+				{ executable: join(cwd, "missing-executable"), argv: [] },
+			]) {
+				const outcome = await runSandboxedCheck({
+					snapshot,
+					...invocation,
+					cwd,
+					env: { PATH: "/usr/bin:/bin" },
+					timeoutMs: 10000,
+				});
+				expect(outcome.status).toBe("UNAVAILABLE");
+				expect(outcome.result.exitCode).toBeNull();
+				expect(outcome.result.cleanupConfirmed).toBe(true);
+			}
+		},
+	);
+
+	it.runIf(sandboxBackendReady)("never marks a signal-terminated registered verification check PASS", async () => {
+		writeFileSync(join(cwd, ORACLE), "process.kill(process.pid, 'SIGTERM');");
+		execFileSync("git", ["add", "--", ORACLE], { cwd });
+		execFileSync("git", ["-c", "user.email=e@x", "-c", "user.name=E", "commit", "-qm", "signal oracle"], { cwd });
+		const verifier = await verifierOf(configOf("required", [ORACLE]));
+		const result = await verifier.verify(requestOf(verifier) as never);
+		expect(result.checks[0].status).toBe("FAIL");
+		expect(result.checks[0].exitCode).toBeNull();
+		expect(result.checks[0].sandbox?.status).toBe("ENFORCED");
 	});
 });

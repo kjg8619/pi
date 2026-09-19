@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, 
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ProcessResult } from "./process-runner.ts";
 import { runProcess } from "./process-runner.ts";
 
@@ -13,14 +14,14 @@ import { runProcess } from "./process-runner.ts";
  */
 export const SRT_PACKAGE = "@anthropic-ai/sandbox-runtime";
 export const SRT_VERSION = "0.0.76";
-export const SANDBOX_POLICY_DOMAIN = "weavra-verifier-sandbox-v1";
+export const SANDBOX_POLICY_DOMAIN = "weavra-verifier-sandbox-v2";
 const BACKEND_DOMAIN = "weavra-verifier-sandbox-backend-v1";
 
 export type SandboxMode = "disabled" | "required";
 export type SandboxStatus = "ENFORCED" | "UNAVAILABLE" | "STALE" | "UNKNOWN";
 
 export interface SandboxBackend {
-	/** Absolute path to the frozen SRT CLI entry (argv-based; never a shell string). */
+	/** Pinned package entry and Host-owned target-outcome boundary. */
 	cliPath: string;
 	packageRoot: string;
 	version: string;
@@ -31,6 +32,8 @@ export interface SandboxBackend {
 	mtimeNs: string;
 	ctimeNs: string;
 	identityDigest: string;
+	driverPath: string;
+	boundaryFiles: { path: string; identityDigest: string; contentDigest: string }[];
 }
 
 /** Bounded public projection stored in CheckResult; never settings JSON, env, HOME or absolute protected paths. */
@@ -101,11 +104,20 @@ export function sandboxBackendFingerprint(path: string) {
 /** Backend freshness: the same CLI filesystem object must still exist. Recreate/replace is STALE. */
 export function validateSandboxBackend(snapshot: SandboxBackend): { ok: boolean; reason?: string } {
 	try {
+		if (snapshot.boundaryFiles[0]?.path !== snapshot.driverPath)
+			return { ok: false, reason: "Verifier sandbox outcome driver changed" };
 		const current = identityOf(snapshot.cliPath);
 		for (const key of ["dev", "ino", "mode", "size", "mtimeNs", "ctimeNs"] as const)
 			if (current[key] !== snapshot[key]) return { ok: false, reason: `Verifier sandbox backend ${key} changed` };
 		if (identityDigest(snapshot.cliPath, current) !== snapshot.identityDigest)
 			return { ok: false, reason: "Verifier sandbox backend identity digest changed" };
+		for (const file of snapshot.boundaryFiles) {
+			if (
+				sandboxBackendIdentity(file.path) !== file.identityDigest ||
+				createHash("sha256").update(readFileSync(file.path)).digest("hex") !== file.contentDigest
+			)
+				return { ok: false, reason: "Verifier sandbox outcome boundary changed" };
+		}
 		return { ok: true };
 	} catch {
 		return { ok: false, reason: "Verifier sandbox backend is unavailable" };
@@ -122,19 +134,17 @@ export interface SandboxBackendProbe {
  * It never runs project code or oracle files and never falls back to an unsandboxed process.
  */
 export async function probeSandboxBackend(snapshot: SandboxPolicySnapshot): Promise<SandboxBackendProbe> {
-	const directory = mkdtempSync(join(tmpdir(), "weavra-sandbox-probe-"));
-	const settingsPath = join(directory, "settings.json");
 	try {
-		writeFileSync(settingsPath, JSON.stringify(snapshot.settings), { mode: 0o600 });
-		// argv-only no-op: no file outside the workspace is read, no shell string is used.
-		const result = await runProcess({
+		const { result, status } = await runSandboxedCheck({
+			snapshot,
 			executable: process.execPath,
-			argv: [snapshot.backend.cliPath, "-s", settingsPath, "--", process.execPath, "-e", "process.exit(0)"],
-			cwd: directory,
+			argv: ["-e", "process.exit(0)"],
+			cwd: snapshot.settings.filesystem.allowRead[0],
 			env: { PATH: "/usr/bin:/bin" },
 			timeoutMs: 30000,
 		});
-		if (result.reason !== "exited" || result.exitCode !== 0)
+		// The probe exercises the same target-outcome boundary as every registered check.
+		if (status !== "ENFORCED" || result.reason !== "exited" || result.exitCode !== 0)
 			return {
 				ok: false,
 				reason: `Verifier sandbox backend probe failed (${result.reason} exit ${result.exitCode ?? "none"}): ${(result.stderr || result.stdout || "").trim().slice(0, 300)}`,
@@ -145,8 +155,6 @@ export async function probeSandboxBackend(snapshot: SandboxPolicySnapshot): Prom
 		return { ok: true };
 	} catch (error) {
 		return { ok: false, reason: error instanceof Error ? error.message : "Verifier sandbox probe failed" };
-	} finally {
-		rmSync(directory, { recursive: true, force: true });
 	}
 }
 
@@ -175,12 +183,24 @@ export function resolveSandboxBackend(): SandboxBackend {
 	if (!entry) throw new SandboxUnavailableError(`${SRT_PACKAGE} exposes no srt CLI entry`);
 	const cliPath = realpathSync(join(packageRoot, entry));
 	const identity = identityOf(cliPath);
+	const driverPath = fileURLToPath(new URL("./sandbox-driver.mjs", import.meta.url));
+	const boundaryFiles = [
+		driverPath,
+		fileURLToPath(new URL("./sandbox-target.mjs", import.meta.url)),
+		require.resolve(SRT_PACKAGE),
+	].map((path) => ({
+		path,
+		identityDigest: sandboxBackendIdentity(path),
+		contentDigest: createHash("sha256").update(readFileSync(path)).digest("hex"),
+	}));
 	return {
 		cliPath,
 		packageRoot,
 		version: metadata.version,
 		...identity,
 		identityDigest: identityDigest(cliPath, identity),
+		driverPath,
+		boundaryFiles,
 	};
 }
 
@@ -250,8 +270,13 @@ export function buildSandboxPolicy(input: {
 	// The digest binds the exact canonical settings and the backend identity, not a summary of them.
 	const policyDigest = `sha256:${sha256Of(
 		{
-			schema: "v1",
-			backend: { package: SRT_PACKAGE, version: backend.version, identityDigest: backend.identityDigest },
+			schema: "v2",
+			backend: {
+				package: SRT_PACKAGE,
+				version: backend.version,
+				identityDigest: backend.identityDigest,
+				boundaryFiles: backend.boundaryFiles,
+			},
 			canonicalSettings: {
 				filesystem: {
 					denyRead: [...settings.filesystem.denyRead].sort(),
@@ -291,8 +316,8 @@ export function sandboxEvidence(snapshot: SandboxPolicySnapshot, status: Sandbox
 
 /**
  * Runs one registered check inside the frozen sandbox. Settings live outside the workspace, are mode 0600,
- * have an unpredictable name, are used only for this invocation and are removed afterwards. argv is passed
- * through `--` verbatim: no shell, no string command, no `-c`.
+ * have an unpredictable name, are used only for this invocation and are removed afterwards.
+ * A Host-owned supervisor reports actual target exit on a dedicated pipe not inherited by the target.
  */
 export async function runSandboxedCheck(input: {
 	snapshot: SandboxPolicySnapshot;
@@ -303,6 +328,7 @@ export async function runSandboxedCheck(input: {
 	timeoutMs: number;
 	signal?: AbortSignal;
 }): Promise<{ result: ProcessResult; status: SandboxStatus }> {
+	let target: { kind: "exited" | "signal" | "unavailable"; exitCode: number | null } | undefined;
 	const backendState = validateSandboxBackend(input.snapshot.backend);
 	if (!backendState.ok)
 		return {
@@ -323,21 +349,71 @@ export async function runSandboxedCheck(input: {
 		writeFileSync(settingsPath, JSON.stringify(input.snapshot.settings), { mode: 0o600 });
 		const result = await runProcess({
 			executable: process.execPath,
-			argv: [input.snapshot.backend.cliPath, "-s", settingsPath, "--", input.executable, ...input.argv],
+			argv: [input.snapshot.backend.driverPath, settingsPath, input.executable, ...input.argv],
 			cwd: input.cwd,
 			env: input.env,
 			timeoutMs: input.timeoutMs,
 			signal: input.signal,
+			controlFd: true,
 		});
-		const status: SandboxStatus =
-			result.reason === "unavailable" || !result.cleanupConfirmed
-				? "UNAVAILABLE"
-				: !validateSandboxBackend(input.snapshot.backend).ok
-					? "STALE"
-					: result.reason === "exited"
-						? "ENFORCED"
-						: "STALE";
-		return { result, status };
+		if (result.reason === "exited" && result.exitCode === 0 && result.cleanupConfirmed) {
+			try {
+				const report: unknown = JSON.parse(result.controlOutput ?? "");
+				if (report && typeof report === "object" && "version" in report && report.version === 1) {
+					const boundary = "boundary" in report ? report.boundary : undefined;
+					const outcome = "target" in report ? report.target : undefined;
+					if (
+						boundary &&
+						typeof boundary === "object" &&
+						"exitCode" in boundary &&
+						boundary.exitCode === 0 &&
+						"signal" in boundary &&
+						boundary.signal === null &&
+						outcome &&
+						typeof outcome === "object" &&
+						"version" in outcome &&
+						outcome.version === 1 &&
+						"kind" in outcome &&
+						"exitCode" in outcome &&
+						"signal" in outcome
+					) {
+						if (
+							outcome.kind === "exited" &&
+							Number.isInteger(outcome.exitCode) &&
+							typeof outcome.exitCode === "number" &&
+							outcome.exitCode >= 0 &&
+							outcome.exitCode <= 255 &&
+							outcome.signal === null
+						)
+							target = { kind: "exited", exitCode: outcome.exitCode };
+						else if (
+							outcome.kind === "signal" &&
+							outcome.exitCode === null &&
+							typeof outcome.signal === "string" &&
+							outcome.signal.startsWith("SIG")
+						)
+							target = { kind: "signal", exitCode: null };
+						else if (outcome.kind === "unavailable" && outcome.exitCode === null)
+							target = { kind: "unavailable", exitCode: null };
+					}
+				}
+			} catch {
+				// Missing, truncated or duplicate frames are not target evidence.
+			}
+		}
+		const status: SandboxStatus = !validateSandboxBackend(input.snapshot.backend).ok
+			? "STALE"
+			: target && target.kind !== "unavailable"
+				? "ENFORCED"
+				: "UNAVAILABLE";
+		return {
+			result: {
+				...result,
+				exitCode: target?.exitCode ?? null,
+				reason: result.reason === "exited" && !target ? "unavailable" : result.reason,
+			},
+			status,
+		};
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
