@@ -1,4 +1,5 @@
 import { isCriteriaReview, isTaskContract, type Run } from "./contracts.ts";
+import type { WorkerMeasurement } from "./measurement-types.ts";
 import { displayText } from "./observations.ts";
 
 /**
@@ -45,6 +46,7 @@ export interface EvidenceWorkerSummary {
 	toolCalls: number;
 	toolCallsByName: Record<string, number>;
 	reportedTokens: number | null;
+	reviewerContext: WorkerMeasurement["reviewerContext"] | null;
 	/** Bounded advisory-context summary only; never snippet text, source text or path lists. */
 	contextPack: {
 		mode: string;
@@ -271,6 +273,36 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 			report?.partialChanges ?? (run.status !== "COMPLETED" && (run.workspace?.changedFiles.length ?? 0) > 0),
 		cleanup,
 		workers: (run.workerMeasurements ?? []).map((measurement) => ({
+			reviewerContext: measurement.reviewerContext
+				? {
+						digest: measurement.reviewerContext.digest,
+						bytes: measurement.reviewerContext.bytes,
+						...(measurement.reviewerContext.impact
+							? {
+									impact: {
+										digest: measurement.reviewerContext.impact.digest,
+										bytes: measurement.reviewerContext.impact.bytes,
+										changedSymbolCount: measurement.reviewerContext.impact.changedSymbolCount,
+										callerCount: measurement.reviewerContext.impact.callerCount,
+										testCount: measurement.reviewerContext.impact.testCount,
+										truncated: measurement.reviewerContext.impact.truncated,
+									},
+								}
+							: {}),
+						...(measurement.reviewerContext.documentation
+							? {
+									documentation: {
+										digest: measurement.reviewerContext.documentation.digest,
+										bytes: measurement.reviewerContext.documentation.bytes,
+										matchedCount: measurement.reviewerContext.documentation.matchedCount,
+										staleCount: measurement.reviewerContext.documentation.staleCount,
+										unmatchedCount: measurement.reviewerContext.documentation.unmatchedCount,
+										truncated: measurement.reviewerContext.documentation.truncated,
+									},
+								}
+							: {}),
+					}
+				: null,
 			contextPack: measurement.contextPack
 				? {
 						mode: measurement.contextPack.mode,
@@ -406,6 +438,16 @@ export function formatEvidencePack(pack: EvidencePack): string {
 					: "disabled"
 			}`,
 		);
+	for (const worker of pack.workers) {
+		const context = worker.reviewerContext;
+		if (context)
+			lines.push(
+				`  Reviewer advisory context: ${context.digest} | bytes ${context.bytes}`,
+				`    Impact: ${context.impact ? `${context.impact.digest} | symbols ${context.impact.changedSymbolCount} | references ${context.impact.callerCount} | tests ${context.impact.testCount} | truncated ${context.impact.truncated}` : "disabled"}`,
+				`    Documentation: ${context.documentation ? `${context.documentation.digest} | matched ${context.documentation.matchedCount} | stale ${context.documentation.staleCount} | unmatched ${context.documentation.unmatchedCount} | truncated ${context.documentation.truncated}` : "disabled"}`,
+				"    Context only; not verification evidence or completion authority.",
+			);
+	}
 	lines.push(
 		`Partial changes: ${pack.partialChanges ? "yes" : "no"}; cleanup: ${pack.cleanup}`,
 		`Failure: ${pack.failure ? `${pack.failure.category}${pack.failure.reason ? `: ${displayText(pack.failure.reason)}` : ""}` : "none (completed)"}`,

@@ -37,9 +37,10 @@ export async function normalizeLsp(
 	};
 	const entries = value === null ? [] : Array.isArray(value) ? value : kind === "definition" ? [value] : undefined;
 	if (!entries) throw new LspConnectionError("PROTOCOL");
-	const queue = entries.slice(0, 128).map((item) => ({ item, depth: 0 }));
-	result.truncated += Math.max(0, entries.length - queue.length);
-	let bytes = 0;
+	// Choose output membership only after canonicalizing bounded input. Oversized
+	// trees are unavailable, not an arbitrary server-order prefix labeled PARTIAL.
+	if (entries.length > 1024) throw new LspConnectionError("PROTOCOL");
+	const queue = entries.map((item) => ({ item, depth: 0 }));
 	for (let index = 0; index < queue.length; index++) {
 		const { item, depth } = queue[index];
 		const raw = object(item);
@@ -65,11 +66,6 @@ export async function normalizeLsp(
 					: {}),
 				...(typeof raw.source === "string" ? { source: safeLspText(raw.source, 64) } : {}),
 			};
-			if (bytes + Buffer.byteLength(JSON.stringify(diagnostic)) > 8192) {
-				result.truncated++;
-				continue;
-			}
-			bytes += Buffer.byteLength(JSON.stringify(diagnostic));
 			result.diagnostics.push(diagnostic);
 		} else {
 			let location: LspLocation;
@@ -101,26 +97,23 @@ export async function normalizeLsp(
 					depth,
 					range: raw.location === undefined ? range(raw.range) : range(object(raw.location).range),
 				};
-				const size = Buffer.byteLength(JSON.stringify(symbol));
-				if (bytes + size > 8192) {
-					result.truncated++;
-					continue;
-				}
-				bytes += size;
+				const extent = symbol.range!;
+				if (
+					location.line < extent.line ||
+					location.endLine > extent.endLine ||
+					(location.line === extent.line && location.column < extent.column) ||
+					(location.endLine === extent.endLine && location.endColumn > extent.endColumn)
+				)
+					throw new LspConnectionError("PROTOCOL");
 				result.symbols.push(symbol);
 				if (raw.children !== undefined) {
 					if (!Array.isArray(raw.children)) throw new LspConnectionError("PROTOCOL");
-					const count = depth < 16 ? Math.min(raw.children.length, 128 - queue.length) : 0;
+					const count = depth < 16 ? raw.children.length : 0;
+					if (queue.length + count > 1024) throw new LspConnectionError("PROTOCOL");
 					queue.push(...raw.children.slice(0, count).map((child) => ({ item: child, depth: depth + 1 })));
 					result.truncated += raw.children.length - count;
 				}
 			} else {
-				const size = Buffer.byteLength(JSON.stringify(location));
-				if (bytes + size > 8192) {
-					result.truncated++;
-					continue;
-				}
-				bytes += size;
 				result.locations.push(location);
 			}
 		}
@@ -136,5 +129,22 @@ export async function normalizeLsp(
 	result.diagnostics.sort(order);
 	result.locations.sort(order);
 	result.symbols.sort(order);
+	let bytes = 0;
+	for (const list of [result.diagnostics, result.locations, result.symbols]) {
+		let retained = 0;
+		let previous: string | undefined;
+		for (const item of list) {
+			const key = JSON.stringify(item);
+			if (key === previous) continue;
+			previous = key;
+			const size = Buffer.byteLength(key);
+			if (retained >= 128 || bytes + size > 8192) result.truncated++;
+			else {
+				bytes += size;
+				list[retained++] = item;
+			}
+		}
+		list.length = retained;
+	}
 	return result;
 }

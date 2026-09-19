@@ -23,6 +23,7 @@ import type { AgentExecutor, ApprovalPort } from "./ports.ts";
 import { ProcessCleanupError } from "./process-runner.ts";
 import { captureProvenance } from "./provenance.ts";
 import { selectQuickScope } from "./quick.ts";
+import { withReviewerContext } from "./reviewer-context.ts";
 import { FileStateStore } from "./state-store.ts";
 import { withTaskContext } from "./task-context-executor.ts";
 import { assertTaskContractBinding } from "./task-contract.ts";
@@ -186,6 +187,31 @@ export class StandardWorkflow {
 			const lsp = this.lsp;
 			// Disabled mode keeps the existing path untouched (no extra inspector, no context work).
 			const contextWorkspace = workspace;
+			const reviewerContext = this.options.config.review.context;
+			if (
+				reviewerContext &&
+				(reviewerContext.impact === "bounded" || reviewerContext.documentation?.mode === "bounded")
+			) {
+				agents = {
+					...agents,
+					executor: withReviewerContext(agents.executor, {
+						mode: this.options.config.agents.context_pack.mode,
+						context: reviewerContext,
+						workspace: contextWorkspace,
+						cwd: contextWorkspace.cwd,
+						policy: agents.policy,
+						paths: await FilePolicyPathInspector.open(contextWorkspace.cwd),
+						protectedPaths: agents.policy.protectedPaths ?? [],
+						verifierSources: [
+							...new Set(
+								this.options.config.verification.checks.flatMap((check) =>
+									resolveVerifierTrustSources(contextWorkspace.cwd, check),
+								),
+							),
+						],
+					}),
+				};
+			}
 			if (this.options.config.agents.context_pack.mode === "bounded" && contextWorkspace) {
 				agents = {
 					...agents,

@@ -1,15 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PiAgentExecutor } from "../../../company-runtime/src/agent-runner.ts";
+import { fileDigest } from "../../../company-runtime/src/anchored-edit.ts";
 import { parseRuntimeConfig } from "../../../company-runtime/src/config.ts";
 import type { Run } from "../../../company-runtime/src/contracts.ts";
 import { taskContractDigest } from "../../../company-runtime/src/criterion-evidence.ts";
 import { projectEvidencePack } from "../../../company-runtime/src/evidence.ts";
 import { projectRunGraph } from "../../../company-runtime/src/graph.ts";
 import type { AgentExecutionRequest } from "../../../company-runtime/src/ports.ts";
+import { reviewerContextDigest } from "../../../company-runtime/src/reviewer-context.ts";
+import type { ReviewerContext } from "../../../company-runtime/src/reviewer-context-types.ts";
 import { StandardWorkflow } from "../../../company-runtime/src/workflow.ts";
 import { workflowContract } from "./company-contract.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
@@ -71,6 +75,9 @@ async function run(
 		budget?: number;
 		tokens?: number;
 		oldReceipt?: boolean;
+		reviewerContext?: "impact" | "documentation" | "both";
+		testFails?: boolean;
+		tamperReviewer?: (context: ReviewerContext) => void;
 	} = {},
 ) {
 	const config = parseRuntimeConfig(
@@ -83,10 +90,64 @@ async function run(
 				},
 			},
 			runtime: { workflow: "STANDARD" },
-			files: { allowed_paths: ["src"] },
+			files: { allowed_paths: options.reviewerContext ? ["src", "package.json"] : ["src"] },
 			mutation: { mode: "strict" },
 			agents: { context_pack: { mode: "bounded" } },
+			...(options.reviewerContext && options.reviewerContext !== "documentation"
+				? {
+						code_intelligence: {
+							lsp: {
+								enabled: true,
+								servers: [
+									{
+										id: "impact-fixture",
+										executable: process.execPath,
+										args: [
+											fileURLToPath(
+												new URL("../../../company-runtime/test/fixtures/lsp-server.mjs", import.meta.url),
+											),
+											"impact",
+											join(agentDir, "lsp-trace.jsonl"),
+										],
+										extensions: [".ts"],
+										timeout_ms: 2000,
+									},
+								],
+							},
+						},
+					}
+				: {}),
 			budget: { max_worker_invocations: options.budget, max_reported_tokens: options.tokens },
+			...(options.reviewerContext
+				? {
+						review: {
+							context: {
+								impact: options.reviewerContext === "documentation" ? "disabled" : "bounded",
+								...(options.reviewerContext !== "impact"
+									? {
+											documentation: {
+												mode: "bounded",
+												manifest: "package.json",
+												requested: ["label"],
+												entries: [
+													{
+														id: "label-doc",
+														source: { kind: "reviewed-local", reference: "local:label-1.2.3" },
+														component: "label",
+														version: "1.2.3",
+														capturedAt: "2026-01-01T00:00:00.000Z",
+														digest: fileDigest("Reviewed label contract DOC_PRIVATE_SENTINEL"),
+														reviewStatus: "REVIEWED",
+														content: "Reviewed label contract DOC_PRIVATE_SENTINEL",
+													},
+												],
+											},
+										}
+									: {}),
+							},
+						},
+					}
+				: {}),
 			verification: {
 				repair: { mode: options.mode ?? "self-check-once" },
 				trust: { mode: "strict" },
@@ -105,6 +166,12 @@ async function run(
 		}),
 	);
 	writeFileSync(join(cwd, ".ai/config.yaml"), JSON.stringify(config));
+	if (options.reviewerContext)
+		writeFileSync(join(cwd, "package.json"), JSON.stringify({ dependencies: { label: "1.2.3" } }));
+	const registeredOracle = options.testFails
+		? `import { existsSync, writeFileSync } from "node:fs"; const p=".ai/check-count"; const n=existsSync(p)?Number(readFileSync(p,"utf8"))+1:1;writeFileSync(p,String(n));if(n===3)process.exit(7);${oracle}`
+		: oracle;
+	if (options.testFails) writeFileSync(join(cwd, "oracle/check.mjs"), registeredOracle);
 	const git = (...args: string[]) =>
 		execFileSync(
 			"git",
@@ -132,6 +199,7 @@ async function run(
 		);
 	git("init", "-q");
 	git("add", "--", "src/app.ts", "oracle/check.mjs", ".ai/config.yaml", ".gitignore");
+	if (options.reviewerContext) git("add", "--", "package.json");
 	git("commit", "-qm", "Repair fixture");
 	const task = workflowContract(goal, config);
 	const requests: AgentExecutionRequest[] = [];
@@ -237,12 +305,28 @@ async function run(
 				executionContract,
 				modelRuntime: harness.session.modelRuntime,
 			});
-			return { executor, policy: executor.policyContext };
+			return {
+				policy: executor.policyContext,
+				executor: {
+					get safeToRelease() {
+						return executor.safeToRelease;
+					},
+					execute(request) {
+						if (request.role === "Reviewer" && request.reviewerContext && options.tamperReviewer) {
+							const context = structuredClone(request.reviewerContext);
+							options.tamperReviewer(context);
+							context.digest = reviewerContextDigest(context);
+							return executor.execute({ ...request, reviewerContext: context });
+						}
+						return executor.execute(request);
+					},
+				},
+			};
 		},
 	});
 	const report = await workflow.execute();
 	if (callbackError) throw callbackError;
-	expect(readFileSync(join(cwd, "oracle/check.mjs"), "utf8")).toBe(oracle);
+	expect(readFileSync(join(cwd, "oracle/check.mjs"), "utf8")).toBe(registeredOracle);
 	expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
 	const persisted = JSON.parse(readFileSync(join(cwd, ".ai/state.json"), "utf8")) as { runs: Run[] };
 	expect(persisted.runs[0]).toEqual(report.run);
@@ -256,7 +340,7 @@ beforeEach(async () => {
 	mkdirSync(agentDir);
 	writeFileSync(join(cwd, "src/app.ts"), 'export const formatLabel = "original";\n');
 	writeFileSync(join(cwd, "oracle/check.mjs"), oracle);
-	writeFileSync(join(cwd, ".gitignore"), ".ai/state.json\n.ai/tasks.json\n.ai/writer.lock\n");
+	writeFileSync(join(cwd, ".gitignore"), ".ai/state.json\n.ai/tasks.json\n.ai/writer.lock\n.ai/check-count\n");
 });
 afterEach(() => harness.cleanup());
 
@@ -308,6 +392,86 @@ describe("V0.5C real SDK bounded verification repair", () => {
 		expect(pack.verificationRepair?.attempts[0].diffDigest).toBe(state.verification[0].diffDigest);
 		expect(pack.failure).toBeNull();
 	});
+	it("rebuilds Reviewer impact/docs after repair and persists no raw documentation", async () => {
+		const { report, requests, task } = await run({ reviewerContext: "both" });
+		expect(report.run?.status, report.error).toBe("COMPLETED");
+		expect(requests.slice(0, 2).map((request) => request.reviewerContext)).toEqual([undefined, undefined]);
+		const reviewer = requests[2],
+			context = reviewer.reviewerContext!;
+		expect(context.revision).toBe(1);
+		expect(context.taskContractDigest).toBe(taskContractDigest(task));
+		expect(context.impact?.diffDigest).toBe(report.run!.verification[1].diffDigest);
+		expect(context.impact?.diffDigest).not.toBe(report.run!.verification[0].diffDigest);
+		expect(context.impact?.changedSymbols.map((symbol) => [symbol.name, symbol.sourceDigest])).toEqual([
+			["formatLabel", fileDigest('export const formatLabel = "fixed";\n')],
+		]);
+		expect(context.impact?.declarations.map((location) => location.path)).toEqual(["src/app.ts"]);
+		expect(context.documentation?.entries[0].status).toBe("MATCHED");
+		expect(context.documentation?.entries[0].content).toContain("DOC_PRIVATE_SENTINEL");
+		expect(context.taskContextDigest).toBe(reviewer.taskContextPack!.digest);
+		expect(context.taskContextDigest).not.toBe(requests[1].taskContextPack!.digest);
+		const evidence = projectEvidencePack({ run: report.run!, report });
+		expect(evidence.workers[2].reviewerContext?.digest).toBe(context.digest);
+		expect(evidence.workers[2].reviewerContext?.documentation?.matchedCount).toBe(1);
+		for (const value of [JSON.stringify(evidence), readFileSync(join(cwd, ".ai/state.json"), "utf8")]) {
+			expect(value).not.toContain("DOC_PRIVATE_SENTINEL");
+			expect(value).not.toContain("local:label-1.2.3");
+		}
+	});
+	it.each([
+		"stale-revision",
+		"nested-version",
+		"nested-digest",
+		"unknown-field",
+		"stale-content",
+		"altered-content",
+		"version-mismatch",
+	] as const)(
+		"rejects correctly outer-hashed %s Reviewer data before opening a Reviewer session or Provider call",
+		async (mutation) => {
+			const { report, requests } = await run({
+				reviewerContext: "both",
+				tamperReviewer(context) {
+					const pack = context.documentation!,
+						item = pack.entries[0];
+					if (mutation === "stale-revision") context.revision--;
+					else if (mutation === "nested-version") Object.assign(pack, { version: 2 });
+					else if (mutation === "unknown-field") Object.assign(item, { command: "PRIVATE_SENTINEL" });
+					else if (mutation === "stale-content") {
+						item.status = "STALE";
+						pack.stale = [item.entry.id];
+						pack.unmatched = [item.entry.component];
+					} else if (mutation === "altered-content") item.content = "UNREVIEWED_PRIVATE_SENTINEL";
+					else if (mutation === "version-mismatch") item.declaredVersion = "2.0.0";
+					const { digest: _digest, ...body } = pack;
+					pack.digest =
+						mutation === "nested-digest"
+							? fileDigest("wrong")
+							: fileDigest(JSON.stringify(["weavra-documentation-pack-v1", body]));
+				},
+			});
+			expect(report.run?.status).toBe("FAILED");
+			expect(requests.map((request) => request.role)).toEqual(["Developer", "Developer"]);
+			expect(report.run?.roleSessionRefs.map((ref) => ref.role)).toEqual(["Developer", "Developer"]);
+			expect(report.run?.review).toBeUndefined();
+		},
+	);
+	it.each(["impact", "documentation"] as const)(
+		"keeps Kernel completion blocked on actual TEST failure with %s context",
+		async (reviewerContext) => {
+			const { report, requests } = await run({ reviewerContext, testFails: true });
+			expect(requests.at(-1)?.reviewerContext).toBeDefined();
+			expect(report.run?.review?.result).toBe("PASS");
+			expect(report.run?.verification.at(-1)).toMatchObject({
+				status: "FAIL",
+				exitCode: 7,
+				step: { stepId: "test" },
+			});
+			expect(report.run?.status).toBe("BLOCKED");
+			if (reviewerContext === "documentation")
+				expect(requests.at(-1)?.reviewerContext?.documentation?.entries[0].status).toBe("MATCHED");
+		},
+	);
 	it.runIf(process.platform === "darwin")(
 		"keeps required OS sandbox enforcement for the failed and fresh attempts",
 		async () => {

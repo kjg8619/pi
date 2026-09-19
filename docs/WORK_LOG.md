@@ -3519,3 +3519,18 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 첫 추가 `npm run check`는 fixture의 `reason:null` type error와 template 정보 1건을 보고했다. 올바른 문자열/템플릿으로 수정한 후 다시 실행한 **`npm run check` 전체 PASS**, 정보·경고 없음. stale LSP rename 도구가 test의 다른 offset을 손상한 문제도 도구에 보고하고 원문을 복구했다. 해당 source/check를 낮추거나 safety assertion을 제거하지 않았다.
 - deterministic A/B 첫 실행은 canonical cwd를 사용하지 않은 새 direct-tool fixture가 `Unsafe anchored path`로 거부됐다(다른 5 tests PASS). fixture를 실제 Adapter처럼 `FilePolicyPathInspector.projectPath`로 연결했으며 재실행 전이므로 A/B PASS로 기록하지 않는다.
 - commit은 명시한 C05 파일만 stage하며 아직 push/remote CI를 하지 않았다. dependency/lockfile·stable tag 변경은 없다. 다음은 advisory authority 회귀와 A/B 완료, full validation, 조건 충족 시 Astra actual 최대 1회, exact 구현/closure CI다. V0.6A는 V0.5D CLOSED 이후에만 시작한다.
+
+## LOG-089 — 2026-09-20 01:03 (Asia/Seoul) — Reviewer 통합·advisory 경계·deterministic A/B
+
+**상태:** V0.5D OPEN. C04 `a5db86f1f`, C05 `8e7a638ab` 다음으로 Reviewer 통합과 회귀/eval을 분리해 commit한다. 아직 push·actual Provider·remote CI를 실행하지 않았다.
+
+- 통합 변경: Reviewer 직전 fresh C01→C04/C05 조합, run/revision/Task Contract/diff binding, strict nested schema·digest·metadata validation, 합계 48 KiB, optional summary-only measurement/evidence. Developer 입력·mutation receipt·verification evidence·Kernel COMPLETE authority는 확장하지 않았다.
+- C04 보강: UTF-16 변경 extent/삭제 boundary, most-specific symbol, canonical-before-budget LSP 정규화, symbol/relation 중복 제거, scope 우선 cap, query 중 target 변경과 최종 source 변경 제거, PARTIAL/불완전 cache 의미를 확인했다. raw LSP의 미등록 필드는 관계 출력에 복사하지 않는다.
+- 추가 direct-tool 회귀는 context/impact/docs digest를 strict read receipt나 review evidence로 쓰는 시도, 문서의 instruction-like text가 권한을 추가하는 시도, fresh revision의 manifest mismatch, 조합 도중 diff 변경을 방어한다. SDK 회귀는 fresh revision·독립 Reviewer·TEST 실패 시 BLOCKED·malformed nested context의 Provider 이전 거부를 확인한다.
+- 현재 targeted company 회귀: **7 files / 154 PASS**. 현재 SDK repair 단독은 LOG-088의 **16 PASS**이며 SDK 전체는 별도로 실행 중이다. 회사 Runtime 전체 `node ../../node_modules/vitest/dist/cli.js --run test`: **50 files / 1,385 PASS**, 126.30초. 서로 다른 실행의 숫자를 합산한 전체 건수로 주장하지 않는다.
+- deterministic eval targeted: **3 files / 6 PASS**. 새 A/B 단독 재실행도 **1 PASS**이며 clean/defect × baseline/bounded 네 workflow를 실제 Runtime/Kernel/Policy/strict tools/Verifier와 fixture LSP로 실행했다. 같은 Task Contract·scope·check를 유지한다.
+- A/B 관측: clean payload 5,137→8,271 bytes, defect 5,151→8,285 bytes, envelope 3,115 bytes, 파일 검사 6→3, 도구 호출 10→7. clean false-positive 없음, 통제 defect 양쪽 발견, false-COMPLETE 없음. scripted Reviewer 전략이므로 모델 품질·일반 결함 탐지율·token 절감을 증명하지 않으며 Provider tokens는 **UNKNOWN**이다.
+- 첫 A/B의 canonical cwd 오류 다음에는 eval harness가 측정 없는 worker의 usage를 빈 합계 `0`으로 기록하는 문제를 발견했다. 측정 없음을 `null`로 보존하도록 고쳤다. faux usage를 실제 Provider usage로 바꾸거나 assertion을 완화하지 않았다. 기존 C01 A/B의 inline import와 temporary directory 누수도 정리했다.
+- 현재 `npm run hydrate:model-data` **PASS**(1,409 tool-capable model records), `npm run check`, `npm run check:ci`, `npm run check:shrinkwrap`, `npm run check:install-lock:coding-agent`, `git diff --check`, `bash -n packages/company-runtime/bin/weavra` 모두 **PASS**. Biome은 이번 파일 3개를 정리했고 재검사는 변경/경고/정보 없이 통과했다. dependency/lockfile 변경은 없다.
+- 문서는 README 두 개·roadmap·현재 작업 이력에 opt-in 계약, exact declared version/installed version 구분, 상태 의미, byte/query bound, advisory-only·summary-only 및 A/B 제한을 반영했다. full `bash ./test.sh`와 actual 최대 1회·exact 구현/closure CI는 아직 미완료다. credential-free metadata에서 기존 `codex-lb/gpt-6-astra`, `openai-responses`, `127.0.0.1:2455` 설정과 설치된 TypeScript language server만 확인했으며 Provider 요청은 하지 않았다.
+- 남은 제한: LSP 내부 cache·완전한 call graph/public compatibility·전체 transitive oracle graph를 증명하지 않는다. V0.6A는 D의 실제 CLOSED 및 별도 closure HEAD CI PASS 이후에만 착수한다.

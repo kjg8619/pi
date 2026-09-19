@@ -5,7 +5,13 @@ import { fileDigest } from "./anchored-edit.ts";
 import type { ImpactRelation, ImpactReviewPack, ImpactSymbol } from "./impact-review-types.ts";
 import { listFiles } from "./list-files.ts";
 import type { LspLocation, LspPort, LspSymbol } from "./lsp/types.ts";
-import { evaluatePolicy, type PolicyContext, type PolicyPathInspector } from "./policy.ts";
+import {
+	evaluatePolicy,
+	isListablePath,
+	isProtectedPath,
+	type PolicyContext,
+	type PolicyPathInspector,
+} from "./policy.ts";
 import { ProcessCleanupError } from "./process-runner.ts";
 import { isContextEligible, readStableText } from "./task-context.ts";
 import {
@@ -25,8 +31,11 @@ const locationOrder = (a: LspLocation, b: LspLocation) =>
 	a.endLine - b.endLine ||
 	a.endColumn - b.endColumn;
 
-/** Exact line edit script within a fixed computation budget; undefined is honestly unavailable. */
-export function changedCurrentLines(before: string, after: string): number[] | undefined {
+/** Bounded line LCS with UTF-16 edit extents. Deletions are boundaries, not surviving sibling lines. */
+export function changedCurrentRanges(
+	before: string,
+	after: string,
+): Array<Omit<LspLocation, "path"> & { deletion: boolean }> | undefined {
 	if (before === after) return [];
 	const old = before.split(/\r\n|\n|\r/),
 		current = after.split(/\r\n|\n|\r/);
@@ -49,29 +58,52 @@ export function changedCurrentLines(before: string, after: string): number[] | u
 				old[start + i] === current[start + j]
 					? 1 + table[(i + 1) * width + j + 1]
 					: Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
-	const lines = new Set<number>();
+	const ranges: Array<Omit<LspLocation, "path"> & { deletion: boolean }> = [];
 	let i = 0,
-		j = 0,
-		deleted = false,
-		added = false;
+		j = 0;
 	while (i < n || j < m) {
 		if (i < n && j < m && old[start + i] === current[start + j]) {
-			if (deleted && !added) lines.add(Math.min(start + j + 1, current.length));
-			deleted = false;
-			added = false;
 			i++;
 			j++;
-		} else if (j < m && (i === n || table[i * width + j + 1] >= table[(i + 1) * width + j])) {
-			lines.add(start + j + 1);
-			added = true;
-			j++;
-		} else {
-			deleted = true;
-			i++;
+			continue;
 		}
+		const oldStart = i,
+			newStart = j;
+		do {
+			if (j < m && (i === n || table[i * width + j + 1] >= table[(i + 1) * width + j])) j++;
+			else i++;
+		} while ((i < n || j < m) && !(i < n && j < m && old[start + i] === current[start + j]));
+		const removed = old.slice(start + oldStart, start + i).join("\n");
+		const added = current.slice(start + newStart, start + j).join("\n");
+		let prefix = 0,
+			oldTail = removed.length,
+			tail = added.length;
+		while (prefix < oldTail && prefix < tail && removed[prefix] === added[prefix]) prefix++;
+		while (oldTail > prefix && tail > prefix && removed[oldTail - 1] === added[tail - 1]) {
+			oldTail--;
+			tail--;
+		}
+		let line = start + newStart + 1,
+			column = 1,
+			endLine = line,
+			endColumn = column;
+		for (let offset = 0; offset < prefix; offset++) {
+			if (added[offset] === "\n") {
+				line++;
+				column = 1;
+			} else column++;
+		}
+		endLine = line;
+		endColumn = column;
+		for (let offset = prefix; offset < tail; offset++) {
+			if (added[offset] === "\n") {
+				endLine++;
+				endColumn = 1;
+			} else endColumn++;
+		}
+		ranges.push({ line, column, endLine, endColumn, deletion: prefix === tail });
 	}
-	if (deleted && !added) lines.add(Math.min(start + j + 1, current.length));
-	return [...lines].sort((a, b) => a - b);
+	return ranges;
 }
 
 export interface ImpactReviewInput {
@@ -130,6 +162,29 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 			? value
 			: undefined;
 	};
+	const roots = [...new Set(input.policy.allowedPaths)]
+		.filter(
+			(path) =>
+				isListablePath(path, input.policy) &&
+				!isProtectedPath(path, input.protectedPaths) &&
+				!isProtectedPath(path, input.verifierSources),
+		)
+		.sort(lexical)
+		.slice(0, 32);
+	const discovered = roots.length
+		? await listFiles(cwd, roots, 4, input.policy, input.paths, input.signal ?? new AbortController().signal)
+		: { files: [], truncated: false };
+	if (input.policy.allowedPaths.length > 32) truncated = true;
+	if (discovered.truncated) truncated = true;
+	const priority = (a: string, b: string) =>
+		Number(input.scopePaths.some((p) => b === p || b.startsWith(`${p}/`))) -
+			Number(input.scopePaths.some((p) => a === p || a.startsWith(`${p}/`))) || lexical(a, b);
+	const initialDigests = new Map<string, string>();
+	for (const path of [...discovered.files].sort(priority).slice(0, 64)) {
+		const source = await read(path);
+		if (source) initialDigests.set(path, source.digest);
+	}
+	if (discovered.files.length > 64) truncated = true;
 	let changes: unknown;
 	try {
 		changes = JSON.parse(input.diff.diff);
@@ -161,13 +216,32 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 		changedSymbols: ImpactSymbol[] = [],
 		callers: ImpactRelation[] = [],
 		declarations: ImpactRelation[] = [];
+	const symbolIds = new Set<string>();
+	const relationKeys = { references: new Set<string>(), definition: new Set<string>() };
 	let documents = 0;
 	for (const path of [...byPath.keys()].sort(lexical)) {
+		const change = byPath.get(path)!;
+		if (change.after === null) {
+			// The safe Host diff supplies deletion metadata; never read historical bytes
+			// or attribute the removed extent to a surviving current symbol.
+			if (
+				isListablePath(path, input.policy) &&
+				!isProtectedPath(path, input.protectedPaths) &&
+				!isProtectedPath(path, input.verifierSources)
+			) {
+				const [inspection] = await input.paths.inspect([path]);
+				if (inspection?.safe && inspection.kind === "missing" && changedFiles.length < 32) changedFiles.push(path);
+				else if (changedFiles.length >= 32) truncated = true;
+			}
+			unknowns.add("deleted source has no current symbol extent");
+			continue;
+		}
 		const current = await read(path);
 		if (!current) {
 			unknowns.add("changed file unavailable or excluded");
 			continue;
 		}
+		if (!initialDigests.has(path)) initialDigests.set(path, current.digest);
 		changedFiles.push(path);
 		if (changedFiles.length > 32) {
 			changedFiles.pop();
@@ -179,18 +253,20 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 			unknowns.add("symbol document budget reached");
 			continue;
 		}
-		const change = byPath.get(path)!;
 		if (change.after === null || fileDigest(change.after) !== current.digest) {
 			unknowns.add("changed source is stale");
 			continue;
 		}
-		const lines = changedCurrentLines(change.before ?? "", current.text);
+		const lines = changedCurrentRanges(change.before ?? "", current.text);
 		if (!lines) {
 			truncated = true;
 			unknowns.add("changed line computation budget reached");
 			continue;
 		}
-		if (!lines.length) continue;
+		if (!lines.length) {
+			unknowns.add("byte-only change without a current text extent");
+			continue;
+		}
 		if (!input.lsp) {
 			unknowns.add("LSP unavailable");
 			continue;
@@ -231,37 +307,63 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 				)
 					return false;
 				return (
-					[r.line, r.column, r.endLine, r.endColumn, symbol.line, symbol.column].every(
-						(v) => Number.isSafeInteger(v) && v > 0,
-					) &&
+					[
+						r.line,
+						r.column,
+						r.endLine,
+						r.endColumn,
+						symbol.line,
+						symbol.column,
+						symbol.endLine,
+						symbol.endColumn,
+					].every((v) => Number.isSafeInteger(v) && v > 0) &&
 					r.endLine >= r.line &&
+					(r.endLine !== r.line || r.endColumn >= r.column) &&
 					r.endLine <= sourceLines.length &&
 					r.column <= (sourceLines[r.line - 1]?.length ?? -1) + 1 &&
 					r.endColumn <= (sourceLines[r.endLine - 1]?.length ?? -1) + 1 &&
 					symbol.line >= r.line &&
-					symbol.line <= r.endLine &&
-					symbol.column <= (sourceLines[symbol.line - 1]?.length ?? -1) + 1
+					symbol.endLine >= symbol.line &&
+					symbol.endLine <= r.endLine &&
+					(symbol.endLine !== symbol.line || symbol.endColumn >= symbol.column) &&
+					(symbol.line !== r.line || symbol.column >= r.column) &&
+					(symbol.endLine !== r.endLine || symbol.endColumn <= r.endColumn) &&
+					symbol.column <= (sourceLines[symbol.line - 1]?.length ?? -1) + 1 &&
+					symbol.endColumn <= (sourceLines[symbol.endLine - 1]?.length ?? -1) + 1
 				);
 			});
 			if (candidates.length !== result.symbols.length) unknowns.add("symbol extent unavailable or invalid");
 			const selected = new Set<LspSymbol>();
-			for (const line of lines) {
-				const overlapping = candidates.filter(
-					(s) =>
-						s.range!.line <= line &&
-						(s.range!.endLine > line ||
-							(s.range!.endLine === line && (s.range!.endColumn > 1 || s.range!.line === line))),
-				);
-				overlapping.sort(
-					(a, b) =>
-						a.range!.endLine - a.range!.line - (b.range!.endLine - b.range!.line) ||
-						a.range!.endColumn - a.range!.column - (b.range!.endColumn - b.range!.column) ||
-						b.depth - a.depth ||
-						locationOrder(a, b) ||
-						lexical(a.name, b.name),
-				);
-				if (overlapping[0]) selected.add(overlapping[0]);
-				else unknowns.add("changed lines without a current symbol");
+			const before = (line: number, column: number, endLine: number, endColumn: number) =>
+				line < endLine || (line === endLine && column < endColumn);
+			for (const edit of lines) {
+				const overlapping = candidates.filter((symbol) => {
+					const r = symbol.range!;
+					return edit.deletion
+						? before(r.line, r.column, edit.line, edit.column) &&
+								before(edit.line, edit.column, r.endLine, r.endColumn)
+						: before(r.line, r.column, edit.endLine, edit.endColumn) &&
+								before(edit.line, edit.column, r.endLine, r.endColumn);
+				});
+				// Disjoint same-line symbols remain distinct; only containing ancestors yield to children.
+				for (const symbol of overlapping) {
+					const r = symbol.range!;
+					if (
+						!overlapping.some((other) => {
+							const child = other.range!;
+							return (
+								other !== symbol &&
+								!before(child.line, child.column, r.line, r.column) &&
+								!before(r.endLine, r.endColumn, child.endLine, child.endColumn) &&
+								(before(r.line, r.column, child.line, child.column) ||
+									before(child.endLine, child.endColumn, r.endLine, r.endColumn) ||
+									other.depth > symbol.depth)
+							);
+						})
+					)
+						selected.add(symbol);
+				}
+				if (!overlapping.length) unknowns.add("changed extent has no current symbol (including deleted symbols)");
 			}
 			for (const symbol of selected) {
 				const body = {
@@ -272,7 +374,11 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 					selection: { line: symbol.line, column: symbol.column },
 					sourceDigest: current.digest,
 				};
-				changedSymbols.push({ id: digest(["weavra-impact-symbol-v1", body]), ...body });
+				const id = digest(["weavra-impact-symbol-v1", body]);
+				if (!symbolIds.has(id)) {
+					symbolIds.add(id);
+					changedSymbols.push({ id, ...body });
+				}
 			}
 		} catch (error) {
 			assertActive();
@@ -323,15 +429,23 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 					unknowns.add("LSP relations exceed bounded result contract");
 					continue;
 				}
+				const targets = new Map<string, Awaited<ReturnType<typeof read>>>();
 				for (const location of [...result.locations].sort(locationOrder)) {
-					const target = await read(location.path);
+					if (!targets.has(location.path)) targets.set(location.path, await read(location.path));
+					const target = targets.get(location.path);
 					if (!target) continue;
+					if (initialDigests.get(location.path) !== target.digest) {
+						unknowns.add("reference target unavailable in initial bounded snapshot or changed during query");
+						if (!initialDigests.has(location.path)) truncated = true;
+						continue;
+					}
 					const lines = target.text.split(/\r\n|\n|\r/);
 					if (
 						![location.line, location.column, location.endLine, location.endColumn].every(
 							(v) => Number.isSafeInteger(v) && v > 0,
 						) ||
 						location.endLine < location.line ||
+						(location.endLine === location.line && location.endColumn < location.column) ||
 						location.endLine > lines.length ||
 						location.column > (lines[location.line - 1]?.length ?? -1) + 1 ||
 						location.endColumn > (lines[location.endLine - 1]?.length ?? -1) + 1
@@ -340,12 +454,20 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 						continue;
 					}
 					const list = kind === "references" ? callers : declarations;
-					if (list.length >= 64) {
-						truncated = true;
-						break;
+					const relation: ImpactRelation = {
+						path: location.path,
+						line: location.line,
+						column: location.column,
+						endLine: location.endLine,
+						endColumn: location.endColumn,
+						symbolId: symbol.id,
+						sourceDigest: target.digest,
+					};
+					const key = JSON.stringify(relation);
+					if (!relationKeys[kind].has(key)) {
+						relationKeys[kind].add(key);
+						list.push(relation);
 					}
-					const relation = { ...location, symbolId: symbol.id, sourceDigest: target.digest };
-					if (!list.some((item) => JSON.stringify(item) === JSON.stringify(relation))) list.push(relation);
 				}
 			} catch (error) {
 				assertActive();
@@ -355,15 +477,6 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 		}
 	}
 	const relatedTests: ImpactReviewPack["relatedTests"] = [];
-	const discovered = await listFiles(
-		cwd,
-		input.policy.allowedPaths,
-		4,
-		input.policy,
-		input.paths,
-		input.signal ?? new AbortController().signal,
-	);
-	if (discovered.truncated) truncated = true;
 	const testCandidates = new Map<string, ImpactReviewPack["relatedTests"][number]["reason"]>();
 	for (const path of discovered.files.slice(0, 64)) {
 		if (!/(?:\.(?:test|spec)\.[^.]+$|(?:^|\/)test_[^/]+\.[^.]+$)/.test(path)) continue;
@@ -396,6 +509,40 @@ export async function buildImpactReviewPack(input: ImpactReviewInput): Promise<I
 			lexical(a.symbolId, b.symbolId),
 	);
 	declarations.sort((a, b) => locationOrder(a, b) || lexical(a.symbolId, b.symbolId));
+	if (callers.length > 64) {
+		callers.length = 64;
+		truncated = true;
+	}
+	if (declarations.length > 64) {
+		declarations.length = 64;
+		truncated = true;
+	}
+	// Revalidate every emitted source after all queries. A target digest binds current
+	// bytes, not the language server's internal target-document cache.
+	const checked = new Map<string, string | undefined>();
+	for (const item of [...changedSymbols, ...callers, ...declarations, ...relatedTests])
+		if (!checked.has(item.path)) checked.set(item.path, (await read(item.path))?.digest);
+	for (const records of [changedSymbols, callers, declarations, relatedTests]) {
+		for (let index = records.length - 1; index >= 0; index--)
+			if (checked.get(records[index].path) !== records[index].sourceDigest) {
+				records.splice(index, 1);
+				unknowns.add("context source changed during composition");
+			}
+	}
+	const retainedSymbols = new Set(changedSymbols.map((symbol) => symbol.id));
+	for (const records of [callers, declarations])
+		for (let index = records.length - 1; index >= 0; index--)
+			if (!retainedSymbols.has(records[index].symbolId)) records.splice(index, 1);
+	for (let index = relatedTests.length - 1; index >= 0; index--)
+		if (
+			relatedTests[index].reason === "lsp-reference" &&
+			!callers.some(
+				(caller) =>
+					caller.path === relatedTests[index].path && caller.sourceDigest === relatedTests[index].sourceDigest,
+			)
+		)
+			relatedTests.splice(index, 1);
+	unknowns.add("target source digests do not attest language-server cache freshness");
 	const body = {
 		version: 1 as const,
 		runId: input.runId,

@@ -35,6 +35,42 @@ export const WorkerUsageSchema = Type.Object(
 );
 export type WorkerUsage = Static<typeof WorkerUsageSchema>;
 
+const contextDigest = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
+const contextBytes = Type.Integer({ minimum: 0, maximum: 49152 });
+export const ReviewerContextSummarySchema = Type.Object(
+	{
+		digest: contextDigest,
+		bytes: contextBytes,
+		impact: Type.Optional(
+			Type.Object(
+				{
+					digest: contextDigest,
+					bytes: contextBytes,
+					changedSymbolCount: Type.Integer({ minimum: 0, maximum: 32 }),
+					callerCount: Type.Integer({ minimum: 0, maximum: 64 }),
+					testCount: Type.Integer({ minimum: 0, maximum: 24 }),
+					truncated: Type.Boolean(),
+				},
+				strict,
+			),
+		),
+		documentation: Type.Optional(
+			Type.Object(
+				{
+					digest: contextDigest,
+					bytes: contextBytes,
+					matchedCount: Type.Integer({ minimum: 0, maximum: 16 }),
+					staleCount: Type.Integer({ minimum: 0, maximum: 16 }),
+					unmatchedCount: Type.Integer({ minimum: 0, maximum: 16 }),
+					truncated: Type.Boolean(),
+				},
+				strict,
+			),
+		),
+	},
+	strict,
+);
+
 export const WorkerMeasurementSchema = Type.Object(
 	{
 		role,
@@ -56,6 +92,7 @@ export const WorkerMeasurementSchema = Type.Object(
 		toolCallsByName: Type.Record(text, counter),
 		usage: WorkerUsageSchema,
 		outcome: Type.Enum(["SUCCEEDED", "FAILED", "CANCELLED"]),
+		reviewerContext: Type.Optional(ReviewerContextSummarySchema),
 		// Bounded advisory-context summary only; never snippet text, source text or path lists.
 		contextPack: Type.Optional(
 			Type.Object(

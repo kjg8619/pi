@@ -59,6 +59,17 @@ if (mode === "child") {
         send({ jsonrpc: "2.0", id: "configuration", method: "workspace/configuration", params: { items: [{ section: "secret" }] } });
       }
       let result;
+      if (mode === "impact") {
+        const lines = opened.text.split("\n");
+        const name = /export (?:function|const) ([A-Za-z_$][\w$]*)/.exec(lines[0]);
+        const selection = name ? { start: { line: 0, character: lines[0].indexOf(name[1]) }, end: { line: 0, character: lines[0].indexOf(name[1]) + name[1].length } } : range;
+        if (request.method === "textDocument/documentSymbol") result = name ? [{ name: name[1], kind: 12, selectionRange: selection, range: { start: { line: 0, character: 0 }, end: { line: lines.length - 1, character: lines.at(-1).length } } }] : [];
+        else if (request.method === "textDocument/diagnostic") result = { kind: "full", items: [] };
+        else if (request.method === "textDocument/definition") result = [{ uri: opened.uri, range: selection }];
+        else result = ["src/caller.ts", "test/label.test.ts"].map((path) => ({ uri: pathToFileURL(join(root, path)).href, range }));
+        reply(request, result);
+        return;
+      }
       if (request.method === "textDocument/diagnostic") result = { kind: "full", items: mode === "many" ? Array.from({ length: 400 }, (_, index) => diagnostic(index, "x".repeat(2000))) : mode === "clean" ? [] : [diagnostic(1), diagnostic(0)] };
       else if (request.method === "textDocument/documentSymbol") result = mode === "filtered" ? [{ name: "DO_NOT_LEAK", kind: 12, location: { uri: pathToFileURL(join(root, ".env")).href, range } }] : [{ name: "漢字", kind: 12, range, selectionRange: range, children: [{ name: "inner", kind: 13, range, selectionRange: range }] }];
       else {

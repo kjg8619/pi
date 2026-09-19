@@ -53,9 +53,16 @@ export class WorkerMeasurementAccumulator {
 
 	/** Summary of the pack actually delivered to this invocation; never rebuilt or enriched here. */
 	private readonly contextPack?: WorkerMeasurement["contextPack"];
+	private readonly reviewerContext?: WorkerMeasurement["reviewerContext"];
 
-	constructor(identity: WorkerIdentity, now: () => number = Date.now, contextPack?: WorkerMeasurement["contextPack"]) {
+	constructor(
+		identity: WorkerIdentity,
+		now: () => number = Date.now,
+		contextPack?: WorkerMeasurement["contextPack"],
+		reviewerContext?: WorkerMeasurement["reviewerContext"],
+	) {
 		this.contextPack = contextPack;
+		this.reviewerContext = reviewerContext ? structuredClone(reviewerContext) : undefined;
 		this.identity = structuredClone(identity);
 		this.startedAt = now();
 	}
@@ -117,6 +124,7 @@ export class WorkerMeasurementAccumulator {
 			outcome,
 			// Preserved for SUCCEEDED, FAILED and CANCELLED alike: the pack was delivered either way.
 			...(this.contextPack ? { contextPack: this.contextPack } : {}),
+			...(this.reviewerContext ? { reviewerContext: this.reviewerContext } : {}),
 		};
 	}
 }
