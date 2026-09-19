@@ -28,6 +28,9 @@ import { formatPlanPreview } from "./plan-preview.ts";
 import { FileStateStore } from "./state-store.ts";
 import { formatWeavraStatus } from "./status.ts";
 import { acceptanceStatementsError, buildTaskContract, parseAcceptanceStatements } from "./task-contract.ts";
+import { parseWorkflowRunArgument } from "./task-recipe-command.ts";
+import { compileTaskRecipe, TaskRecipeError } from "./task-recipe-compiler.ts";
+import { recipeInputTemplate } from "./task-recipes.ts";
 import { formatWorkflowReport, StandardWorkflow, type WorkflowReport } from "./workflow.ts";
 
 /** Explicit composition seam for local faux tests/Hosts, not a worker-visible provider registration mechanism. */
@@ -266,8 +269,9 @@ export function registerCompanyRuntime(
 							ctx.ui.notify("Weavra: wait for the parent agent to become idle.", "warning");
 							return;
 						}
-						const goal = argument.slice(4).trim();
-						if (!goal) throw new Error("A goal is required");
+						const runArgument = parseWorkflowRunArgument(argument.slice(4));
+						const goal = runArgument.goal;
+						const recipeId = runArgument.recipeId;
 						clearStatus();
 						if (ctx.mode === "tui" && ctx.hasUI) statusUI = ctx.ui;
 						workflow = undefined;
@@ -288,15 +292,61 @@ export function registerCompanyRuntime(
 									`Unsupported classification/workflow: ${classification.complexity}/${classification.risk}; no downgrade performed`,
 								);
 							const selection = selectWorkflow(classification, config.runtime.workflow);
+							if (recipeId && selection.workflow !== "STANDARD") {
+								ctx.ui.notify(
+									`Weavra: recipe ${recipeId} needs the STANDARD acceptance-criteria step; QUICK runs take a goal only. No run was created.`,
+									"warning",
+								);
+								return;
+							}
 							if (selection.workflow === "QUICK" && ["R2", "R3"].includes(classification.risk))
 								throw new Error("R2/R3 cannot run as QUICK; STANDARD is required");
+							// Reviewed recipe = reviewed data only: it drafts criteria, never scope, checks or authority.
+							let recipeMeta: { id: string; version: number; digest: string } | undefined;
+							let recipePrefill: string | undefined;
+							if (recipeId) {
+								const inputText = await ctx.ui.editor(
+									`Recipe ${recipeId}: inputs as JSON (data only; not permission, approval or authority)`,
+									recipeInputTemplate(recipeId),
+								);
+								if (inputText === undefined || !inputText.trim()) {
+									ctx.ui.notify(
+										"Weavra: recipe inputs cancelled; no run, worker, check or approval was created.",
+										"info",
+									);
+									return;
+								}
+								try {
+									const draft = compileTaskRecipe({
+										recipeId,
+										inputs: JSON.parse(inputText) as Record<string, unknown>,
+										executionMode,
+										allowedPaths: config.files.allowed_paths,
+										registeredCheckIds: config.verification.checks
+											.filter((check) => check.required)
+											.map((check) => check.id),
+									});
+									recipeMeta = {
+										id: draft.recipe.id,
+										version: draft.recipe.version,
+										digest: draft.recipe.digest,
+									};
+									recipePrefill = draft.statements.join("\n");
+								} catch (error) {
+									ctx.ui.notify(
+										`Weavra: ${error instanceof TaskRecipeError ? error.message : "recipe inputs must be a JSON object"}; no run, worker, check or approval was created.`,
+										"warning",
+									);
+									return;
+								}
+							}
 							// FEAT-01: Host-side plan preview. No Planner model call; the editor is the only AC input.
 							const statements =
 								selection.workflow === "STANDARD"
 									? parseAcceptanceStatements(
 											(await ctx.ui.editor(
 												"Acceptance criteria: one line = one criterion (AC-001, AC-002, ... are assigned after confirmation)",
-												goal,
+												recipePrefill ?? goal,
 											)) ?? "",
 										)
 									: [goal];
@@ -331,6 +381,7 @@ export function registerCompanyRuntime(
 									verifierTrustMode: config.verification.trust.mode,
 									verifierSandboxMode: config.verification.sandbox.mode,
 									contextPackMode: config.agents.context_pack.mode,
+									...(recipeMeta ? { recipe: recipeMeta } : {}),
 									verifierTrustSources: [
 										...new Set(config.verification.checks.flatMap((check) => check.trust.files)),
 									].sort(),
@@ -361,6 +412,7 @@ export function registerCompanyRuntime(
 								goal,
 								taskContract,
 								executionMode,
+								...(recipeMeta ? { recipe: recipeMeta } : {}),
 								config,
 								signal,
 								events: {

@@ -38,6 +38,8 @@ export interface WorkflowOptions {
 	taskContract: TaskContract;
 	/** Explicit trusted Host selection; natural-language proposal alone is never a grant. */
 	executionMode: ExecutionMode;
+	/** Reviewed recipe that drafted the criteria, frozen by the Host before the run starts. */
+	recipe?: { id: string; version: number; digest: string };
 	config: RuntimeConfig;
 	createAgents: (
 		store: FileStateStore,
@@ -176,6 +178,7 @@ export class StandardWorkflow {
 				cwd: this.options.cwd,
 				configDigest: agents.policy.configDigest,
 				taskContractDigest: taskContractDigest(this.options.taskContract),
+				...(this.options.recipe ? { recipe: this.options.recipe } : {}),
 			});
 			workspace = await GitWorkspace.open(this.options.cwd, agents.policy, signal);
 			const lspConfig = this.options.config.code_intelligence?.lsp;

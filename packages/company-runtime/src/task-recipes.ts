@@ -108,6 +108,13 @@ export function listTaskRecipes(): Array<{ id: string; version: number; title: s
 	}));
 }
 
+/** Editor prefill for recipe inputs: declared fields only, empty values, unknown ids stay an empty object. */
+export function recipeInputTemplate(id: string): string {
+	const entry = taskRecipeById(id);
+	if (!entry) return "{}";
+	return JSON.stringify(Object.fromEntries(entry.definition.fields.map((field) => [field.name, ""])), null, 2);
+}
+
 export function taskRecipeById(id: string): { definition: TaskRecipeDefinition; digest: string } | undefined {
 	const entry = REGISTRY.get(id);
 	return entry ? { definition: structuredClone(entry.definition), digest: entry.digest } : undefined;

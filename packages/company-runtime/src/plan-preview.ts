@@ -17,12 +17,15 @@ export interface PlanPreview {
 	verifierTrustSources: readonly string[];
 	verifierSandboxMode: "disabled" | "required";
 	contextPackMode: "disabled" | "bounded";
+	/** Bounded reviewed-recipe metadata; never the raw recipe inputs and never an authority. */
+	recipe?: { id: string; version: number; digest: string };
 }
 
 /** Host-side display only. Confirming this plan is neither an approval nor a permission token. */
 export function formatPlanPreview(plan: PlanPreview): string {
 	return [
 		`Goal: ${plan.goal}`,
+		...(plan.recipe ? [`Recipe: ${plan.recipe.id}@${plan.recipe.version} ${plan.recipe.digest}`] : []),
 		`Workflow: ${plan.workflow}`,
 		`Execution contract: ${plan.executionMode}`,
 		`Risk: ${plan.risk}`,
