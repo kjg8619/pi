@@ -29,6 +29,7 @@ let failureRole: string | undefined;
 let failureMode: string | undefined;
 let pause: string | undefined;
 let entered: boolean;
+let pauseReady: (() => void) | undefined;
 let order: string[];
 let workers: AgentSession[];
 let cleanupHooks: Array<() => Promise<unknown>>;
@@ -108,6 +109,7 @@ async function respond(context: Context, options?: { signal?: AbortSignal }) {
 		);
 	if (pause === request.role) {
 		entered = true;
+		pauseReady?.();
 		await new Promise<void>((resolve) => {
 			if (options?.signal?.aborted) resolve();
 			else
@@ -247,6 +249,7 @@ beforeEach(async () => {
 	failureMode = undefined;
 	pause = undefined;
 	entered = false;
+	pauseReady = undefined;
 	order = [];
 	harness.setResponses(Array.from({ length: 64 }, () => respond));
 	const prompt = AgentSession.prototype.prompt;
@@ -538,6 +541,8 @@ describe("S6 lifecycle cleanup ordering", () => {
 		"$event during $phase: cancel → termination → terminal state → unlock",
 		async ({ phase, event }) => {
 			pause = phase;
+			const ready = deferred<void>();
+			pauseReady = () => ready.resolve();
 			if (phase === "check") {
 				config.verification.checks[0].args[1] = "slow";
 				writeFileSync(join(cwd, ".ai/config.yaml"), JSON.stringify(config));
@@ -568,6 +573,7 @@ describe("S6 lifecycle cleanup ordering", () => {
 					editor: async (_title: string, prefill?: string) => prefill ?? "",
 					select: async (_title: string, _items: string[], options?: { signal?: AbortSignal }) => {
 						entered = true;
+						pauseReady?.();
 						await new Promise<void>((resolve) => {
 							if (options?.signal?.aborted) resolve();
 							else
@@ -613,8 +619,8 @@ describe("S6 lifecycle cleanup ordering", () => {
 			});
 			const save = FileStateStore.prototype.save;
 			vi.spyOn(FileStateStore.prototype, "save").mockImplementation(async function (this: FileStateStore, run) {
+				await save.call(this, run);
 				if (run.status === "CANCELLED") order.push("terminal-state");
-				return save.call(this, run);
 			});
 			const close = FileStateStore.prototype.close;
 			vi.spyOn(FileStateStore.prototype, "close").mockImplementation(async function (this: FileStateStore) {
@@ -624,9 +630,10 @@ describe("S6 lifecycle cleanup ordering", () => {
 			await commands
 				.get("workflow")!
 				.handler(`run ${phase === "approval" ? "Delete file src/obsolete.ts" : "Fix bug"}`, ctx);
-			await vi.waitFor(() =>
-				expect(phase === "check" ? existsSync(join(agentDir, "check-ready")) : entered).toBe(true),
-			);
+			// Await the fixture's actual pause, not an unrelated one-second polling deadline.
+			// The enclosing test deadline and afterEach cancellation still bound failed startup.
+			if (phase === "check") await vi.waitFor(() => expect(existsSync(join(agentDir, "check-ready"))).toBe(true));
+			else await ready.promise;
 			order.length = 0;
 			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
 			if (event === "cancel") await commands.get("workflow")!.handler("cancel", ctx);

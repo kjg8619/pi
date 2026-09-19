@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeConfig } from "../src/config.ts";
+import { parseRuntimeConfig } from "../src/config.ts";
 import { taskContractDigest } from "../src/criterion-evidence.ts";
-import { formatPlanPreview } from "../src/plan-preview.ts";
 import { acceptanceStatementsError, buildTaskContract, parseAcceptanceStatements } from "../src/task-contract.ts";
 import { parseWorkflowRunArgument } from "../src/task-recipe-command.ts";
 import { compileTaskRecipe, TaskRecipeError } from "../src/task-recipe-compiler.ts";
@@ -9,21 +8,26 @@ import { listTaskRecipes, taskRecipeById } from "../src/task-recipes.ts";
 
 const ALLOWED = ["src", "test", "docs"];
 
-function runtimeConfig(): RuntimeConfig {
-	return {
-		runtime: { workflow: "auto", max_parallel_roles: 2 },
-		files: { allowed_paths: ALLOWED },
-		verification: {
-			checks: [
-				{ id: "regression", kind: "test", executable: "node", args: ["--test"], required: true },
-				{ id: "advisory", kind: "command", executable: "node", args: ["--version"], required: false },
-			],
-			trust: { mode: "strict" },
-			sandbox: { mode: "required" },
-		},
-		mutation: { mode: "strict" },
-		agents: { context_pack: { mode: "bounded" }, roles: {} },
-	} as unknown as RuntimeConfig;
+function runtimeConfig() {
+	return parseRuntimeConfig(
+		JSON.stringify({
+			schemaVersion: 1,
+			models: {
+				profiles: {
+					coding: { provider: "faux", model: "coding" },
+					reasoning: { provider: "faux", model: "review" },
+				},
+			},
+			runtime: { workflow: "STANDARD" },
+			files: { allowed_paths: ALLOWED },
+			verification: {
+				checks: [
+					{ id: "regression", kind: "test", executable: process.execPath, args: ["--test"], required: true },
+					{ id: "advisory", kind: "test", executable: process.execPath, args: ["--version"], required: false },
+				],
+			},
+		}),
+	);
 }
 
 const validInputs: Record<string, Record<string, unknown>> = {
@@ -94,7 +98,7 @@ describe("V0.5B recipe to production workflow", () => {
 			expect(contract.acceptanceCriteria.map((criterion) => criterion.id)).toEqual(
 				edited.map((_statement, index) => `AC-${String(index + 1).padStart(3, "0")}`),
 			);
-			// Scope and checks stay Host-owned: policy-unsafe roots are dropped and only required registered checks map.
+			// Host configuration is preserved; this builder does not filter unsafe configuration.
 			for (const criterion of contract.acceptanceCriteria) {
 				expect(criterion.scope.paths).toEqual(ALLOWED);
 				expect(criterion.verification.checkIds).toEqual(["regression"]);
@@ -104,46 +108,6 @@ describe("V0.5B recipe to production workflow", () => {
 			expect(taskContractDigest(contract)).not.toBe(draft.recipe.digest);
 		},
 	);
-
-	it("keeps manual and recipe paths on the same authority and shows bounded provenance", () => {
-		const config = runtimeConfig();
-		const manual = buildTaskContract({
-			goal: "Fix greeting bug",
-			statements: ["greet() returns a fallback for empty input"],
-			workflow: "STANDARD",
-			config,
-		});
-		const draft = compile("bugfix", validInputs.bugfix!);
-		const fromRecipe = buildTaskContract({
-			goal: "Fix greeting bug",
-			statements: ["greet() returns a fallback for empty input"],
-			workflow: "STANDARD",
-			config,
-		});
-		expect(fromRecipe.acceptanceCriteria).toEqual(manual.acceptanceCriteria);
-		expect(fromRecipe.status).toBe(manual.status);
-
-		const preview = formatPlanPreview({
-			goal: "Fix greeting bug",
-			workflow: "STANDARD",
-			executionMode: "EDIT",
-			risk: "R1",
-			acceptanceCriteria: fromRecipe.acceptanceCriteria,
-			allowedPaths: config.files.allowed_paths,
-			checks: config.verification.checks,
-			projectInstructionPath: null,
-			lspEnabled: false,
-			mutationMode: "strict",
-			verifierTrustMode: "strict",
-			verifierTrustSources: [],
-			verifierSandboxMode: "required",
-			contextPackMode: "bounded",
-			recipe: { id: draft.recipe.id, version: draft.recipe.version, digest: draft.recipe.digest },
-		});
-		expect(preview).toContain(`Recipe: bugfix@${draft.recipe.version} ${draft.recipe.digest}`);
-		// Raw recipe inputs are never echoed into the preview.
-		expect(preview).not.toContain("greet() throws on empty input");
-	});
 
 	it("fails closed on malformed selection, inputs and mode mismatches", () => {
 		expect(() => compile("bugfix", validInputs.bugfix!, "READ_ONLY")).toThrow(TaskRecipeError);

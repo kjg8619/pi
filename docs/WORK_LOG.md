@@ -3275,3 +3275,18 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 제한: Linux sandbox actual NOT VERIFIED, expected-failure TDD lifecycle NOT IMPLEMENTED, built-in recipes만 지원, STANDARD-only recipe UX, common Host scope/check mapping(자동 narrowing 없음), recipe는 Planner/permission/approval/evidence/completion authority가 아니다.
 - 다음 작업: Phase 2 현재 전체 회귀와 readiness 계약 확인 → Phase 3 closure. V0.5C는 아직 시작하지 않았다.
 - 커밋: 이 항목을 Phase 1 증거 문서 commit으로 게시한다.
+
+---
+## LOG-076 — V0.5B 회귀 정합성 및 readiness 동기화
+
+- 기록일: 2026-09-19 20:37 KST
+- 상태: Phase 2 focused 검증 완료, 전체 local/remote 회귀 실행 중.
+- 목적: 과거 timeout 진단을 실제 코드와 대조하고 production recipe 경로의 회귀 공백을 메운다. 새 Runtime 기능은 추가하지 않았다.
+- 변경: `company-runtime-hardening.test.ts` lifecycle matrix의 Developer/Reviewer/approval readiness를 실제 pause callback이 resolve하는 promise로 동기화했다. 기본 1초 polling 의존만 제거했으며 test deadline·cancel/termination/dispose/terminal/unlock assertion은 유지한다. terminal-state marker는 `await save()` 이후로 옮겨 durable 저장 완료를 관찰한다.
+- 현재 baseline local `bash ./test.sh`: hardening Reviewer의 switch/fork/tree 3행 실패를 재현했다. 모두 취소 전 readiness assertion이었다. 같은 baseline remote SHA `2809b407d` run `35430230642`는 PASS다. 과거 실패를 소급 PASS로 바꾸지 않으며 30초 timeout 실패/부하 원인 확정 주장은 LOG-075에서 정정했다.
+- 회귀 보강: 신규 `company-runtime-recipe.test.ts`는 실제 command handler·UI adapter·faux SDK·Git·등록 verifier·Kernel을 통과한다. manual/recipe A/B, 4→2 AC 편집·freeze, independent Reviewer, Host scope/check, run-start provenance 불변, provider 호출 전 unknown/duplicate/missing flags·malformed/unknown-field input·mode mismatch·취소/decline 거부, PASS 문구가 있어도 실제 check FAIL이면 completion 불가를 검증한다. 실제 기존 실패 상태는 `BLOCKED`이며 FAIL check를 PASS로 바꾸지 않는다.
+- 기존 `task-recipe-integration.test.ts`의 같은 literal contract 두 개를 비교하던 A/B 대용 assertion은 삭제했다. RuntimeConfig 강제 cast 대신 실제 parser를 사용하고 “unsafe roots를 drop”한다는 잘못된 주석을 수정했다. 4 recipe compile→contract positive는 유지한다.
+- 실행 결과: recipe unit 3 files/13 PASS; production recipe + hardening 2 files/63 PASS; hardening 추가 반복 51 PASS(앞선 단독 포함 3회 51 PASS). `npm run check` PASS(1,429 files); hydrate:model-data, check:ci, check:shrinkwrap, check:install-lock:coding-agent, diff --check, launcher bash -n 모두 exit 0.
+- 작업 중 test fixture 결함(미생성 worker directory, 기존 Kernel BLOCKED semantics를 FAILED로 기대)을 수정해 실제 계약에 맞췄다. Runtime 안전 계약은 바꾸지 않았다.
+- 다음: 수정된 HEAD의 local full test 및 remote CI → Phase 3 별도 closure commit. V0.5C 미착수.
+- 커밋: 이 항목과 테스트 변경을 Phase 2 commit으로 게시한다. 전체 회귀 결과는 closure 항목에 추가한다.
