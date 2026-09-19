@@ -3255,3 +3255,23 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
   - V0.5B CLOSED 조건 중 actual 관련 항목과 final CI 확인이 미충족이다.
 - 다음 작업: B10 actual smoke(bugfix/STANDARD/EDIT/bounded/strict/strict/required) 1회 → 결과에 따라 LOG-072 통합 → final docs HEAD CI 확인.
 - 커밋: 이 항목은 docs commit으로 게시한다. V0.5B는 CLOSED 아님.
+
+---
+## LOG-075 — V0.5B production recipe actual smoke
+
+- 기록일: 2026-09-19 20:28 KST
+- 상태: Phase 1 완료. V0.5B closure는 현재 회귀·최종 CI 확인 후 판정한다.
+- 기준: fetch 후 local HEAD = origin/devlop = `2809b407dc7a706b6f6142ccbb059a21271fdc9a`, clean. 해당 SHA의 remote CI `35430230642`는 success다. 안정 RC 태그는 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 불변.
+- 방법: 기존 `standard-2ac` Git fixture와 실제 SDK를 재사용하되 eval runner가 아니라 `registerCompanyRuntime`에 등록된 `/workflow run --recipe bugfix <goal>` production handler를 호출했다. UI adapter가 recipe JSON editor → AC editor → plan confirm에 입력을 공급했다. 실제 터미널 keypress/overlay 검증은 아니며 Provider/worker/check/Kernel은 대체하지 않았다. fixture factory의 관찰용 YAML 대신 전체 normalized config를 fixture에 commit했다. 제품 코드는 변경하지 않았다.
+- Provider/model/route: `commandcode` / `deepseek/deepseek-v4.1-flash` / `https://api.commandcode.ai/provider/v1`; 두 session JSONL의 thinking level은 `medium`. measurement의 provider-reported thinking은 UNKNOWN으로 유지한다. 기존 credential을 프로세스 환경에서만 사용했고 문서·fixture에는 기록하지 않았다.
+- 실제 호출: workflow 1회, paid retry 0, fallback 0. 최초 임시 `.ts` driver는 CJS의 `jiti/static` export resolution에서 Provider 호출 전 실패했고 `.mts`로 실행해 해결했다. 이를 Provider 실패나 제품 run으로 세지 않는다.
+- 입력/계약: reviewed bugfix의 reproduction/expected/preserve/regression을 실제 greeting typo에 맞춰 입력했다. generated AC 4개를 editor에서 최종 AC 3개로 수정·확인했다. 확인 전에 `.ai/state.json` 없음; durable Task Contract는 수정된 3개 AC, scope `["src"]`, checkIds `["eval"]`, independent review required만 포함했다.
+- provenance: run `54a89a9a-a193-4491-93c7-a2ca458591c9`; recipe `bugfix@1`, digest `sha256:8eba00c5f95cbc75da431c17dc2c3ff7b3dfa0e251fc465b1bfc8408a6899cfe`. RunCreated 시 읽은 metadata와 종료 state가 동일하다. Task Contract digest `sha256:2b066ceea7ba526f1ea4c5d8dbf99fdd95f80a6bc32299d7f30ec3b2dbb0ffd0`는 별도다. recipe raw JSON을 provenance에 저장하지 않는다. 사용자가 확인한 AC 문장은 본래 계약/증거에 표시된다.
+- 결과: Developer normal handoff → SELF_CHECK PASS → 독립 Reviewer PASS(3 AC MET) → TEST PASS → Kernel RunCompleted. `oraclePass=true`, `falseCompletion=false`. 변경은 `src/greeting.js`의 Helo→Hello 2줄뿐이며 Host oracle·private marker는 byte 불변, worker의 oracle 직접 read 0회다.
+- strict mutation: 실제 anchored `runtime_read` → `runtime_edit`에 `anchor`, `fileDigest`, `rr1:` read receipt가 전달되어 성공했다. Reviewer는 read/list/submit_review만 호출했고 Developer와 session ID가 다르다.
+- verifier: self-check/test 모두 strict trust `VERIFIED`, executable/source/registration identity 동일. registration `sha256:17d93da79165c7b9a054e60a227737890d6e2da8349dd66f3f42342556611cfd`; required sandbox `ENFORCED`, SRT 0.0.76, 동일 policy `sha256:aff32ad279615b06a6be454262f2da9847ddd652fb08011d7025ad0be715ec4b`. writer.lock 해제 확인.
+- 측정: Developer 22,864 + Reviewer 9,608 = 32,472 reported tokens, 총 9 tool calls. 두 invocation 모두 bounded context. 한 fixture의 결과이며 Provider 전체 성공률·성능 개선으로 일반화하지 않는다.
+- 문서 정정: LOG-073/074의 hardening readiness “30초로도 실패” 주장은 부정확했다. 실제 lifecycle matrix의 `vi.waitFor`는 여전히 기본 1초이며, 그 실패는 취소를 보내기 전 readiness 지점이다. 과거 실패 결과는 보존하지만 부하 원인 확정/30초 실패 해석은 철회한다. 현재 remote CI PASS와 새 local 전체 실행 결과를 별도로 기록한다.
+- 제한: Linux sandbox actual NOT VERIFIED, expected-failure TDD lifecycle NOT IMPLEMENTED, built-in recipes만 지원, STANDARD-only recipe UX, common Host scope/check mapping(자동 narrowing 없음), recipe는 Planner/permission/approval/evidence/completion authority가 아니다.
+- 다음 작업: Phase 2 현재 전체 회귀와 readiness 계약 확인 → Phase 3 closure. V0.5C는 아직 시작하지 않았다.
+- 커밋: 이 항목을 Phase 1 증거 문서 commit으로 게시한다.
