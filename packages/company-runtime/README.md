@@ -492,7 +492,7 @@ Adapter는 outer/nested version·shape·digest·docs status/content를 Provider/
 
 현재 로컬 검증: Runtime 1,385 / Weavra SDK slice 480 / deterministic eval 35 PASS, 격리 `bash ./test.sh` 전체 PASS. 기존 `codex-lb/gpt-6-astra` route의 actual smoke **1회 PASS**: production command handler + real SDK + TypeScript language server 5.1.3, changed symbol 1·reference 6·관련 test 1, TypeScript 5.9.3 exact 선언 문서 MATCHED, 4,289-byte envelope, strict mutation/trust·macOS required sandbox·SELF_CHECK/TEST·독립 review·oracle PASS·COMPLETED·writer release. Provider-reported usage는 28,274 tokens, 도구 호출 10회였다. response model 별도 echo는 UNKNOWN이다.
 
-UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 아니다. deterministic A/B의 고정 알고리즘 결과를 모델 품질·일반 결함 탐지율·token 절감으로 일반화하지 않는다. 정확한 구현 HEAD CI와 별도 closure docs HEAD CI는 아직 남아 있으며 최신 판정은 WORK_LOG를 따른다(LOG-090~091).
+UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 아니다. deterministic A/B의 고정 알고리즘 결과를 모델 품질·일반 결함 탐지율·token 절감으로 일반화하지 않는다. 구현 HEAD `0d4e919366ff71f2915da0bdf19e1df3da9cd6c0`의 [CI 35454385916](https://github.com/kjg8619/pi/actions/runs/35454385916)가 전체 success여서 **V0.5D의 bounded 범위는 CLOSED**다(LOG-092). 별도 closure docs HEAD의 CI를 확인한 뒤에만 후속 read-only Host Bridge를 시작한다.
 
 ## 설정 schema 1
 
