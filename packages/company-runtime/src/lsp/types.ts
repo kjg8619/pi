@@ -56,6 +56,8 @@ export interface LspSymbol extends LspLocation {
 	name: string;
 	kind: number;
 	depth: number;
+	/** Full symbol extent; line/column above remain the navigation selection position. */
+	range?: Omit<LspLocation, "path">;
 }
 export interface LspResult {
 	serverId: string;

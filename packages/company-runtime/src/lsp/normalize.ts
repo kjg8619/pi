@@ -94,7 +94,13 @@ export async function normalizeLsp(
 					raw.kind > 26
 				)
 					throw new LspConnectionError("PROTOCOL");
-				const symbol = { ...location, name: safeLspText(raw.name, 128), kind: raw.kind, depth };
+				const symbol: LspSymbol = {
+					...location,
+					name: safeLspText(raw.name, 128),
+					kind: raw.kind,
+					depth,
+					range: raw.location === undefined ? range(raw.range) : range(object(raw.location).range),
+				};
 				const size = Buffer.byteLength(JSON.stringify(symbol));
 				if (bytes + size > 8192) {
 					result.truncated++;

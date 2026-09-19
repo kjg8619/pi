@@ -3484,3 +3484,25 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 안정 태그 `weavra-v0.1-rc1^{}`은 원래 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`다. 변경 파일 네 개만 명시 stage하여 별도 docs closure commit으로 일반 push한다. force push·태그 이동은 하지 않는다. exact closure SHA·CI URL·최종 결과는 GitHub Actions와 최종 응답에서 대조한다.
 - 제외 범위는 그대로다: Linux sandbox actual 및 모든 모델/OS/Node 검증, R2/R3 repair, expected-failure TDD, 일반 retry/resume/rollback, 완전한 external TOCTOU/transitive oracle/plugin graph 격리. 통제 defect fixture의 성공을 자연 발생 오류 복구율로 일반화하지 않는다.
 - **다음 첫 작업(미착수):** V0.5D의 C04 Impact-aware Review Pack 계약을 기존 C01 Task Context Pack 위에서 정한다. changed symbol/caller/test를 bounded·fresh advisory Reviewer 입력으로 연결하고 C05 reviewed documentation의 version/source/capturedAt·digest·stale 의미를 같은 입력 계약에 정리한다. Policy·검증 evidence·completion authority로 승격하지 않는다. 이 작업에서는 설계/구현을 시작하지 않고 closure 게시·정확한 CI 확인까지만 수행한다.
+
+## LOG-086 — 2026-09-20 00:02 (Asia/Seoul) — V0.5D 계약 감사·구현 착수
+
+**상태:** 진행 중. V0.5D closure와 V0.6A 시작을 아직 선언하지 않는다.
+
+- 시작 local HEAD·`origin/devlop`·실제 remote HEAD는 모두 `1d2a4af966b95bdcf6e0f8a3ac1f7c7e9129686b`이며 working tree는 clean이었다. 안정 태그 peeled commit은 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`로 유지한다.
+- 기존 C01/Policy/LSP/Verifier/Workflow/measurement/evidence와 문서 계약을 조사했다. GitWorkspace는 실제 baseline/current JSON diff를 제공하지만 LSP document symbol은 selection range만 보존하므로 본문 range를 별도로 유지해야 한다. Worker 도구 좌표·기존 Kernel authority는 바꾸지 않는다.
+- C04는 실제 변경 행과 current symbol range 교차, policy 재검증된 references/tests/declarations, bounded deterministic digest를 갖는 Reviewer advisory다. C05는 기존 trusted `.ai/config.yaml` 안의 reviewed local snapshot registry부터 시작한다. 네트워크·설치·실행 hook·새 indexing/runtime을 넣지 않는다. 최초 version binding은 정책상 읽을 수 있는 npm package.json의 exact 선언 버전이며 installed/resolved version과 구분한다.
+- Reviewer 호출 직전 fresh 재구성하고 기존 Task Context Pack과 분리한다. raw source/docs는 durable measurement/evidence에 저장하지 않으며 optional summary만 추가하여 historical run readability를 유지한다. 두 pack의 추가 Reviewer envelope는 합계 48 KiB로 제한한다.
+- OMP read-only scout 두 개의 조사 결과를 main이 통합했다. writing subagent 두 개는 model 미설정(`No model selected`)으로 시작하지 못했으며 파일 변경은 없었다. credential 이식·harness 설정 우회 없이 main이 구현을 계속한다. 이 문제는 Weavra actual Provider 가용성 판정과 별개다.
+- 이 entry 시점 신규 테스트·full regression·actual Provider·remote CI는 미실행이다. 단계별 구현/검증 뒤 별도 commit으로 게시하고 정확한 HEAD CI를 확인한다. V0.5D가 실제 CLOSED된 뒤에만 V0.6A read-only bridge로 진행한다.
+
+## LOG-087 — 2026-09-20 00:14 (Asia/Seoul) — C04/C05 core 및 Reviewer 조합 1차 검증
+
+**상태:** C04 core를 첫 구현 commit으로 분리한다. C05와 Reviewer integration은 작업 tree에서 후속 검증 중이며 V0.5D는 OPEN이다.
+
+- C04: `impact-review.ts`·leaf types·회귀를 추가했다. 기존 GitWorkspace before/after의 bounded LCS로 변경 행을 계산하고 LSP의 새 full symbol range와 교차한다. selection 좌표는 기존대로 유지한다. C01 안전 read/eligibility 함수를 재사용하고 Policy/read 검사·source digest·query/byte cap을 적용한다.
+- 첫 targeted 실행은 113건 중 2 FAIL이었다. replacement를 insertion+deletion으로 순회할 때 다음 unchanged line까지 deletion gap으로 기록하는 오류를 발견했다. 같은 edit hunk에 insertion이 있으면 별도 deletion gap을 추가하지 않도록 고쳐 nested symbol과 separated hunk 검증을 통과했다. assertion·timeout을 완화하지 않았다.
+- `node ../../node_modules/vitest/dist/cli.js --run test/impact-review.test.ts test/documentation-pack.test.ts test/lsp.test.ts test/task-context.test.ts test/measurement-evidence.test.ts test/host-boundary.test.ts` (company-runtime): **6 files / 135 PASS**. C04뿐 아니라 현재 작업 tree의 C05/schema integration을 포함한 실행이며, 아직 게시하지 않은 C05 결과를 이전 commit의 결과로 소급하지 않는다.
+- 현재 작업 tree `npm run check`: **PASS**, Biome 1440 files 중 이 작업 파일 12개 정렬/format 적용, 이후 type/import/entry graph/shrinkwrap/install-lock/browser-smoke gate PASS. 변경된 dependency/lockfile은 없다.
+- LSP 도구가 성공적으로 수정된 파일의 이전 buffer로 diagnostics/reference 위치를 반환하는 문제가 있어 reload와 도구 이슈 보고를 수행했다. disk source를 사용하는 실제 tsgo/check는 PASS였다. 이 stale harness diagnostics를 제품 type error로 오인하여 코드를 낮추지 않았다.
+- 추가 Reviewer SDK/freshness/authority/leakage 회귀, deterministic A/B, full local 및 actual/remote 검증은 다음 단계다. C04/C05는 advisory이며 Kernel 완료·Policy·trust/sandbox guard는 변경하지 않았다.

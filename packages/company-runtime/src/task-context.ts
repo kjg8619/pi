@@ -90,7 +90,7 @@ function canonical(path: string): string {
 }
 
 /** Policy-first filter: secrets and protected paths are excluded before any read or listing. */
-function isContextEligible(
+export function isContextEligible(
 	workspace: string,
 	path: string,
 	protectedPaths: readonly string[],
@@ -162,7 +162,7 @@ function projectRulesOf(input: TaskContextInput): TaskContextRules {
 }
 
 /** Bounded strict read with before/after identity validation; an unstable read yields no snippet. */
-function readStableText(path: string): { text: string; digest: string } | undefined {
+export function readStableText(path: string): { text: string; digest: string } | undefined {
 	let fd: number;
 	try {
 		fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
