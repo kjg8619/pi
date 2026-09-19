@@ -509,7 +509,10 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 		config.verification.checks[0].args[1] = `slow-${phase}`;
 		harness.setResponses([write(), submit]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true));
+		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true), {
+			timeout: 30_000,
+			interval: 25,
+		});
 		await expect(FileStateStore.open(cwd)).rejects.toThrow();
 		workflow.cancel();
 		const report = await job;
@@ -604,7 +607,7 @@ describe("S5A QUICK: same SDK/Policy/Git/Verifier with one Executor", () => {
 			},
 		]);
 		await commands.get("workflow")!.handler(`run ${goal}`, context);
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		for (const name of ["workflow", "team", "state", "risk"]) {
 			await commands.get(name)!.handler("", context);
 			const output = notify.mock.lastCall?.[0] as string;

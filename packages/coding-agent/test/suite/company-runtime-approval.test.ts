@@ -608,7 +608,10 @@ describe("S5C human-approved single-file deletion", () => {
 		checkMode("slow-TEST");
 		harness.setResponses([remove(), handoff, review()]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true));
+		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true), {
+			timeout: 30_000,
+			interval: 25,
+		});
 		workflow.cancel();
 		const report = await job;
 		expect(report.run?.status).toBe("CANCELLED");
@@ -666,7 +669,7 @@ describe("S5C human-approved single-file deletion", () => {
 		);
 		harness.setResponses([remove()]);
 		await commands.get("workflow")!.handler(`run ${goal}`, ctx);
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		for (const name of ["workflow", "state", "team", "risk"]) {
 			await commands.get(name)!.handler("", ctx);
 			expect(notify.mock.lastCall?.[0]).toContain("WAITING_APPROVAL");

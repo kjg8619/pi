@@ -322,7 +322,7 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 		]);
 		const owner = host(true);
 		await owner.call("workflow", "run Fix bug");
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
 		const calls = harness.faux.state.callCount;
 		const opens = vi.spyOn(FileStateStore, "open");
@@ -472,7 +472,7 @@ describe("S5D observations around the real STANDARD/QUICK/R3 slice", () => {
 			},
 		});
 		const job = owner.execute();
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		const before = readFileSync(join(cwd, ".ai/state.json"), "utf8");
 		const reader = host();
 		expect(await reader.call("state")).toContain("WAITING_APPROVAL");

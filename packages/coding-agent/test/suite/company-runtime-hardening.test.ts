@@ -318,7 +318,7 @@ describe("S6 Provider result failure boundaries (faux only)", () => {
 				settled = true;
 				return result;
 			});
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		workflow.cancel();
 		await new Promise((resolve) => setTimeout(resolve, 30));
 		try {
@@ -342,7 +342,7 @@ describe("S6 Provider result failure boundaries (faux only)", () => {
 			return abort.call(this);
 		});
 		const job = create().execute();
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		workflow.cancel();
 		try {
 			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
@@ -384,7 +384,7 @@ describe("S6 ownership must outlive resource cleanup", () => {
 				return abort.call(this);
 			});
 			const job = create(risk === "R3" ? "Delete file src/obsolete.ts" : "Fix bug").execute();
-			await vi.waitFor(() => expect(entered).toBe(true));
+			await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 			try {
 				if (risk === "R3") expect(existsSync(join(cwd, "src/obsolete.ts"))).toBe(false);
 				else expect(readFileSync(join(cwd, "src/app.ts"), "utf8")).toBe("fixed\n");

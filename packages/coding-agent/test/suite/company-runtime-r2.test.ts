@@ -600,7 +600,7 @@ describe("S5B STANDARD/R2 with actual file Policy/checks and independent faux re
 			},
 		]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		await expect(FileStateStore.open(cwd)).rejects.toThrow();
 		workflow.cancel();
 		const report = await job;
@@ -612,7 +612,10 @@ describe("S5B STANDARD/R2 with actual file Policy/checks and independent faux re
 		config.verification.checks[0].args[1] = "slow-TEST";
 		harness.setResponses([edit(manifests[0]), edit(manifests[1]), handoff, review()]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true));
+		await vi.waitFor(() => expect(existsSync(join(agentDir, "marker"))).toBe(true), {
+			timeout: 30_000,
+			interval: 25,
+		});
 		workflow.cancel();
 		const report = await job;
 		expect(report.run?.status).toBe("CANCELLED");

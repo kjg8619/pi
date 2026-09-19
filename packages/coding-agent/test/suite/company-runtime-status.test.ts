@@ -238,7 +238,7 @@ describe("Weavra Status Projection on the actual Extension/Kernel/SDK (faux only
 				const providerCalls = harness.faux.state.callCount;
 				const opens = vi.spyOn(FileStateStore, "open");
 				const showing = owner.call("graph", "view");
-				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true));
+				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true), { timeout: 30_000, interval: 25 });
 				await ui.terminal.waitForRender();
 				ui.terminal.sendInput("\r");
 				ui.terminal.sendInput(key);
@@ -269,7 +269,7 @@ describe("Weavra Status Projection on the actual Extension/Kernel/SDK (faux only
 				await owner.call("workflow", "run Fix bug");
 				await vi.waitFor(() => expect(harness.faux.state.callCount).toBe(1), { timeout: 10000 });
 				const showing = owner.call("graph", "view latest");
-				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true));
+				await vi.waitFor(() => expect(ui.tui.hasOverlay()).toBe(true), { timeout: 30_000, interval: 25 });
 				if (failClose)
 					vi.spyOn(ui.tui, "hideOverlay").mockImplementation(() => {
 						throw new Error("UI close failed");

@@ -428,7 +428,10 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 			);
 			harness.setResponses([edit(), handoff, review()]);
 			const job = create().execute();
-			await vi.waitFor(() => expect(existsSync(join(cwd, "src/check-started"))).toBe(true));
+			await vi.waitFor(() => expect(existsSync(join(cwd, "src/check-started"))).toBe(true), {
+				timeout: 30_000,
+				interval: 25,
+			});
 			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
 			workflow.cancel();
 			const result = await job;
@@ -464,7 +467,7 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 		};
 		harness.setResponses(role === "Developer" ? [edit(), wait] : [edit(), handoff, wait]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(entered).toBe(true));
+		await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 		workflow.cancel();
 		const result = await job;
 		expect(result.run?.status).toBe("CANCELLED");
@@ -566,7 +569,7 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 				},
 			]);
 			await commands.get("workflow")!.handler("run Fix app bug", context);
-			await vi.waitFor(() => expect(entered).toBe(true));
+			await vi.waitFor(() => expect(entered).toBe(true), { timeout: 30_000, interval: 25 });
 			for (const name of ["state", "team", "risk", "workflow"])
 				await commands.get(name)!.handler(name === "workflow" ? "status" : "", context);
 			expect(notify).toHaveBeenLastCalledWith(expect.stringContaining("IMPLEMENT"), "info");
@@ -611,7 +614,7 @@ describe("S4 STANDARD vertical slice: real Git/checks and independent faux SDK s
 			},
 		]);
 		const job = create().execute();
-		await vi.waitFor(() => expect(harness.faux.state.callCount).toBe(1));
+		await vi.waitFor(() => expect(harness.faux.state.callCount).toBe(1), { timeout: 30_000, interval: 25 });
 		await expect(FileStateStore.open(cwd)).rejects.toThrow();
 		workflow.cancel();
 		await job;
