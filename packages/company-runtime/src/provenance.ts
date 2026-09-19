@@ -37,6 +37,8 @@ export interface CaptureProvenanceInput {
 	cwd: string;
 	configDigest?: string;
 	taskContractDigest?: string;
+	/** Host-selected reviewed recipe used to draft the acceptance criteria, frozen at run start. */
+	recipe?: { id: string; version: number; digest: string };
 	now?: () => number;
 }
 
@@ -79,6 +81,7 @@ export function captureProvenance(input: CaptureProvenanceInput): Provenance {
 		...(targetHead ? { targetWorkspaceCommit: targetHead } : {}),
 		...(input.configDigest ? { configDigest: input.configDigest } : {}),
 		...(input.taskContractDigest ? { taskContractDigest: input.taskContractDigest } : {}),
+		...(input.recipe ? { recipe: structuredClone(input.recipe) } : {}),
 		capturedAt: now(),
 	};
 }

@@ -21,6 +21,17 @@ export const ProvenanceSchema = Type.Object(
 		targetWorkspaceCommit: Type.Optional(text),
 		configDigest: Type.Optional(text),
 		taskContractDigest: Type.Optional(text),
+		// Reviewed recipe that drafted the acceptance criteria; not proof that the frozen AC still match it.
+		recipe: Type.Optional(
+			Type.Object(
+				{
+					id: text,
+					version: Type.Integer({ minimum: 1 }),
+					digest: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+				},
+				strict,
+			),
+		),
 		capturedAt: counter,
 	},
 	strict,

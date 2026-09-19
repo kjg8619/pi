@@ -8,6 +8,7 @@ import { formatEvidencePack, projectEvidencePack } from "../src/evidence.ts";
 import { WorkerMeasurementAccumulator } from "../src/measurement.ts";
 import { WorkerMeasurementSchema } from "../src/measurement-types.ts";
 import { captureProvenance } from "../src/provenance.ts";
+import { ProvenanceSchema } from "../src/provenance-types.ts";
 import { graphRun } from "./graph-fixtures.ts";
 
 function measurement(overrides: { totalTokens?: number; source?: "provider" | "unavailable" } = {}) {
@@ -394,5 +395,27 @@ describe("V0.5A context projections", () => {
 			report: { changedFiles: [], partialChanges: false, changesUnknown: false } as never,
 		});
 		expect(formatEvidencePack(legacyPack)).toContain("Developer context: disabled");
+	});
+});
+
+describe("V0.5B recipe provenance", () => {
+	it("records a reviewed recipe and stays backward compatible", async () => {
+		const temp = await mkdtemp(join(tmpdir(), "weavra-recipe-prov-"));
+		try {
+			const recipe = { id: "bugfix", version: 1, digest: `sha256:${"c".repeat(64)}` };
+			const provenance = captureProvenance({ cwd: temp, configDigest: "config", recipe });
+			expect(provenance.recipe).toEqual(recipe);
+			expect(captureProvenance({ cwd: temp }).recipe).toBeUndefined();
+			// Historical records without the field stay valid.
+			const legacy = structuredClone(provenance);
+			delete legacy.recipe;
+			expect(validateContract(ProvenanceSchema, legacy).recipe).toBeUndefined();
+			// Malformed recipe metadata is rejected at the contract boundary.
+			expect(() =>
+				validateContract(ProvenanceSchema, { ...provenance, recipe: { id: "bugfix", version: 0, digest: "x" } }),
+			).toThrow();
+		} finally {
+			await rm(temp, { recursive: true, force: true });
+		}
 	});
 });
