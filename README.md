@@ -525,7 +525,7 @@ R1에서 해당 mutation을 만나면 계속 실행하도록 자동 승격하지
 
 관측 event는 실행·승인·PASS·COMPLETE의 권한이 아니다. `status.source`는 durable state이고 `ownerObserved: false`다. writer 존재를 worker 생존이나 cleanup 완료로 해석하지 않으며, 저장되지 못한 Host-local 실패를 정상 완료로 추정하지 않는다. 실제 연결 smoke는 QUICK/READ_ONLY, strict checks PASS, active reconnect, control 거부, query 무변경, COMPLETED·writer release를 확인했다. in-memory faux 2 turns이며 추가 actual Provider 호출은 0이다. 전체 C07/T3 integration 완료를 주장하지 않는다.
 
-최종 로컬 회귀는 Runtime 1,402 / Weavra SDK slice 497 / deterministic eval 35 및 격리 `bash ./test.sh` 전체 PASS다. 실행 명령·실제 결과·수정한 경계 문제는 [WORK_LOG LOG-094~095](docs/WORK_LOG.md)를 따른다.
+최종 로컬 회귀는 Runtime 1,402 / Weavra SDK slice 497 / deterministic eval 35 및 격리 `bash ./test.sh` 전체 PASS다. 구현 HEAD `bacbb778e`의 [CI 35457968130](https://github.com/kjg8619/pi/actions/runs/35457968130)도 exact HEAD success로 확인했다. **첫 read-only slice는 이 범위에서 완료**이며 전체 C07/T3 UI/control은 OPEN이다. 실행 명령·수정한 문제·게시 근거는 [WORK_LOG LOG-094~096](docs/WORK_LOG.md)를 따른다.
 
 ## Workflow & Risk
 
