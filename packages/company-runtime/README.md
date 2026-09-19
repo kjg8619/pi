@@ -492,7 +492,56 @@ Adapter는 outer/nested version·shape·digest·docs status/content를 Provider/
 
 현재 로컬 검증: Runtime 1,385 / Weavra SDK slice 480 / deterministic eval 35 PASS, 격리 `bash ./test.sh` 전체 PASS. 기존 `codex-lb/gpt-6-astra` route의 actual smoke **1회 PASS**: production command handler + real SDK + TypeScript language server 5.1.3, changed symbol 1·reference 6·관련 test 1, TypeScript 5.9.3 exact 선언 문서 MATCHED, 4,289-byte envelope, strict mutation/trust·macOS required sandbox·SELF_CHECK/TEST·독립 review·oracle PASS·COMPLETED·writer release. Provider-reported usage는 28,274 tokens, 도구 호출 10회였다. response model 별도 echo는 UNKNOWN이다.
 
-UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 아니다. deterministic A/B의 고정 알고리즘 결과를 모델 품질·일반 결함 탐지율·token 절감으로 일반화하지 않는다. 구현 HEAD `0d4e919366ff71f2915da0bdf19e1df3da9cd6c0`의 [CI 35454385916](https://github.com/kjg8619/pi/actions/runs/35454385916)가 전체 success여서 **V0.5D의 bounded 범위는 CLOSED**다(LOG-092). 별도 closure docs HEAD의 CI를 확인한 뒤에만 후속 read-only Host Bridge를 시작한다.
+UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 아니다. deterministic A/B의 고정 알고리즘 결과를 모델 품질·일반 결함 탐지율·token 절감으로 일반화하지 않는다. 구현 HEAD `0d4e919366ff71f2915da0bdf19e1df3da9cd6c0`의 [CI 35454385916](https://github.com/kjg8619/pi/actions/runs/35454385916)와 별도 closure HEAD `9331b3ed9ad01fb91bf022220276d35d843a2c62`의 [CI 35454820292](https://github.com/kjg8619/pi/actions/runs/35454820292)가 모두 success다. **V0.5D의 bounded 범위는 CLOSED**이며 두 번째 CI 확인 후에만 후속 read-only Host Bridge를 시작했다(LOG-092~093).
+
+## V0.6A Read-only Host Bridge
+
+첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다.
+
+### Host 연결과 wire
+
+1. 기존 Host가 project trust를 확인한 뒤 `new ReadOnlyHostBridge({ cwd, projectTrusted: true })`를 만든다. root는 이때 고정하며 client는 cwd/path/trust를 지정할 수 없다.
+2. 같은 instance를 기존 `StandardWorkflow` 또는 `registerCompanyRuntime`의 `events`에 넘긴다. 다른 Host observer도 필요하면 기존 Host가 두 sink로 전달한다. bridge 자체는 Workflow 생성·실행·취소 API를 갖지 않는다.
+3. `attachHostBridgeStreams(bridge, input, output, onClose)`로 전용 `Readable`/`Writable`을 연결한다. 직접 연결은 `bridge.connect(write, onClose)`를 사용한다. `write(line)`은 synchronous/nonblocking boolean이고 `false`, throw, 잘못된 async callback은 해당 관찰 connection만 닫는다.
+4. client는 첫 record로 `hello`를 보내고 성공 뒤 read-only query를 보낸다. 각 record는 UTF-8 JSON + LF이며 input은 CRLF·분할 chunk·마지막 LF 없는 EOF도 받는다.
+
+```jsonl
+{"protocolVersion":1,"id":"hello-1","type":"hello"}
+{"protocolVersion":1,"id":"snapshot-1","type":"snapshot"}
+```
+
+허용 command는 `hello`, `capabilities`, `status`, `current-run`, `graph`, `evidence-summary`, `config-summary`, `snapshot`뿐이다. unknown version/field, malformed request, handshake 누락, execution/control command는 typed error로 거부한다. `runId` 생략 시 최신 persisted Run을 조회한다. 명시한 ID를 찾지 못해도 다른 Run으로 fallback하지 않으며, canonical state가 있으면 `RUN_NOT_FOUND`, source 자체가 없거나 읽을 수 없으면 `STATE_UNAVAILABLE`이다.
+
+응답은 `type: "response"`, 원래 `id`/`command`, `success`와 `data` 또는 고정 `error.code`를 갖는다. 모든 응답/event의 공통 metadata는 `protocolVersion`, `runId`, `stateRevision`, `projectRevision`, `eventId`, `timestamp`다. 해당 Run/revision/event source를 관찰하지 못한 필드는 null이며 값을 지어내지 않는다.
+
+| 필드/조회 | 의미 |
+|---|---|
+| `stateRevision` | 해당 Run의 durable mutation revision. graph의 revision과 같은 축 |
+| `projectRevision` | `state.json` 전체 revision. audit 변경도 포함하므로 Run revision과 다름 |
+| `codeRevision` | Run summary/evidence의 code verification revision cycle. 위 두 revision과 별개 |
+| `eventId` | `${runId}:${sequence}`. snapshot에서는 persisted event high-water mark이며 client 수신 확인이나 replay log가 아님 |
+| `timestamp` | response 생성 시각 또는 원래 Runtime event 시각, Unix milliseconds |
+| `status` / `current-run` | canonical state의 available/missing/unavailable와 구조화 Run summary. 목표/AC 본문은 없음 |
+| `graph` | 기존 graph projector의 node/edge ID·kind·status·step/attempt/role만. label/detail/check path/diagnostics는 없음 |
+| `evidence-summary` | 현재 code revision checks·criteria counts·worker usage와 bounded Reviewer context counts/bytes. 누락/부분 usage는 null(UNKNOWN), 0으로 채우지 않음 |
+| `config-summary` | **현재 project config**의 mode/count/budget 유무. frozen Run config나 credential/model/source/path dump가 아님 |
+| `snapshot` | 한 번 읽은 canonical state의 status/graph/evidence와 별도로 읽은 현재 config summary. 두 파일의 transaction이라고 주장하지 않음 |
+
+### 관측·재연결·소유권
+
+- `runtime_event`는 type/sequence/revision/time/step/role만 전달한다. Run goal, AC text, handoff/reason, session path, raw source/docs/prompt/reasoning/tool output, model/tool 이름과 보호 경로는 투영하지 않는다. event가 `RunCompleted`라고 해서 client가 Kernel 완료를 대신 확정할 수 없다.
+- disconnect는 관찰만 끊는다. reconnect 후 `hello` → `snapshot`을 새로 조회한다. replay/cache fallback이 없고 event와 비동기 response가 교차할 수 있으므로 client는 Run/revision을 비교하고 canonical snapshot을 다시 조회해야 한다.
+- source는 `durable-canonical-state`, `ownerObserved: false`다. writer 존재는 worker liveness·Host-local report·cleanup 완료의 증명이 아니다. 저장되지 못한 오류/부분 persistence 때문에 Host owner 결과와 durable state가 다를 수 있으며 이 bridge는 그 차이를 복구하거나 추측하지 않는다.
+- source 읽기는 `FileStateStore.readSnapshot`만 사용한다. writer 획득, orphan recovery, derived-file repair/export, state/config 생성·수정은 하지 않는다. corrupt/orphan/unsafe source는 unavailable/error이며 이전 정상 snapshot을 반환하지 않는다.
+- 입력 record 4 KiB, 출력 JSONL record 64 KiB, connection 최대 8개, connection당 pending request 최대 8개다. source는 기존 16 MiB canonical-state read bound를 유지한다. oversized response는 내용 없는 typed error, oversized frame/overload/backpressure는 fail-closed detach이며 Runtime은 client drain을 기다리지 않는다.
+- 입력 EOF 뒤 마지막 response 처리가 끝나기 전에 input auto-close가 connection을 버리지 않도록 한다. 출력 flush/종료와 stream error 처리는 Host 소유다. adapter는 전달받은 streams를 end/destroy하지 않는다. Host는 `onClose`에서 자신의 transport를 정리해야 한다.
+- `connection.close()`는 재연결 가능한 client detach다. `bridge.close()`는 그 bridge instance의 영구 teardown이며 Runtime/worker/verifier/writer를 종료·취소·복구하지 않는다.
+
+현재 proof는 실제 `StandardWorkflow`/Kernel/Policy/SDK/Verifier/StateStore + in-memory faux를 전용 JSONL streams로 연결한 QUICK/READ_ONLY 실행이다. RunCreated 시점 canonical snapshot, worker 실행 중 reconnect/no replay/control 거부/query 무변경, 최종 graph/evidence·strict checks PASS·COMPLETED·writer release·source 불변을 확인했다. 별도 standalone smoke도 같은 연결에서 PASS했고 faux model turns 2, actual Provider calls 0이다. privacy/version/invalid state/revision/bounds/disconnect/async callback/EOF 경계 회귀는 `host-bridge.test.ts`를 따른다.
+
+최종 gate: Runtime 전체 **51 files / 1,402 PASS**, SDK Weavra filter **15 files / 497 PASS**, deterministic eval **8 files / 35 PASS**, 격리 `bash ./test.sh` 전체 PASS(exit 0). hydrate/model data, `check`, non-mutating `check:ci`, shrinkwrap/install-lock, launcher syntax, diff whitespace도 PASS다(LOG-095). 이는 현재 로컬 결과이며 exact commit CI는 GitHub Actions의 해당 HEAD 실행으로 따로 확인한다.
+
+**범위 밖:** T3 application/UI, 기본 launcher의 bridge flag, 공개 network service/authentication, event replay, run/write/start/approval/cancel control, Provider Fitness Matrix, Browser. read-only 첫 slice이지 전체 V0.6A/C07 완료가 아니다. Linux actual·다른 모델/OS·UI rendering을 이번 proof로 승격하지 않는다.
 
 ## 설정 schema 1
 
@@ -894,6 +943,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 # packages/company-runtime에서
 node ../../node_modules/vitest/dist/cli.js --run test/verification-repair.test.ts test/verification-repair-boundary.test.ts test/sandbox.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/impact-review.test.ts test/documentation-pack.test.ts test/reviewer-context.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/host-bridge.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/project-context.test.ts test/list-files.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/execution-contract.test.ts test/trust-baseline.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/lsp.test.ts test/lsp-config.test.ts
@@ -904,6 +954,7 @@ node ../../node_modules/vitest/dist/cli.js --run test/contracts.test.ts test/con
 
 # packages/coding-agent에서: 실제 SDK + suite harness/faux provider
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-repair.test.ts
+node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-host-bridge.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-context.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-lsp.test.ts
 node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime-agent.test.ts test/suite/company-runtime-workflow.test.ts test/suite/company-runtime-quick.test.ts test/suite/company-runtime-r2.test.ts test/suite/company-runtime-approval.test.ts test/suite/company-runtime-observations.test.ts test/suite/company-runtime-hardening.test.ts test/suite/company-runtime-timeout.test.ts test/suite/agent-session-prompt.test.ts

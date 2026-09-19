@@ -117,8 +117,8 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.5A — Task Context Pack / Repo Map** | Host-selected bounded advisory context | C01 | **CLOSED**(LOG-071). opt-in `agents.context_pack.mode`, 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/preview projection, leakage·freshness·A/B 회귀, DeepSeek actual COMPLETED |
 | **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | **CLOSED**(LOG-075~079). STANDARD-only reviewed recipe 4종·strict input·사용자 edited AC·Plan Preview·bounded provenance. DeepSeek actual COMPLETED/oraclePass true, production command A/B·negative 및 full local 회귀 PASS, 구현 HEAD remote CI PASS |
 | **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | **CLOSED**(LOG-081~085). opt-in STANDARD/EDIT/R1·SELF_CHECK 1회, durable failed parent·fresh session/context/receipt·독립 review/test·누적 budget. `codex-lb/gpt-6-astra` actual **COMPLETED / oraclePass true / falseCompletion false**, strict mutation/trust·macOS required sandbox·현재 full local PASS. 초기 defect 통제 실험이며 Linux actual·모든 모델/OS 보장이 아님 |
-| **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | **CLOSED, bounded 범위**(LOG-086~092). fresh impact·exact-declaration reviewed docs·summary-only projection·negative/A-B/full local PASS. Astra actual 1회 **COMPLETED / oracle PASS / fresh impact/docs / strict trust·macOS sandbox**. 구현 `0d4e91936`의 exact CI PASS; 별도 closure docs CI도 확인한 뒤 후속 착수 |
-| **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | **NEXT: read-only 첫 연결부터**. D closure HEAD CI 이후 착수하며 UI·run/write/start/approval/cancel control은 아직 구현하지 않음 |
+| **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | **CLOSED, bounded 범위**(LOG-086~093). fresh impact·exact-declaration reviewed docs·summary-only projection·negative/A-B/full local PASS. Astra actual 1회 **COMPLETED / oracle PASS / fresh impact/docs / strict trust·macOS sandbox**. 구현 `0d4e91936` 및 별도 closure `9331b3ed9`의 exact CI 모두 PASS |
+| **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | **첫 read-only 연결 구현·smoke·전체 로컬 회귀 PASS**(LOG-094~095). version 1 query/response·관측 event·fresh canonical snapshot, real Runtime/SDK+faux JSONL. 전체 C07은 OPEN: T3 UI·run/write/start/approval/cancel control·network service 미구현 |
 | **V0.6B — Provider Fitness Matrix** | Provider/model/endpoint별 Weavra 계약 적합성의 재현 가능한 평가 | C06 | 지속 평가 track의 첫 정식 milestone |
 | **V0.6C — Jev Browser Evidence** | 격리된 브라우저 탐색을 regression evidence 후보로 연결 | C08 | V0.4C + action policy 선행 |
 | **Later** | Facts / Capability Broker / COMPLEX / Parallel | FEAT-06, 09, Team Mode | 수요·측정 기반 |
@@ -793,9 +793,9 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**V0.5A·V0.5B·V0.5C·V0.5D는 현재 bounded 범위에서 CLOSED다.** 이전 closure/actual/CI 결과는 LOG-071~085, V0.5D는 LOG-086~092에 보존한다. C04/C05는 fresh Reviewer advisory이며 exact npm 선언을 installed/latest 증명으로, source digest를 LSP 내부 cache freshness 증명으로 승격하지 않는다. 추가 envelope는 48 KiB cap이고 durable data는 optional summary뿐이다.
+**V0.5A·V0.5B·V0.5C·V0.5D는 현재 bounded 범위에서 CLOSED다.** 이전 closure/actual/CI 결과는 LOG-071~085, V0.5D는 LOG-086~093에 보존한다. C04/C05는 fresh Reviewer advisory이며 exact npm 선언을 installed/latest 증명으로, source digest를 LSP 내부 cache freshness 증명으로 승격하지 않는다. 추가 envelope는 48 KiB cap이고 durable data는 optional summary뿐이다.
 
-**즉시 다음 gate:** D 구현 HEAD `0d4e91936`의 [remote CI](https://github.com/kjg8619/pi/actions/runs/35454385916)는 PASS다. 별도 V0.5D closure docs commit을 일반 push하고 그 exact HEAD CI까지 확인한 뒤 **V0.6A read-only structured commands/events/snapshot reconnect 첫 연결**을 진행한다. Runtime/Kernel이 단독 authority를 유지한다. T3 UI, run/write/start/approval/cancel control, Provider Matrix와 Browser는 이번 후속 연결 범위에 넣지 않는다.
+**V0.6A 첫 연결:** D 구현 `0d4e91936`의 [CI](https://github.com/kjg8619/pi/actions/runs/35454385916)와 별도 closure `9331b3ed9`의 [CI](https://github.com/kjg8619/pi/actions/runs/35454820292)가 모두 PASS인 것을 확인한 뒤 진행했다. repository-level read-only Host module + bounded local JSONL, 관측 event, fresh canonical snapshot reconnect를 실제 Runtime/SDK·in-memory faux로 검증했다. durable source와 owner-local 상태를 구분하고 Runtime/Kernel 단독 authority를 유지한다. 이 slice의 전체 회귀·일반 push·exact HEAD CI를 마친 뒤 멈춘다. T3 UI, run/write/start/approval/cancel control, Provider Matrix와 Browser는 자동 착수하지 않는다.
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 
