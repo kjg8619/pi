@@ -390,7 +390,7 @@ Host가 확인한 수용 기준(Acceptance Criteria)을 run 단위로 고정한�
 - `/state evidence [runId]`는 기존 state의 read-only projection을 출력한다: AC별 결과·evidence, checks, Reviewer/approval, partial changes, cleanup confirmed/uncertain, worker measurement, budget, provenance, failure category(구조화 신호만 사용). execution authority가 아니다.
 - telemetry는 optional `TelemetryContext`(기본 NOOP)로 `weavra.run`/`weavra.worker` span만 내보내며 exporter 실패는 실행 결과를 바꾸지 않는다.
 
-## V0.5C Bounded Verification Repair — 첫 vertical slice
+## V0.5C Bounded Verification Repair
 
 기본값은 **disabled**다. Host가 검토한 check의 특정 정상 종료 코드를 deterministic source-check failure로 명시한 경우에만 **STANDARD / EDIT / R1 / SELF_CHECK에서 Run당 최대 1회** 새 Developer attempt를 허용한다.
 
@@ -427,7 +427,8 @@ Developer #1 → SELF_CHECK #1 FAIL
 - 새 SDK session·도구 closure·bounded context pack(활성화된 경우)을 만들고 strict mutation의 read receipt를 새로 발급한다. 이전 handoff/PASS/Reviewer/session/receipt는 새 attempt의 authority가 아니다. 실패 설명은 최대 8개 check·stdout/stderr 각각 512 UTF-16 units의 **untrusted advisory**이며 로그 지시가 scope나 permission을 바꾸지 않는다.
 - worker 호출 수·provider-reported token은 Run 전체에 누적된다. token accounting UNKNOWN과 소진된 예산은 다음 invocation을 차단한다. token 한도는 in-flight 호출의 billing hard cap이 아니다. verification repair는 기존 `agents.max_revision_cycles`의 Reviewer REVISE 한도를 소비하지 않지만 모든 실제 worker는 같은 누적 budget을 쓴다.
 - Plan Preview/config/status에 mode·한도를 표시하고 graph는 failed parent→새 attempt를, Evidence Pack은 check revision/step/attempt와 parent를 구분한다. 이전 failure를 지우거나 새로운 Provider failure를 과거 check failure로 가리지 않는다. 최종 완료 권한은 Kernel에만 있다.
-- 검증: 실제 SDK/faux+Git+Node checks, macOS required sandbox, production recipe command/Plan Preview/ASCII graph/Evidence Pack smoke와 positive/negative 회귀. **V0.5C 유료 Provider actual, Linux sandbox actual, TUI overlay rendering은 NOT VERIFIED**다. expected-failure TDD lifecycle, 일반 retry/resume/rollback, Oracle 자동 수정은 구현하지 않았다.
+- 검증: 실제 SDK/faux+Git+Node checks, macOS required sandbox, production recipe command/Plan Preview/ASCII graph/Evidence Pack smoke와 positive/negative 회귀. LOG-084의 actual `codex-lb/gpt-6-astra`는 기존 Weavra `openai-responses` route로 production `/workflow run`을 실행해 **SELF_CHECK exit 7 → 새 Developer repair 1회 → fresh SELF_CHECK PASS → 독립 Reviewer PASS → TEST PASS → COMPLETED**를 확인했다. strict mutation/trust·bounded context·required sandbox를 유지했고 oraclePass true / falseCompletion false, worker 3회·model turn 10회·reported tokens 34,035를 기록했다. 초기 Developer에만 결함을 남기도록 지시한 통제 실험이며 가짜 verifier나 Host 사후 소스 변경은 없다.
+- **NOT VERIFIED:** Linux sandbox actual, 모든 Provider/model/OS, TUI overlay rendering. R2/R3 repair는 지원하지 않으며 expected-failure TDD lifecycle, 일반 retry/resume/rollback, Oracle 자동 수정도 구현하지 않았다. actual positive smoke에서 의도적으로 공격하지 않은 stale receipt/review·권한 확장·UNKNOWN budget 등의 거부 경계는 별도의 deterministic 회귀 결과로 구분한다.
 
 ## 설정 schema 1
 

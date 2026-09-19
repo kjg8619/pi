@@ -116,8 +116,8 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.4C — Verifier Sandbox** | registered check process에 OS 경계 추가 | FEAT-07 | **CLOSED**(LOG-069·LOG-070). macOS actual PASS / Linux actual **NOT VERIFIED**(runner 외부 blocker, PASS로 표기하지 않음) / deterministic cross-platform contract PASS / remote CI PASS / DeepSeek strict+trust+sandbox actual **COMPLETED** |
 | **V0.5A — Task Context Pack / Repo Map** | Host-selected bounded advisory context | C01 | **CLOSED**(LOG-071). opt-in `agents.context_pack.mode`, 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/preview projection, leakage·freshness·A/B 회귀, DeepSeek actual COMPLETED |
 | **V0.5B — Task Recipes** | 반복 작업을 기존 Task Contract로 변환하는 reviewed recipe | C03 | **CLOSED**(LOG-075~079). STANDARD-only reviewed recipe 4종·strict input·사용자 edited AC·Plan Preview·bounded provenance. DeepSeek actual COMPLETED/oraclePass true, production command A/B·negative 및 full local 회귀 PASS, 구현 HEAD remote CI PASS |
-| **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | **첫 vertical slice 구현·게시 완료**(LOG-081~083, `53bdafe1b` CI PASS). opt-in STANDARD/EDIT/R1·SELF_CHECK 1회, typed target outcome·Host exit allowlist·durable parent·fresh session/context/receipt·독립 review/test·누적 budget. SDK/faux·macOS required sandbox·full local PASS. 유료 Provider actual·Linux actual NOT VERIFIED |
-| **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | C01 재사용 |
+| **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | **CLOSED**(LOG-081~085). opt-in STANDARD/EDIT/R1·SELF_CHECK 1회, durable failed parent·fresh session/context/receipt·독립 review/test·누적 budget. `codex-lb/gpt-6-astra` actual **COMPLETED / oraclePass true / falseCompletion false**, strict mutation/trust·macOS required sandbox·현재 full local PASS. 초기 defect 통제 실험이며 Linux actual·모든 모델/OS 보장이 아님 |
+| **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | **NEXT / 미착수**. C01을 재사용하는 bounded·fresh Reviewer advisory 입력 계약부터 정리 |
 | **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | Runtime authority 유지 |
 | **V0.6B — Provider Fitness Matrix** | Provider/model/endpoint별 Weavra 계약 적합성의 재현 가능한 평가 | C06 | 지속 평가 track의 첫 정식 milestone |
 | **V0.6C — Jev Browser Evidence** | 격리된 브라우저 탐색을 regression evidence 후보로 연결 | C08 | V0.4C + action policy 선행 |
@@ -793,7 +793,9 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 ## 14. 즉시 다음 작업
 
-**V0.5C — C02 Bounded Verification Repair의 첫 vertical slice를 구현·검증·게시했다.** V0.5A는 LOG-071, V0.5B는 LOG-075~080과 closure HEAD `a5023eb98`의 CI PASS로 CLOSED다. 이후 sandbox target 종료 경계 `71ea7b2aa`를 선행하고 bounded repair `53bdafe1b`를 게시했으며 각각 정확한 구현 SHA의 CI PASS를 확인했다(LOG-081~083). 현재 범위는 opt-in STANDARD/EDIT/R1·SELF_CHECK 최대 1회의 linked repair이며 원래 계약/정책/failed evidence/누적 budget과 fresh worker/session/context/receipt·SELF_CHECK·독립 Reviewer·TEST·Kernel COMPLETE를 유지한다. V0.5C 전체 milestone이나 유료 Provider actual 완료로 확대하지 않는다. V0.5B expected-failure TDD lifecycle은 여전히 미구현이다. V0.4C는 LOG-069~070의 option 3 기준 CLOSED다(macOS actual PASS, Linux actual NOT VERIFIED).
+**V0.5A·V0.5B·V0.5C는 CLOSED이며 V0.5D가 다음 작업이다.** V0.5A는 LOG-071, V0.5B는 LOG-075~080과 closure HEAD `a5023eb98`의 CI PASS로 닫았다. V0.5C는 선행 target 종료 경계 `71ea7b2aa`와 구현 `53bdafe1b`의 CI PASS에 더해 LOG-084~085의 actual `codex-lb/gpt-6-astra` repair 1회·독립 Reviewer·fresh TEST·Kernel COMPLETE와 현재 전체 local 회귀 PASS로 닫는다. 원래 계약/정책/failed evidence/누적 budget·fresh session/context/receipt를 유지했다. 초기 결함 통제 실험이며 Linux sandbox actual·R2/R3 repair·모든 모델/OS·일반 retry/resume·expected-failure TDD를 포함하지 않는다. 별도 closure commit의 정확한 HEAD CI를 최종 게시 gate로 확인한다. V0.4C의 macOS actual PASS / Linux actual NOT VERIFIED 판정도 유지한다.
+
+**V0.5D 첫 작업은 아직 시작하지 않았다.** 기존 C01을 재사용하여 changed symbol/caller/test의 bounded·fresh Impact-aware Review Pack과 C05 reviewed documentation의 version/source/capturedAt·digest·stale 계약을 정리한다. Reviewer 입력 품질을 보강할 뿐 Policy·verification evidence·completion authority를 추가하지 않는다.
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 

@@ -66,9 +66,9 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.4B Verifier Trust(LOG-066 구현 + LOG-067 closure)는 opt-in strict registration/source freeze, env-bound registration digest, real executable identity digest, pre/post process 재검증, Worker protected source, Kernel의 Host-frozen digest guard, Reviewer oracle 비열람 guidance, bounded trust evidence를 구현·자동 회귀 검증했다. 실제 DeepSeek strict-trust run이 **COMPLETED**했고 self-check/test가 같은 registration digest로 `VERIFIED`를 기록했다. V0.4B는 LOG-067로 종료한다.
 - V0.4C Verifier Sandbox(LOG-069 구현 + LOG-070 closure)는 option 3 기준으로 CLOSED다: macOS actual PASS, Linux actual **NOT VERIFIED**(runner 외부 blocker 2건 — 명시), deterministic cross-platform contract PASS, remote CI PASS(전체 run success), DeepSeek strict+trust+sandbox actual **COMPLETED**.
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
-- **V0.5B는 closure HEAD `a5023eb98`의 CI PASS까지 확인해 CLOSED**다. **V0.5C 첫 vertical slice는 구현·검증·게시 완료**다(LOG-081~083). 선행 sandbox target 경계 `71ea7b2aa`와 bounded repair 구현 `53bdafe1b`의 CI가 각각 PASS다. opt-in STANDARD/EDIT/R1·SELF_CHECK 최대 1회, 실제 SDK/faux·macOS required sandbox·production command smoke·full local 회귀를 확인했다. V0.5C 전체 milestone이나 유료 Provider actual 완료로 확대하지 않는다.
+- **V0.5A·V0.5B·V0.5C는 CLOSED**다. V0.5B closure HEAD `a5023eb98`의 CI PASS와 V0.5C 선행 경계/구현 `71ea7b2aa`·`53bdafe1b`의 CI PASS를 보존한다. LOG-084~085에서 기존 Weavra route의 **`codex-lb/gpt-6-astra` actual**로 STANDARD/EDIT/R1·SELF_CHECK repair 1회 → fresh Developer/session/context/receipt/checks → 독립 Reviewer → TEST → Kernel COMPLETE, oraclePass true / falseCompletion false를 확인했다. strict mutation/trust·macOS required sandbox와 누적 budget을 유지했고 현재 source의 full local 회귀도 PASS다. 다음은 **V0.5D이며 아직 착수하지 않았다**. 이번 별도 closure commit의 정확한 HEAD CI는 게시 후 확인하며 이전 SHA 결과로 대체하지 않는다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
-- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), V0.5C 유료 Provider actual·TUI overlay rendering, V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 다른 OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 확인한 구현 HEAD `53bdafe1b`의 [CI 35445922622](https://github.com/kjg8619/pi/actions/runs/35445922622)은 success다. 최종 문서 HEAD의 CI는 별도로 확인하며 이전 SHA의 결과로 대체하지 않는다.
+- 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), TUI overlay rendering, V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 추가 모델/OS/Node matrix, COMPLEX/parallel, browser/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). V0.5C actual은 명시적 initial-defect 통제 실험 1회이며 모든 모델의 자연 발생 오류 복구 보장이 아니다. R2/R3 repair·expected-failure TDD·일반 retry/resume는 미지원이다. 이번 착수 HEAD `96660237e`의 [CI 35446398078](https://github.com/kjg8619/pi/actions/runs/35446398078)은 success로 확인했고 최종 closure HEAD CI는 별도 gate다.
 
 2026-09-18부터 개발 하네스를 Pi + `codex-lb/gpt-6-astra`에서 OMP + DeepSeek 4.1로 전환한다. 전환 시점의 저장소·fork-local 환경 확인 결과는 LOG-052에 기록한다. 같은 날 CommandCode Provider API를 custom provider로 구성하고 실제 worker smoke를 수행했으며(LOG-053), 결과는 [smoke 문서](WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)에 기록한다. DeepSeek 공식 API와 나머지 플랫폼 조합은 NOT VERIFIED다.
 
@@ -3419,3 +3419,68 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 이번 문서 변경은 `docs/WORK_LOG.md`의 현재 요약·게시 이력과 `docs/WEAVRA_ROADMAP_2026-09-17.md`의 첫 slice 완료 상태뿐이다. README/runtime README의 config·실행 경계·미검증 설명은 구현 commit에 포함돼 있다. 기존 역사 기록은 수정하지 않는다.
 - 남은 제한은 LOG-082와 같다: C 유료 Provider actual·Linux sandbox actual·TUI overlay rendering NOT VERIFIED, expected-failure TDD 및 일반 retry/resume 미구현. 기능 scope를 넓히거나 권한/완료 조건을 완화하지 않았다.
 - 이 게시 기록을 별도 docs commit으로 일반 push한 뒤, **그 최종 문서 HEAD의 CI도 별도로 PASS 확인**하고 최종 보고에 정확한 SHA/run URL을 남긴다. 새 문서 commit의 아직 실행하지 않은 CI 결과를 미리 PASS로 기록하지 않는다.
+
+## LOG-084 — 2026-09-19 23:39 (Asia/Seoul) — V0.5C Astra actual Provider 검증
+
+**상태:** actual Provider repair 성공과 evidence 검증 완료. 이 entry 시점에는 전체 회귀 최종 실행·closure commit·그 정확한 HEAD의 CI 확인이 남아 있어 V0.5C closure 게시 완료로 기록하지 않는다.
+
+### 기준선과 실제 Provider 경로
+
+- 착수 시 clean `devlop`의 local HEAD·`origin/devlop`·`git ls-remote`가 모두 `96660237ef8ec15759e0a2061623749a9812f396`이었다. 해당 SHA의 [CI 35446398078](https://github.com/kjg8619/pi/actions/runs/35446398078) success도 이번 작업에서 확인했다. 선행 sandbox target 경계 `71ea7b2aa` → bounded repair `53bdafe1b` → 게시 기록 `96660237e` 순서를 유지했다.
+- 구현·분석 agent는 OMP의 `openai-codex/gpt-6-astra`다. 이것만으로 Weavra worker의 가용성을 추정하지 않았다. Weavra의 기존 `models.json` metadata, fork-local `ModelRuntime.getModel/getAvailable`, 살아 있는 relay `/v1/models`를 각각 확인했다.
+- actual worker는 **`codex-lb/gpt-6-astra`**, API **`openai-responses`**, 기존 endpoint **`http://127.0.0.1:2455/v1`**를 사용했다. coding/reasoning profile 모두 같은 명시 ID이며 fallback은 없다. Weavra auth의 `openai-codex` OAuth 존재와 custom `codex-lb` credential 설정 존재를 구분했고 값은 출력·복사하지 않았다. auth/models/settings를 수동 수정하거나 OMP credential을 이식하지 않았다.
+- 실제 SDK assistant metadata와 worker measurement 모두 요청한 provider/model을 기록했다. 별도 `responseModel`은 없어 UNKNOWN이며 relay 뒤 upstream identity를 독립 검증했다고 주장하지 않는다. OMP endpoint도 별도로 확인되지 않았으므로 두 실행 경로가 같다고 주장하지 않는다.
+
+### Fixture와 actual 결과
+
+- `node --import tsx /tmp/weavra-astra-repair.mts`로 production `registerCompanyRuntime`의 **`/workflow run Fix the formatLabel bug in src/label.mjs`**를 실행했다. 임시 Git repository, 실제 Pi SDK/Provider·Git·Node oracle·RegisteredVerifier를 사용했고 UI 입력 adapter만 AC 편집/Plan 확인을 제공했다. recipe 변환이 아닌 repair 자체를 검증하기 위해 일반 command를 선택했다. TUI 화면 검증은 아니다.
+- Host가 고정한 최종 AC는 일반 문자열 trim, 빈/공백 문자열의 `Unnamed` 반환, source 한 파일만 변경이다. 초기 Developer revision 0에만 `return value.trim()`으로 blank fallback 결함을 남기도록 frozen project instruction에 명시했다. **의도적 결함 주입 통제 실험**이며 자연 발생 모델 오류·모델 품질 평가가 아니다. Worker가 실제 소스를 편집했고 Host 사후 소스 변경·가짜 verifier·oracle 수정은 없다.
+- oracle은 실제 함수 결과가 기대값과 다를 때만 exit `7`, 성공은 `0`, import/실행 오류는 다른 정상 Node 실패다. `repairable_exit_codes: [7]`, STANDARD/EDIT/R1, `self-check-once`, bounded context, strict mutation/trust, required macOS sandbox를 모두 적용했다. worker timeout 180,000ms, 원래 누적 budget 3 workers/100,000 reported tokens, Reviewer REVISE 한도 0이다.
+- 실제 run **`42712fab-ac25-42ae-9a73-e44e7b7c878d`**:
+
+| 실제 단계 | code revision / step attempt | 결과 |
+|---|---|---|
+| Developer | 0 / implement:1 | fresh anchored read → source edit → 새 handoff |
+| SELF_CHECK | 0 / self-check:1 | **FAIL / exit 7 / COMMAND_NONZERO** |
+| repair Developer | 1 / implement:2 | durable failed parent 뒤 새 session·receipt로 blank fallback 수정 |
+| SELF_CHECK | 1 / self-check:2 | **PASS / exit 0** |
+| 독립 Reviewer | 1 / review:2 | 실제 source read, **PASS / AC-001~003 MET** |
+| TEST → Kernel COMPLETE | 1 / test:2 → complete:2 | **PASS → COMPLETED** |
+
+- **repair 1회 / oraclePass true / falseCompletion false / writer released / durable terminal COMPLETED**. 별도 실제 oracle 실행도 PASS였고 변경 파일은 `src/label.mjs` 하나다. config·oracle·project instruction·기타 baseline 파일의 bytes는 불변이다.
+- session IDs는 Developer 0 `01a0ba12-f4c1-718c-92a3-2084c40f1416`, Developer 1 `01a0ba13-5ef0-718c-92a3-2086a33cd6b8`, Reviewer 1 `01a0ba13-cc43-718c-92a3-208854cb3bb6`으로 서로 다르고 session files도 다르다. 각 history는 새 user request로 시작했으며 이전 conversation/tool results를 복사하지 않았다. repair에는 이전 Reviewer verdict가 없고 Reviewer는 revision 1 handoff와 fresh SELF_CHECK evidence를 받았다.
+- 두 Developer의 anchored read receipt가 다르고 mutation은 각 session에서 새로 받은 receipt를 사용했다. 세 bounded pack은 714/721/736 bytes이며 각각 original/initial-defect/fixed source digest를 담았다. invocation마다 새 `createWorkerTools` receipt registry가 만들어지는 source 경계도 확인했다.
+- 누적 budget은 **1 worker / 12,412 tokens → 2 / 26,283 → 3 / 34,035**였다. model turns는 **4 + 4 + 2 = 10**, tool calls도 10이다. worker invocation과 Provider turn을 혼동하지 않는다. session의 provider-reported usage 합과 durable measurement/budget 합이 일치했다. UNKNOWN usage 거부는 실제 positive run이 아니라 deterministic 회귀로 검증했다.
+
+### Frozen evidence와 부정 경계
+
+- Task Contract digest: `sha256:4f395004012d3317762159fa57a64d7423f26ba79bf89500cefd4cc34439fcca`. 세 worker request와 durable snapshots/repair parent에 동일하다.
+- action 8개의 config digest: `0ce5022cb72e3e8d0b7c1e9fa5ee28330548527f0844a36863880431895d0eef`. Execution Mode/instruction binding은 그대로이며 최초 Verifier action의 FAILED도 숨기지 않았다.
+- 세 check 모두 strict **VERIFIED**, 동일 registration digest `sha256:e0e259356771ccca6a7c041e728d5f9e2023f222eb82015658157ca32e2d9073`, 동일 executable/source digest다. required sandbox는 모두 **ENFORCED**, SRT `0.0.76`, policy digest `sha256:17eb4c8a81a92994138eac81039fbf93074ea37319b54ece2d4d0fdb45a51b71`다.
+- failed parent diff `69052d26afde97043d5d71e5f8c8ddc622319a731578e124b8151fa79bb692c5`는 보존됐다. repair 이후 SELF_CHECK·Reviewer·TEST의 최신 diff는 모두 `89c6ffd833d60041cb9539f20a46e595e12b7e954c1b1963d0f568bc0a6a89ee`다. 이전 failed snapshot을 새 PASS로 재사용하지 않았다.
+- `node --import tsx /tmp/weavra-audit-repair.mts`의 실제 session/durable snapshot 대조 assertions를 통과했다. 공개 기록에는 bounded metadata만 남기고 credential·전체 reasoning·원문 transcript는 넣지 않았다. 임시 driver/probe/analyzer와 fixture는 제거했고 안전한 metadata JSON만 `/tmp/weavra-astra-safe-evidence.json`에 남겼다. Pi-owned worker sessions는 기존 저장소에 유지했다.
+- 이번 실행의 기존 회귀에서 두 번째 repair, Provider/auth/Policy, cancellation/cleanup, signal/timeout/output limit, unavailable executable, stale receipt/check/review, session 재사용, scope/Task Contract 변경, budget UNKNOWN을 거부했다. actual positive smoke에서 이 공격을 모두 유료 호출로 재실행했다고 주장하지 않는다. 새 중복 테스트·Provider 호출·Runtime 변경은 추가하지 않았다.
+
+### 현재 회귀 결과와 발견한 문제
+
+- company-runtime package-root `node ../../node_modules/vitest/dist/cli.js --run test/verification-repair.test.ts test/verification-repair-boundary.test.ts test/task-contract.test.ts test/execution-contract.test.ts`: **4 files / 120 PASS**.
+- company-runtime package-root `node ../../node_modules/vitest/dist/cli.js --run test`: **47 files / 1,329 PASS**.
+- coding-agent package-root `node ../../node_modules/vitest/dist/cli.js --run test/suite/company-runtime`: 최종 단독 실행 **13 files / 470 PASS**. repair SDK 6건을 포함한다.
+- 첫 `bash ./test.sh`의 eval package는 **7 files / 34 PASS**였다. 별도 eval 명령은 처음 잘못된 기본 config로 test를 찾지 못했고, `--config vitest.test.config.ts`로 바로잡았다. 그 병렬 실행의 2건은 5초 timeout이었으므로 PASS로 기록하지 않는다.
+- 첫 병렬 SDK/full 실행에는 기존 lifecycle fixture의 `check-ready` 대기 실패가 각각 5건 있었다. `vi.waitFor` 기본 1초와 실제 check startup을 구분했고, 다른 검증 종료 뒤 같은 설정의 SDK 전체 단독 실행은 모두 PASS였다. timeout 확대·skip·test/Runtime 수정은 하지 않았다. 과도한 동시 검증 부하와의 관련성은 추론이며, 최종 전체 실행은 다른 heavy suite를 겹치지 않는다.
+- `npm run check`(Biome no fixes), `npm run check:ci`, `npm run check:shrinkwrap`, `npm run check:install-lock:coding-agent`, `git diff --check`, `bash -n packages/company-runtime/bin/weavra`: **PASS**. 이 entry 시점 두 번째 `bash ./test.sh`는 진행 중이다.
+- 최초 smoke goal은 classifier가 인식하는 `bug`가 없어 preflight에서 거부됐다. run/worker/Provider 호출이 없었으며 명확한 bugfix goal로 수정한 위 1회 actual run만 수행했다. classifier/권한 guard를 완화하지 않았다.
+- 변경 문서는 `README.md`, `packages/company-runtime/README.md`의 actual repair 결과와 이 이력이다. Runtime/test/dependency/lockfile 변경은 없다. commit/push는 아직 하지 않았다.
+- 남은 제한: Linux sandbox actual·추가 모델/OS/Node·TUI rendering NOT VERIFIED, R2/R3 repair·expected-failure TDD·일반 retry/resume/rollback 미지원, 외부 TOCTOU·transitive plugin graph 완전 격리 미보장. 다음은 최종 full 회귀 결과로 closure를 판정하고 roadmap/현재 요약을 갱신한 뒤 별도 closure commit의 정확한 CI를 확인하는 것이다. **V0.5D 구현은 시작하지 않는다.**
+
+## LOG-085 — 2026-09-19 23:40 (Asia/Seoul) — V0.5C closure 판정과 별도 게시
+
+**상태:** LOG-084 actual Provider evidence와 이번 최종 전체 회귀로 **V0.5C를 현재 bounded 범위에서 CLOSED**로 판정한다. 이 문서 변경은 별도 closure commit으로 게시하며, 최종 보고 전 그 정확한 SHA의 remote CI PASS를 확인한다. 아직 실행하지 않은 closure CI를 이 entry에서 PASS로 기록하지 않는다.
+
+- 다른 heavy suite를 겹치지 않은 두 번째 **`bash ./test.sh` 전체 PASS(exit 0)**: scripts 16, coding-agent 279 passed files / **2,708 PASS·50 skipped**, company-runtime 47 files / **1,329 PASS**, deterministic eval 7 files / **34 PASS**. agent 711, ai 1,069(유료/e2e 등 843 skipped), chord 162, client 27, protocol 133, server 44, telemetry 15, sqlite-node 105 및 TUI도 PASS다. isolated HOME/credential 제거 경로이며 actual Provider 결과와 분리한다. LOG-082의 역사적 PASS를 재사용한 수치가 아니다.
+- SDK 단독 470 PASS와 최종 full 모두 같은 source·timeout·테스트 설정에서 통과했다. 최초 병렬 실행의 readiness/timeout 실패는 LOG-084에 보존한다. Runtime 기능 결함으로 확정하거나 flaky 가능성이 없어졌다고 주장하지 않는다.
+- closure 기준: actual failure classification/allowlist, failed parent의 durable 보존, 최대 repair 1회, 새 Developer session/tool closure/context/receipt, 원래 계약·scope·registration·policy·trust/sandbox, 누적 calls/tokens, 독립 Reviewer와 fresh TEST, 최신 digest/AC의 Kernel 완료, 실제 oracle PASS와 writer release를 확인했다. negative boundaries는 기존 deterministic suites로 검증했다. 권한 확대·completion guard 완화·Runtime/test 변경 없이 닫는다.
+- 문서 변경: `docs/WORK_LOG.md` 현재 요약·LOG-084/085, `docs/WEAVRA_ROADMAP_2026-09-17.md`의 V0.5C CLOSED·V0.5D NEXT/미착수, `README.md`와 `packages/company-runtime/README.md`의 actual capability·정확한 제한. 의존성/lockfile/production code/test/changelog 변경은 없다.
+- 안정 태그 `weavra-v0.1-rc1^{}`은 원래 `183f85de1897d8b9f4fadb368a54e2b1390e5a84`다. 변경 파일 네 개만 명시 stage하여 별도 docs closure commit으로 일반 push한다. force push·태그 이동은 하지 않는다. exact closure SHA·CI URL·최종 결과는 GitHub Actions와 최종 응답에서 대조한다.
+- 제외 범위는 그대로다: Linux sandbox actual 및 모든 모델/OS/Node 검증, R2/R3 repair, expected-failure TDD, 일반 retry/resume/rollback, 완전한 external TOCTOU/transitive oracle/plugin graph 격리. 통제 defect fixture의 성공을 자연 발생 오류 복구율로 일반화하지 않는다.
+- **다음 첫 작업(미착수):** V0.5D의 C04 Impact-aware Review Pack 계약을 기존 C01 Task Context Pack 위에서 정한다. changed symbol/caller/test를 bounded·fresh advisory Reviewer 입력으로 연결하고 C05 reviewed documentation의 version/source/capturedAt·digest·stale 의미를 같은 입력 계약에 정리한다. Policy·검증 evidence·completion authority로 승격하지 않는다. 이 작업에서는 설계/구현을 시작하지 않고 closure 게시·정확한 CI 확인까지만 수행한다.
