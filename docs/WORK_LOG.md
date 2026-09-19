@@ -3302,3 +3302,14 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - `packages/coding-agent/test/footer-data-provider.test.ts`에서 해당 구현 호출 횟수 대기·assertion만 제거했다. 실제 파일 변경, native watcher, 기존 3초 대기 한도, 최종 cached branch `foo`, branch-change callback 정확히 1회는 그대로 검증한다. skip·mock 전환·timeout 증대·runtime 기능 변경은 없다. 별도 deterministic debounce 검사는 유지한다.
 - 현재 실행: footer 파일 **8/8 PASS**, `npm run check` PASS(1,429 files, 변경 없음). 수정 후 전체 `bash ./test.sh`는 진행 중이다.
 - 이전 전체 회귀의 성공을 이 실행의 성공으로 대체하지 않는다. 다음은 현재 전체 결과와 수정 commit 원격 CI 확인 후 별도 문서 closure다. 이 정정은 별도 commit/push한다.
+
+## LOG-078 — 2026-09-19 (Asia/Seoul) — verifier LSP cancellation readiness 동기화
+
+**상태:** LSP 통합 34 PASS, `npm run check` PASS, 수정 후 full 격리 회귀 PASS. 수정 commit 원격 CI와 별도 V0.5B closure가 남았다.
+
+- LOG-077 수정 후 full 회귀와 별도 Weavra subset에서 기존 `company-runtime-lsp.test.ts`의 verifier cancellation 테스트가 default 1초 `vi.waitFor` readiness 한도에 걸렸다. full은 coding-agent **2,701 PASS / 1 FAIL / 50 skipped**, company-runtime **1,276 PASS**, eval **34 PASS**였고, 별도 Weavra subset은 **463 PASS / 1 FAIL**이었다. footer native branch 회귀는 통과했다.
+- 실제 stdio 서버 trace에 대상 method가 기록되는 것을 `watchFile`로 관찰하고 workflow terminal과 race하는 readiness로 두 cancellation 테스트를 바꿨다. 서버·Provider·verifier를 mock으로 대체하지 않았고 server request timeout이나 test timeout을 늘리지 않았다. request가 도착하기 전에 workflow가 종료하면 즉시 실패한다.
+- `finally`에서 cancel과 workflow settlement를 기다린 뒤 fixture를 정리한다. 기존 CANCELLED·writer release·process reap·이미 실행한 check stdout/exitCode 보존 assertions는 유지했다.
+- 변경 파일: `packages/coding-agent/test/suite/company-runtime-lsp.test.ts`, 이 로그. 현재 단독 파일 **34/34 PASS**, `npm run check` PASS(1,429 files, 변경 없음). 수정 후 full `bash ./test.sh` 결과를 기다린다.
+- 새로운 runtime 기능이나 repair는 추가하지 않았다. local full 및 수정 HEAD remote CI가 확인되기 전까지 V0.5B는 미종료다. 이 변경은 검증 결과와 함께 별도 commit/push한다.
+- 후속 실제 결과(20:50 KST): 수정 후 `bash ./test.sh` **exit 0 / 전체 PASS**. coding-agent **278 files / 2,702 PASS / 50 skipped**(Weavra integration 포함), company-runtime **45 files / 1,276 PASS**, deterministic eval **7 files / 34 PASS**. 나머지 workspace 및 script/TUI 테스트도 정상 종료했다. skip은 기존 Provider/env 조건이며 이번 변경으로 추가하지 않았다. 앞선 실패 실행은 LOG-076~078에 그대로 남긴다.

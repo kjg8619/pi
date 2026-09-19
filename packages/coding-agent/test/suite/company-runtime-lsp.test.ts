@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unwatchFile, watchFile, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -120,6 +120,28 @@ function state() {
 	return JSON.parse(readFileSync(join(cwd, ".ai/state.json"), "utf8")) as {
 		actions: Array<{ decision: { role: string; risk: string; decision: string }; status: string }>;
 	};
+}
+async function waitForLspRequest(method: string, job: Promise<unknown>): Promise<void> {
+	const tracePath = join(agentDir, "lsp-trace");
+	let notify!: () => void;
+	const ready = new Promise<void>((resolve) => {
+		notify = resolve;
+	});
+	const inspect = () => {
+		if (existsSync(tracePath) && readFileSync(tracePath, "utf8").includes(method)) notify();
+	};
+	watchFile(tracePath, { interval: 10 }, inspect);
+	inspect();
+	try {
+		await Promise.race([
+			ready,
+			job.then(() => {
+				throw new Error(`Workflow settled before LSP request: ${method}`);
+			}),
+		]);
+	} finally {
+		unwatchFile(tracePath, inspect);
+	}
 }
 beforeEach(async () => {
 	harness = await createHarness({ models: [{ id: "coding" }, { id: "review" }] });
@@ -487,44 +509,44 @@ describe("V0.3B actual SDK/faux + real stdio server + unchanged process checks",
 		harness.setResponses([tool("runtime_lsp_symbols", { path: "src/app.ts" })]);
 		const workflow = create();
 		const job = workflow.execute();
-		await vi.waitFor(() =>
-			expect(
-				existsSync(join(agentDir, "lsp-trace")) &&
-					readFileSync(join(agentDir, "lsp-trace"), "utf8").includes("textDocument/documentSymbol"),
-			).toBe(true),
-		);
-		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
-		workflow.cancel();
-		const report = await job;
-		expect(report.run?.status).toBe("CANCELLED");
-		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
-		const trace = readFileSync(join(agentDir, "lsp-trace"), "utf8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line) as { pid: number });
-		for (const pid of new Set(trace.map((item) => item.pid))) expect(() => process.kill(pid, 0)).toThrow();
+		try {
+			await waitForLspRequest("textDocument/documentSymbol", job);
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(true);
+			workflow.cancel();
+			const report = await job;
+			expect(report.run?.status).toBe("CANCELLED");
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+			const trace = readFileSync(join(agentDir, "lsp-trace"), "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line) as { pid: number });
+			for (const pid of new Set(trace.map((item) => item.pid))) expect(() => process.kill(pid, 0)).toThrow();
+		} finally {
+			workflow.cancel();
+			await job;
+		}
 	});
 	it("cancellation in verifier LSP preserves already-executed process outcomes", async () => {
 		config.code_intelligence!.lsp.servers[0].args[1] = "request-timeout";
 		harness.setResponses([tool("runtime_edit", { path: "src/app.ts", oldText: "foo", newText: "bar" }), submit]);
 		const workflow = create();
 		const job = workflow.execute();
-		await vi.waitFor(() =>
-			expect(
-				existsSync(join(agentDir, "lsp-trace")) &&
-					readFileSync(join(agentDir, "lsp-trace"), "utf8").includes("textDocument/diagnostic"),
-			).toBe(true),
-		);
-		workflow.cancel();
-		const report = await job;
-		expect(report.run?.status).toBe("CANCELLED");
-		expect(report.run?.verification[0]).toMatchObject({
-			status: "FAIL",
-			exitCode: 0,
-			stdout: expect.stringContaining("CHECK_PASSED"),
-		});
-		expect(results[0].lspEvidence?.[0]).toMatchObject({ status: "ERROR", reason: "LSP diagnostics cancelled" });
-		expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		try {
+			await waitForLspRequest("textDocument/diagnostic", job);
+			workflow.cancel();
+			const report = await job;
+			expect(report.run?.status).toBe("CANCELLED");
+			expect(report.run?.verification[0]).toMatchObject({
+				status: "FAIL",
+				exitCode: 0,
+				stdout: expect.stringContaining("CHECK_PASSED"),
+			});
+			expect(results[0].lspEvidence?.[0]).toMatchObject({ status: "ERROR", reason: "LSP diagnostics cancelled" });
+			expect(existsSync(join(cwd, ".ai/writer.lock"))).toBe(false);
+		} finally {
+			workflow.cancel();
+			await job;
+		}
 	});
 	it("R3 retains one-use approval and Reviewer read-only tools with LSP enabled", async () => {
 		harness.setResponses([
