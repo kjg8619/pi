@@ -3209,3 +3209,27 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 다음 작업:
 - 커밋: 하지 않음 / 실제 커밋 ID
 ```
+
+---
+## LOG-073 - V0.5B: Task Recipes 구현 진행(B3~B8)과 미완 항목
+- 기록일: 2026-09-19 (UTC+09:00)
+- 상태: 진행 중(V0.5B CLOSED 아님)
+- 목적: reviewed recipe를 production workflow에 연결하고, 검증·게시한 범위와 미완 범위를 실제 결과로 기록한다.
+- 변경 내용·파일:
+  - `packages/company-runtime/src/task-recipe-command.ts` + `test/task-recipe-command.test.ts`: `--recipe <id> <goal>` leading-flag parser. unknown/duplicate/누락/`=` 형태/unknown recipe는 run 생성 전에 거부하고, goal 안의 `--recipe`는 텍스트로 남긴다.
+  - `packages/company-runtime/src/provenance-types.ts`, `provenance.ts` + `test/measurement-evidence.test.ts`: backward-compatible optional `recipe{id,version,digest}`를 run 시작 시 freeze. mid-run refresh 없음, malformed는 contract boundary에서 거부, legacy 무필드 record는 계속 유효.
+  - `packages/company-runtime/src/extension.ts`, `task-recipes.ts`, `workflow.ts`, `plan-preview.ts` + `test/task-recipe-integration.test.ts`: `--recipe` 선택 → JSON editor 입력(data only) → `compileTaskRecipe` → 기존 AC 편집기 prefill → 사용자 수정 → `buildTaskContract` freeze → Plan Preview에 `Recipe: id@ver sha256:...` 표시 → `WorkflowOptions.recipe`로 provenance 전달. QUICK 선택은 AC 단계가 없어 fail closed.
+  - `packages/coding-agent/test/suite/company-runtime-*.test.ts`: fixture 준비 게이트에 명시적 예산 부여(조건·lifecycle 순서 assertion 불변).
+- 검증 명령·결과:
+  - `npx tsgo --noEmit` PASS, `npm run check:ci` exit 0.
+  - `vitest --run --root packages/company-runtime`: 1271 PASS(B4/B5 시점), 신규 `task-recipe-integration.test.ts` 6 PASS(4 recipe positive, manual/recipe authority 동등성, bounded preview, negative matrix, scope/check 안전, mode 불일치).
+  - `vitest --run --maxWorkers=2 test/suite/company-runtime-*.test.ts`: 452 PASS.
+  - `bash ./test.sh`는 **실패 상태**다. 전체 suite 동시 실행 시 `company-runtime-hardening`의 Reviewer 행 일부가 fixture 기동 게이트(`entered`)를 30초 예산으로도 넘기지 못한다. 실패 assertion은 전부 게이트이며 취소 순서 assertion은 실행되지 않았다. 부하 민감 문제로 좁혔으나 완전 해결은 아니다.
+- 문제와 해결:
+  - CI run 35427331553(head 2a3c0c41f) 실패 3건은 전부 게이트 라인(`hardening:628`, `r2:603`, `workflow:467`)이었고 로컬 단독 실행에서는 재현되지 않았다. `test.sh` 전체 실행으로 재현했고, 게이트 예산을 명시했지만 부하 조건에서 재발했다.
+  - recipe fixture의 실제 field 이름(`behaviour`, `condition`, `baseline`, `coverage`, `observations`, `possible_causes`, `unknowns`, `requested_recommendation`)을 코드에서 확인해 테스트를 맞췄다. policy 밖 allowed path는 compiler가 거부(fail closed)함을 테스트로 고정했다.
+- 남은 제한:
+  - B7/B8의 확장 회귀(no Planner/no auto-discovery 증명, duplicate/missing flag matrix 일부)와 B9 full regression, B10 DeepSeek actual, B11 closure docs는 미완이다.
+  - expected-failure TDD lifecycle은 구현하지 않았다. Linux verifier sandbox actual은 NOT VERIFIED.
+- 다음 작업: B7/B8 회귀 확장 → B9 full regression → B10 DeepSeek actual(bugfix/STANDARD/EDIT/bounded/strict/strict/required) → B11 LOG-072 통합·README·Roadmap 마감.
+- 커밋: `f704c67a8`(B3), `2a3c0c41f`(B6), `96fd2ee60`(게이트 예산), `674f4c654`(B4/B5). V0.5B는 CLOSED 아님.
