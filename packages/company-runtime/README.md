@@ -588,6 +588,8 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 
 두 번째 slice의 actual proof는 isolated managed Chromium의 실제 CLI → T3 backend → UI다. CONNECTED·graph/evidence를 확인했고, 관찰 child SIGTERM 뒤 DISCONNECTED+STALE 표시에도 RUNNING/state/writer.lock bytes와 별도 Runtime owner 생존이 유지됐다. 자동 재연결 후 새 canonical Run 및 project revision 2→4를 관찰했다. real CompanyKernel/FileStateStore fixture를 사용했으며 agent/check/Provider는 실행하지 않았다. **paid-provider E2E·다른 OS/모델까지 검증했다고 주장하지 않는다.**
 
+현재 검증은 [WORK_LOG LOG-097~100](../../docs/WORK_LOG.md)을 따른다. Weavra 구현 `2f7822451`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35483948383)는 PASS다. T3 `8486dbd48`은 전체 로컬 test/static/build와 실제 UI proof를 확인했으며, `main` push/PR만 받는 workflow 때문에 `devlop` remote CI는 미실행이다. 두 결과를 같은 CI PASS로 합치지 않는다.
+
 **두 read-only slice는 완료, 전체 V0.6A/C07은 OPEN이다.** Runtime start/resume/cancel/approve/reject/write/edit, Task Contract 변경, Policy·PASS·COMPLETE authority, 자동 setup, event replay, 별도 network service는 제공하지 않는다. Provider Fitness Matrix와 Browser 확장도 이번 범위가 아니다.
 
 ## 설정 schema 1

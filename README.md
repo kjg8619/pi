@@ -527,6 +527,8 @@ T3는 기존 인증 RPC `weavra.observe`와 `orchestration:read` 권한을 사�
 
 첫 slice의 Runtime/SDK + in-memory faux smoke와 로컬 회귀·구현 `bacbb778e`의 [CI](https://github.com/kjg8619/pi/actions/runs/35457968130)는 LOG-094~096의 역사적 결과다. 두 번째 slice는 isolated managed Chromium에서 실제 CLI/backend/UI의 CONNECTED·graph/evidence, 관찰 child SIGTERM 뒤 DISCONNECTED+STALE·RUNNING/state/writer lock bytes 보존·별도 Runtime owner 생존, 자동 재연결 후 새 canonical Run과 project revision 2→4를 확인했다. real CompanyKernel/FileStateStore fixture이며 agent/check/Provider 실행과 paid-provider E2E를 검증한 것은 아니다. **두 read-only slice는 완료지만 전체 C07·start/resume/cancel/approve/reject/write/edit control은 OPEN**이다.
 
+게시 검증: Weavra 구현 `2f7822451`의 [exact HEAD CI](https://github.com/kjg8619/pi/actions/runs/35483948383)는 PASS다. T3 `8486dbd48`은 실제 화면·전체 로컬 test/static/build를 확인했으나, workflow가 `main` push/PR만 대상으로 해 `devlop` CI는 **미실행**이다. 양쪽 결과·검증 fixture 수정·남은 한계는 [WORK_LOG의 LOG-097~100](docs/WORK_LOG.md)에 구분해 기록했다.
+
 ## Workflow & Risk
 
 | 범위 | 실행과 완료 조건 |

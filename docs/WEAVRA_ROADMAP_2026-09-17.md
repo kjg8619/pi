@@ -803,6 +803,8 @@ UI는 **Settings → project scope → Project → Weavra**의 overview·source 
 
 실제 isolated managed Chromium에서 CLI/backend/UI CONNECTED·graph/evidence, child SIGTERM 뒤 DISCONNECTED+STALE와 RUNNING/state/writer.lock bytes 보존·별도 Runtime owner 생존, 자동 재연결 뒤 새 canonical Run 및 project revision 2→4를 확인했다. Node `24.19.0`의 지원 runtime에서 real CompanyKernel/FileStateStore fixture를 사용했으며 agent/check/Provider 실행이나 paid-provider E2E는 포함하지 않는다. setup/readiness·진단·한도는 [Runtime 계약](../packages/company-runtime/README.md#v06a-read-only-host-bridge)을 따른다.
 
+양쪽 로컬 gate와 게시 결과는 LOG-098~100이다. Weavra 구현 `2f7822451`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35483948383)는 PASS이며, T3 `8486dbd48`은 full local test/static/build PASS·remote CI 미실행(`main` push/PR 전용 workflow, exact SHA의 run/check 0개)으로 구분한다. 이후 검증 기록 문서 HEAD의 CI도 별도로 확인한다.
+
 **전체 V0.6A/C07과 control slice는 계속 OPEN이다.** start/resume/cancel/approve/reject/write/edit·Task Contract 변경·Policy/PASS/COMPLETE authority·자동 setup은 제공하지 않으며 Kernel/Runtime·writer ownership 경계는 그대로다. 다음 control 계약·Provider Matrix·Browser 작업은 별도 범위로 결정하고 자동 착수하지 않는다.
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
