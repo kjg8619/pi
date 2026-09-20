@@ -19,6 +19,10 @@ if [[ "${1-}" = setup || "${1-}" = doctor ]]; then
   (( $# == 1 )) || fail "setup/doctor cannot be combined with Pi arguments or worktree options."
   exec node "$DIRECTORY/../src/launcher-home.ts" "$1"
 fi
+if [[ "${1-}" = bridge ]]; then
+  [[ $# == 3 && "$2" = --stdio && "$3" = --project-trusted ]] || fail "Usage: weavra bridge --stdio --project-trusted"
+  exec node "$DIRECTORY/../src/launcher-bridge.ts" --stdio --project-trusted
+fi
 
 WORKTREE_NAME=""
 WORKTREE_MODE=""
@@ -37,8 +41,8 @@ while (( $# )); do
       WORKTREE_MODE="$1"
       shift
       ;;
-    setup|doctor)
-      fail "setup/doctor must be used alone. Use -- for a literal Pi prompt."
+    setup|doctor|bridge)
+      fail "setup/doctor/bridge must be standalone launcher commands. Use -- for a literal Pi prompt."
       ;;
     --)
       PI_ARGS+=("$@")

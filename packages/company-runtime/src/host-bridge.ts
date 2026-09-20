@@ -14,6 +14,7 @@ import {
 	HOST_BRIDGE_MAX_REQUEST_BYTES,
 	HOST_BRIDGE_MAX_RESPONSE_BYTES,
 	HOST_BRIDGE_PROTOCOL_VERSION,
+	type HostBridgeCapabilities,
 	type HostBridgeData,
 	type HostBridgeErrorCode,
 	type HostBridgeEvent,
@@ -49,10 +50,16 @@ export class ReadOnlyHostBridge implements RuntimeEventSink {
 	private readonly cwd: string;
 	private readonly channels = new Set<Channel>();
 	private disposed = false;
+	private readonly capabilities: HostBridgeCapabilities;
 
-	constructor(options: { cwd: string; projectTrusted: boolean }) {
+	constructor(options: {
+		cwd: string;
+		projectTrusted: boolean;
+		handshake?: Pick<HostBridgeCapabilities, "transport" | "observationMode" | "readiness">;
+	}) {
 		if (options.projectTrusted !== true) throw new Error("Host bridge requires a trusted project");
 		this.cwd = resolve(options.cwd);
+		this.capabilities = { ...HOST_BRIDGE_CAPABILITIES, ...options.handshake };
 	}
 
 	/** Writer must be synchronous/nonblocking. False/backpressure/throw detaches, never waits on a client. */
@@ -147,12 +154,16 @@ export class ReadOnlyHostBridge implements RuntimeEventSink {
 				error("INVALID_REQUEST", id, command);
 				return;
 			}
+			if (request.type !== "hello" && (request.clientName !== undefined || request.capabilities !== undefined)) {
+				error("INVALID_REQUEST", id, command);
+				return;
+			}
 			if (request.type !== "hello" && !ready) {
 				error("HANDSHAKE_REQUIRED", id, command);
 				return;
 			}
 			if (request.type === "hello" || request.type === "capabilities") {
-				reply({ ...identity(), type: "response", id, command, success: true, data: HOST_BRIDGE_CAPABILITIES });
+				reply({ ...identity(), type: "response", id, command, success: true, data: this.capabilities });
 				ready = !closed;
 				return;
 			}
@@ -328,7 +339,7 @@ export function attachHostBridgeStreams(
 			const newline = chunk.indexOf(10, offset);
 			const stop = newline < 0 ? chunk.length : newline;
 			const bytes = stop - offset;
-			if (length + bytes > buffer.length) {
+			if (length + bytes + (newline >= 0 ? 1 : 0) > buffer.length) {
 				close();
 				return;
 			}

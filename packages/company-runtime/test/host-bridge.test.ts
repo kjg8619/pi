@@ -4,11 +4,14 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { createRuntimeEvent } from "../src/events.ts";
+import { projectEvidencePack } from "../src/evidence.ts";
+import { projectRunGraph } from "../src/graph.ts";
 import { attachHostBridgeStreams, ReadOnlyHostBridge } from "../src/host-bridge.ts";
 import {
 	HOST_BRIDGE_MAX_REQUEST_BYTES,
 	HOST_BRIDGE_MAX_RESPONSE_BYTES,
 	type HostBridgeResponse,
+	type HostSnapshotSummary,
 } from "../src/host-bridge-protocol.ts";
 import { CompanyKernel } from "../src/kernel.ts";
 import { FileStateStore } from "../src/state-store.ts";
@@ -347,6 +350,25 @@ it("bounds oversized requests and whole responses without leaking a partial over
 	expect(second.lines.at(-1)).not.toContain("largelarge");
 });
 
+it.each([
+	[HOST_BRIDGE_MAX_REQUEST_BYTES - 1, true],
+	[HOST_BRIDGE_MAX_REQUEST_BYTES, false],
+] as const)("counts LF inside the announced byte budget for a %i-byte JSONL body", async (bytes, accepted) => {
+	const input = new PassThrough();
+	const output = new PassThrough();
+	let wire = "";
+	output.on("data", (chunk: Buffer) => {
+		wire += chunk.toString("utf8");
+	});
+	const finished = new Promise<void>((resolve) => {
+		attachHostBridgeStreams(bridge, input, output, resolve);
+	});
+	input.end(`${JSON.stringify({ protocolVersion: 1, id: "boundary", type: "hello" }).padEnd(bytes)}\n`);
+	await finished;
+	if (accepted) expect(JSON.parse(wire)).toMatchObject({ id: "boundary", success: true });
+	else expect(wire).toBe("");
+});
+
 it("isolates throwing/backpressured clients from real Kernel persistence and other observers", async () => {
 	const bad = bridge.connect((line) => {
 		if (JSON.parse(line).type === "runtime_event") throw new Error("Closed client");
@@ -464,4 +486,73 @@ it("permanently closes the observation server without stopping or recovering its
 	expect(kernel.snapshot.status).toBe("RUNNING");
 	expect((await FileStateStore.readSnapshot(root)).writerPresent).toBe(true);
 	expect(await readFile(join(root, ".ai/state.json"), "utf8")).toBe(before);
+});
+
+it("negotiates bounded client metadata only on hello and rejects malformed JSON without executing a command", async () => {
+	const host = client();
+	await host.connection.receive("{broken");
+	expect(JSON.parse(host.lines.at(-1)!)).toMatchObject({ success: false, error: { code: "INVALID_REQUEST" } });
+	expect(await host.request("hello", { clientName: "t3code", capabilities: ["snapshots-only"] })).toMatchObject({
+		success: true,
+		data: {
+			runtimeVersion: expect.stringMatching(/^\d+\.\d+\.\d+/),
+			transport: "in-process",
+			observationMode: "runtime-events",
+		},
+	});
+	expect(await host.request("snapshot", { clientName: "t3code" })).toMatchObject({
+		success: false,
+		error: { code: "INVALID_REQUEST" },
+	});
+	expect(await host.request("hello", { capabilities: ["start"] })).toMatchObject({
+		success: false,
+		error: { code: "INVALID_REQUEST" },
+	});
+	expect(await readdir(root)).toEqual([]);
+});
+
+it("keeps duplicate and out-of-order observations separate from monotonic canonical Run revisions", async () => {
+	const { kernel } = await activeKernel();
+	const host = client();
+	await host.request("hello");
+	const before = await host.request("snapshot");
+	const observation = createRuntimeEvent(kernel.snapshot, 900, { type: "RunCompleted" });
+	bridge.emit(observation);
+	bridge.emit(observation);
+	bridge.emit({ ...observation, sequence: 899, stateRevision: 0 });
+	const unchanged = await host.request("snapshot");
+	expect(unchanged).toMatchObject({
+		stateRevision: before.stateRevision,
+		eventId: before.eventId,
+		data: { status: { run: { status: "RUNNING" } } },
+	});
+	await kernel.stop("CANCELLED", "Fixture owner transition");
+	const after = await host.request("snapshot");
+	expect(after.stateRevision).toBeGreaterThan(before.stateRevision!);
+	expect(after).toMatchObject({ data: { status: { run: { status: "CANCELLED" } } } });
+});
+
+it("preserves Runtime revision-loop graph and current-revision evidence semantics without copying private details", async () => {
+	const run = graphRun("STANDARD", "R1", 1);
+	await persist(run);
+	const host = client();
+	await host.request("hello");
+	const response = await host.request("snapshot");
+	expect(response.success).toBe(true);
+	if (!response.success) throw new Error("Expected snapshot");
+	const snapshot = response.data as HostSnapshotSummary;
+	const graph = projectRunGraph(run);
+	expect(snapshot.graph?.edges).toEqual(graph.edges);
+	expect(snapshot.graph?.nodes.map(({ id, status }) => ({ id, status }))).toEqual(
+		graph.nodes.map(({ id, status }) => ({ id, status })),
+	);
+	expect(snapshot.graph?.edges).toContainEqual({ from: "review:1", to: "implement:2", kind: "revise" });
+	const evidence = projectEvidencePack({ run });
+	expect(snapshot.evidence?.currentChecks.total).toBe(
+		evidence.checks.filter((check) => check.revision === run.revisionCycle).length,
+	);
+	expect(snapshot.evidence?.currentChecks.passed).toBe(2);
+	expect(snapshot.evidence?.criteria.unknown).toBe(1);
+	expect(snapshot.evidence?.review?.result).toBe(evidence.review?.result);
+	expect(snapshot.evidence?.workers.reportedTokens).toBeNull();
 });

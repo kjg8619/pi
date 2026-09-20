@@ -496,7 +496,7 @@ UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 �
 
 ## V0.6A Read-only Host Bridge
 
-첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다.
+첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 두 번째 slice는 `src/launcher-bridge.ts`의 standalone observer를 실제 T3 backend와 read-only Project Settings UI에 연결한다. 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다.
 
 ### Host 연결과 wire
 
@@ -537,11 +537,58 @@ UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 �
 - 입력 EOF 뒤 마지막 response 처리가 끝나기 전에 input auto-close가 connection을 버리지 않도록 한다. 출력 flush/종료와 stream error 처리는 Host 소유다. adapter는 전달받은 streams를 end/destroy하지 않는다. Host는 `onClose`에서 자신의 transport를 정리해야 한다.
 - `connection.close()`는 재연결 가능한 client detach다. `bridge.close()`는 그 bridge instance의 영구 teardown이며 Runtime/worker/verifier/writer를 종료·취소·복구하지 않는다.
 
-현재 proof는 실제 `StandardWorkflow`/Kernel/Policy/SDK/Verifier/StateStore + in-memory faux를 전용 JSONL streams로 연결한 QUICK/READ_ONLY 실행이다. RunCreated 시점 canonical snapshot, worker 실행 중 reconnect/no replay/control 거부/query 무변경, 최종 graph/evidence·strict checks PASS·COMPLETED·writer release·source 불변을 확인했다. 별도 standalone smoke도 같은 연결에서 PASS했고 faux model turns 2, actual Provider calls 0이다. privacy/version/invalid state/revision/bounds/disconnect/async callback/EOF 경계 회귀는 `host-bridge.test.ts`를 따른다.
+첫 slice의 proof는 실제 `StandardWorkflow`/Kernel/Policy/SDK/Verifier/StateStore + in-memory faux를 전용 JSONL streams로 연결한 QUICK/READ_ONLY 실행이다. RunCreated 시점 canonical snapshot, worker 실행 중 reconnect/no replay/control 거부/query 무변경, 최종 graph/evidence·strict checks PASS·COMPLETED·writer release·source 불변을 확인했다. 별도 standalone smoke도 같은 연결에서 PASS했고 faux model turns 2, actual Provider calls 0이다. privacy/version/invalid state/revision/bounds/disconnect/async callback/EOF 경계 회귀는 `host-bridge.test.ts`를 따른다.
 
-최종 gate: Runtime 전체 **51 files / 1,402 PASS**, SDK Weavra filter **15 files / 497 PASS**, deterministic eval **8 files / 35 PASS**, 격리 `bash ./test.sh` 전체 PASS(exit 0). hydrate/model data, `check`, non-mutating `check:ci`, shrinkwrap/install-lock, launcher syntax, diff whitespace도 PASS다(LOG-095). 구현 HEAD `bacbb778e6fb11caca90da7059011056892a78cf`의 [CI 35457968130](https://github.com/kjg8619/pi/actions/runs/35457968130)는 **completed/success**이며 committed-source build·non-mutating check·isolated full test·launcher·tracked-source-unchanged가 모두 통과했다(LOG-096). 이 bounded read-only slice는 완료다.
+첫 slice의 최종 gate: Runtime 전체 **51 files / 1,402 PASS**, SDK Weavra filter **15 files / 497 PASS**, deterministic eval **8 files / 35 PASS**, 격리 `bash ./test.sh` 전체 PASS(exit 0). hydrate/model data, `check`, non-mutating `check:ci`, shrinkwrap/install-lock, launcher syntax, diff whitespace도 PASS다(LOG-095). 구현 HEAD `bacbb778e6fb11caca90da7059011056892a78cf`의 [CI 35457968130](https://github.com/kjg8619/pi/actions/runs/35457968130)는 **completed/success**이며 committed-source build·non-mutating check·isolated full test·launcher·tracked-source-unchanged가 모두 통과했다(LOG-096). 이 기록은 첫 slice의 결과이며 이후 HEAD에 자동 승계하지 않는다.
 
-**범위 밖:** T3 application/UI, 기본 launcher의 bridge flag, 공개 network service/authentication, event replay, run/write/start/approval/cancel control, Provider Fitness Matrix, Browser. read-only 첫 slice이지 전체 V0.6A/C07 완료가 아니다. Linux actual·다른 모델/OS·UI rendering을 이번 proof로 승격하지 않는다.
+### 두 번째 slice: standalone stdio와 T3
+
+T3 server가 신뢰한 **절대경로** `T3_WEAVRA_EXECUTABLE`을 실행한다. executable은 browser/RPC 요청이나 project config에서 받지 않으며 shell command string도 아니다.
+
+```text
+executable: T3_WEAVRA_EXECUTABLE
+argv:       ["bridge", "--stdio", "--project-trusted"]
+cwd:        기존 authorized T3 ProjectId의 canonical project root
+```
+
+`--project-trusted`는 Host의 명시적 trust assertion이지 자동 trust 승인·Runtime 실행 권한이 아니다. launcher는 정확한 세 인수만 허용하고 Pi prompt/worktree 옵션과 혼용하지 않는다. T3는 기존 인증 RPC `weavra.observe`의 `orchestration:read` 권한을 요구하며, optional environment capability `weavraReadOnly`가 없는 구형 서버에는 조회를 보내지 않는다. 새 listener/network service는 없다. T3 backend/frontend는 `.ai` 파일을 직접 열지 않고 child stdout JSONL만 소비한다.
+
+T3의 첫 요청과 응답 계약:
+
+```jsonl
+{"protocolVersion":1,"id":"hello-1","type":"hello","clientName":"t3code","capabilities":["snapshots-only"]}
+```
+
+- `hello`/`capabilities` 응답은 `runtimeVersion`, `transport: "stdio"`, `observationMode: "snapshots-only"`, `readiness: READY | NOT_SETUP | CONFIG_INVALID`를 포함한다. runtimeVersion은 protocol version과 별개다.
+- 허용 command는 위 여덟 read-only command 그대로다. standalone은 Runtime event sink에 붙지 않으며 snapshot 변화로 `RuntimeEvent`를 만들지 않는다. 기존 in-process의 실제 event sink 계약은 그대로다.
+- 요청 **4,096 bytes**, 응답 **65,536 bytes**에 LF까지 포함한다. T3는 strict UTF-8·JSON/schema·protocol/command/request ID correlation을 검사하고 outstanding request는 **1개**, timeout은 **10초**다. malformed/oversize/mismatched 응답을 이전 정상 응답으로 위장하지 않는다.
+- T3는 canonical `snapshot`을 **2초마다** 조회하고 transport 실패는 **5초 후** 재연결한다. child 정리는 SIGTERM 뒤 **2초 유예 후 force kill**이며 관찰 child만 대상으로 한다. Runtime owner/worker/writer를 종료하거나 취소하지 않는다.
+- project 존재와 canonical root를 read 전후 재검증한다. backend child는 `ProjectId + root`별로 공유하고 frontend cache는 `environmentId + ProjectId + root`별로 분리한다. project revision·같은 Run의 state revision 후퇴와 이전 session의 늦은 결과를 거부한다. reconnect는 새 hello와 fresh canonical snapshot이며 event replay가 아니다.
+- durable Run 상태·connection 상태·owner 상태를 분리한다. **CONNECTED여도 owner UNKNOWN**이며 `ownerObserved: false`와 writer-lock presence를 owner liveness/cleanup 증명으로 승격하지 않는다. 끊긴 연결의 마지막 snapshot은 STALE 표시일 뿐 현재 상태나 실행 권한이 아니다.
+
+### T3 사용과 진단
+
+1. T3 server와 같은 로컬 실행 환경에서 Weavra checkout/의존성을 준비하고, server 환경의 `T3_WEAVRA_EXECUTABLE`에 검토한 `weavra` launcher의 절대경로를 설정한다. Node `24.19.0`에서 실제 연결을 확인했다. credentials나 executable 경로를 browser 입력으로 전달하지 않는다.
+2. 사용자가 직접 `weavra setup`을 수행하고 `weavra doctor`로 로컬 설치를 진단한다. bridge/T3는 setup·repair·config 생성을 자동 수행하지 않는다.
+3. T3의 기존 등록 프로젝트를 선택한 뒤 **Settings → project scope → Project → Weavra**를 연다. grouped project는 environment/checkout 하나를 선택해야 하며 임의 root를 입력하는 기능은 없다.
+4. overview, 원본 projection의 graph node/edge, bounded evidence/config summary를 읽는다. 누락 필드는 UNKNOWN이며 config는 **현재 project config**, Run의 frozen config가 아니다. raw prompt/reasoning/credential/transcript/source/docs/tool output과 control button은 없다.
+
+readiness는 project config validation이나 Provider readiness가 아니라 **로컬 product-home/doctor 결과**다. home/agent가 없으면 NOT_SETUP, 경로/권한/JSON/build 등의 로컬 진단 실패면 CONFIG_INVALID, doctor가 성공하면 READY다. doctor의 missing auth 같은 WARN은 READY와 공존할 수 있다. READY는 credential 유효성·Provider 연결·Run 존재·worker 생존·PASS를 뜻하지 않는다. 프로젝트 config summary의 missing/invalid는 별도 관찰 결과다. 전체 doctor 진단은 terminal에서 확인하며 wire에는 고정 readiness enum만 보낸다.
+
+| 표시 상태 | 의미 / 사용자가 확인할 항목 |
+|---|---|
+| NOT_INSTALLED | server의 trusted executable 설정·설치/실행 가능 여부 |
+| NOT_SETUP | 동일 server 환경에서 명시적 `weavra setup` 필요 |
+| CONFIG_INVALID | 같은 환경의 `weavra doctor`로 로컬 경로·권한·JSON·build 확인 |
+| READY | 로컬 준비 상태이며 관찰 연결/Runtime 성공과 별개 |
+| CONNECTING / CONNECTED | 관찰 handshake 진행 / 연결됨. owner authority 없음 |
+| DISCONNECTED / RECONNECTING | 관찰 transport 단절 / 재연결. 마지막 snapshot은 STALE일 수 있음 |
+| PROTOCOL_MISMATCH | server와 Weavra의 protocol/handshake 호환성 확인; 자동 downgrade 없음 |
+| ERROR | 안전하게 조회하지 못함. Runtime 실패/취소로 해석하거나 state/lock을 자동 수정하지 않음 |
+
+두 번째 slice의 actual proof는 isolated managed Chromium의 실제 CLI → T3 backend → UI다. CONNECTED·graph/evidence를 확인했고, 관찰 child SIGTERM 뒤 DISCONNECTED+STALE 표시에도 RUNNING/state/writer.lock bytes와 별도 Runtime owner 생존이 유지됐다. 자동 재연결 후 새 canonical Run 및 project revision 2→4를 관찰했다. real CompanyKernel/FileStateStore fixture를 사용했으며 agent/check/Provider는 실행하지 않았다. **paid-provider E2E·다른 OS/모델까지 검증했다고 주장하지 않는다.**
+
+**두 read-only slice는 완료, 전체 V0.6A/C07은 OPEN이다.** Runtime start/resume/cancel/approve/reject/write/edit, Task Contract 변경, Policy·PASS·COMPLETE authority, 자동 setup, event replay, 별도 network service는 제공하지 않는다. Provider Fitness Matrix와 Browser 확장도 이번 범위가 아니다.
 
 ## 설정 schema 1
 

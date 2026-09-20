@@ -26,13 +26,13 @@ Weavra는 Pi 위에서 작업 범위와 위험에 따라 QUICK 또는 STANDARD �
 - V0.5B: built-in reviewed recipe 4종(`bugfix`, `safe-refactor`, `test-addition`, `read-only-investigation`). recipe는 **Planner가 아니고 permission·approval·evidence·skill runtime·completion authority도 아니다**. JSON editor 입력으로 초안을 만들고 기존 AC 편집기에서 사용자가 수정·확인한 최종 AC만 Task Contract로 freeze한다. 현재 recipe command는 **STANDARD 전용**이며 QUICK 선택은 실행 전에 거부한다(일반 `/workflow run <goal>`은 QUICK/STANDARD 유지). scope/check는 Host의 `allowed_paths`와 required registered check를 그대로 매핑하며 별도 scope narrowing은 구현하지 않았다. provenance의 `recipe{id,version,digest}`는 초안에 사용된 정의만 식별하고 최종 Task Contract digest와 별개다. 자동 discovery/install/hooks/임의 skill 실행은 없다. **Expected-failure TDD lifecycle: NOT IMPLEMENTED**.
 - V0.5C Bounded Verification Repair: 기본 disabled인 `verification.repair.mode: self-check-once`. Host가 지정한 check의 deterministic normal exit에 한해 **STANDARD/EDIT/R1·SELF_CHECK 최대 1회** 새 attempt를 연다. failed parent/evidence·원래 계약/정책·누적 budget을 보존하며 새 session/context/read receipt → fresh checks → 독립 Reviewer → TEST → Kernel COMPLETE가 필요하다. 인프라/Provider/auth/Policy/cleanup/cancel/oracle 변경은 repair 대상이 아니다. **`codex-lb/gpt-6-astra` actual smoke에서 strict mutation/trust·bounded context·macOS required sandbox로 COMPLETED / oraclePass true / falseCompletion false**를 확인했다(LOG-084). 초기 결함을 의도적으로 남긴 통제 실험이며 자연 발생 오류 복구율·모든 모델/OS 보장이 아니다. Linux sandbox actual은 NOT VERIFIED다. [실행 계약](packages/company-runtime/README.md#v05c-bounded-verification-repair).
 - V0.5D(CLOSED, bounded 범위): opt-in Reviewer impact/context. 실제 diff의 changed symbol·bounded references/declarations·관련 테스트와 exact 선언 버전에 맞는 reviewed 문서를 fresh 입력으로 제공한다. **advisory이며 receipt·Policy·검증 evidence·완료 권한이 아니다.** 전체 로컬 회귀·Astra actual 1회·구현 및 별도 closure exact HEAD CI를 통과했다(LOG-086~093).
-- V0.6A 첫 read-only Host Bridge: version 1 구조화 조회·관측 event·fresh canonical snapshot 재연결을 제공한다. 실제 Runtime/SDK + in-memory faux의 로컬 JSONL smoke를 통과했다. Runtime/Kernel authority, writer ownership, 실행 제어는 그대로이며 T3 UI·control·network service는 추가하지 않았다. [계약과 사용 경계](packages/company-runtime/README.md#v06a-read-only-host-bridge).
+- V0.6A read-only Host Bridge: 첫 Host module에 이어 **실제 Weavra CLI → T3 backend → Project Settings UI의 두 번째 read-only slice를 완료**했다. T3는 canonical snapshot으로 overview·graph·bounded evidence/config를 조회하며 Runtime/Kernel·writer ownership·실행 권한은 갖지 않는다. 전체 C07과 control은 OPEN이다. [T3 설정·진단·사용 경계](packages/company-runtime/README.md#t3-사용과-진단).
 - V0.3E: Host-confirmed Task Contract(순차 AC ID·scope·check mapping), `/workflow run` Plan Preview(AC editor·확인), frozen contract digest, Reviewer/Executor의 AC ID별 결과와 Kernel AC 완료 guard. Plan 확인은 approval이 아니며 legacy state는 `UNKNOWN (legacy)`로 읽는다.
 - [GPT RC-01~08 수동 validation](docs/GPT_RC_VALIDATION_2026-09-16.md)에서 핵심 시나리오 PASS. 환경과 evidence 한계는 해당 문서 및 [readiness](docs/V0.1_READINESS.md)를 따른다. **DeepSeek 공식 API는 NOT VERIFIED**다. CommandCode Provider 경유 `deepseek/deepseek-v4.1-flash` worker smoke는 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)과 [V0.3E smoke](docs/WEAVRA_V03E_TASK_CONTRACT_SMOKE_2026-09-18.md)를 따른다: hardening 전 STANDARD 1/5·QUICK 0/3, hardening 후 STANDARD 2/3·QUICK 1/3, V0.3E 2 AC run은 DeepSeek·GPT 교차 모두 COMPLETED(provider 오류 3회 포함, 실패는 모두 fail-closed이고 workspace 무변경).
 
 ## Installation
 
-현재는 checkout을 유지하는 개발/개인 설치다. Node.js `>=22.19.0`, npm, Git, Bash와 **이 checkout에서 빌드한 coding-agent CLI**가 필요하다. global Pi 설치는 필요 없다. 실제 Runtime 검증 환경은 macOS/POSIX, Node `26.7.0`이다. 다른 OS/Node 조합은 NOT VERIFIED이며 Windows는 지원하지 않는다.
+현재는 checkout을 유지하는 개발/개인 설치다. Node.js `>=22.19.0`, npm, Git, Bash와 **이 checkout에서 빌드한 coding-agent CLI**가 필요하다. global Pi 설치는 필요 없다. 기존 Runtime 검증 환경은 macOS/POSIX, Node `26.7.0`이며 두 번째 T3 read-only 연결은 지원 runtime인 Node `24.19.0`에서도 확인했다. 이를 다른 OS/Node 조합의 검증으로 확대하지 않으며 Windows는 지원하지 않는다.
 
 ```sh
 git clone --branch devlop --single-branch \
@@ -519,13 +519,13 @@ R1에서 해당 mutation을 만나면 계속 실행하도록 자동 승격하지
 
 ## V0.6A — Read-only Host Bridge
 
-`packages/company-runtime/src/host-bridge.ts`의 repository-level Host API다. trusted Host가 기존 `StandardWorkflow` 또는 `registerCompanyRuntime`의 `events`에 같은 bridge를 연결하고, 전용 로컬 JSONL streams를 붙인다. 기본 launcher의 새 flag나 공개 network endpoint, T3 UI는 아니다.
+첫 slice의 `packages/company-runtime/src/host-bridge.ts`는 trusted Host가 기존 Runtime event sink와 전용 로컬 JSONL streams에 연결하는 repository-level API다. 두 번째 slice는 **`weavra bridge --stdio --project-trusted` → T3 backend → 실제 read-only UI**를 연결한다. T3 server에 trusted 절대경로 `T3_WEAVRA_EXECUTABLE`을 설정하고, 기존 등록 프로젝트를 선택한 뒤 **Settings → project scope → Project → Weavra**에서 조회한다. 그룹 프로젝트는 environment/checkout 하나를 먼저 선택한다. [설정·readiness·진단](packages/company-runtime/README.md#t3-사용과-진단)을 따른다.
 
-`hello` 후 `capabilities`, `status`, `current-run`, `graph`, `evidence-summary`, `config-summary`, `snapshot`만 허용한다. protocol version·request ID·Run ID·Run state revision·project revision·event ID·timestamp를 구분하고 재연결은 event replay가 아니라 canonical state를 새로 읽는다. wire에 source/docs/prompt/tool output/보호 경로를 복제하지 않는다.
+T3는 기존 인증 RPC `weavra.observe`와 `orchestration:read` 권한을 사용하며 새 listener를 열거나 `.ai`를 직접 읽지 않는다. protocol v1 `hello` 후 허용 query만 사용하고, standalone은 **snapshots-only**로 2초마다 canonical snapshot을 읽는다. 기존 in-process actual event sink는 유지하지만 event replay나 가짜 Runtime event는 없다. source/docs/prompt/reasoning/credential/transcript/tool output을 wire에 복제하지 않는다.
 
-관측 event는 실행·승인·PASS·COMPLETE의 권한이 아니다. `status.source`는 durable state이고 `ownerObserved: false`다. writer 존재를 worker 생존이나 cleanup 완료로 해석하지 않으며, 저장되지 못한 Host-local 실패를 정상 완료로 추정하지 않는다. 실제 연결 smoke는 QUICK/READ_ONLY, strict checks PASS, active reconnect, control 거부, query 무변경, COMPLETED·writer release를 확인했다. in-memory faux 2 turns이며 추가 actual Provider 호출은 0이다. 전체 C07/T3 integration 완료를 주장하지 않는다.
+**Durable Run, 연결 상태, owner 상태는 별개다.** CONNECTED여도 owner는 UNKNOWN이며 writer 존재는 liveness 증명이 아니다. 연결이 끊기면 표시가 STALE일 수 있지만 RUNNING을 CANCELLED/FAILED로 바꾸거나 Runtime을 종료하지 않는다. config summary는 현재 프로젝트 설정이며 Run의 frozen config가 아니다.
 
-최종 로컬 회귀는 Runtime 1,402 / Weavra SDK slice 497 / deterministic eval 35 및 격리 `bash ./test.sh` 전체 PASS다. 구현 HEAD `bacbb778e`의 [CI 35457968130](https://github.com/kjg8619/pi/actions/runs/35457968130)도 exact HEAD success로 확인했다. **첫 read-only slice는 이 범위에서 완료**이며 전체 C07/T3 UI/control은 OPEN이다. 실행 명령·수정한 문제·게시 근거는 [WORK_LOG LOG-094~096](docs/WORK_LOG.md)를 따른다.
+첫 slice의 Runtime/SDK + in-memory faux smoke와 로컬 회귀·구현 `bacbb778e`의 [CI](https://github.com/kjg8619/pi/actions/runs/35457968130)는 LOG-094~096의 역사적 결과다. 두 번째 slice는 isolated managed Chromium에서 실제 CLI/backend/UI의 CONNECTED·graph/evidence, 관찰 child SIGTERM 뒤 DISCONNECTED+STALE·RUNNING/state/writer lock bytes 보존·별도 Runtime owner 생존, 자동 재연결 후 새 canonical Run과 project revision 2→4를 확인했다. real CompanyKernel/FileStateStore fixture이며 agent/check/Provider 실행과 paid-provider E2E를 검증한 것은 아니다. **두 read-only slice는 완료지만 전체 C07·start/resume/cancel/approve/reject/write/edit control은 OPEN**이다.
 
 ## Workflow & Risk
 
@@ -551,13 +551,13 @@ R3 요청 문법은 `Delete file src/obsolete.ts`, `Remove file src/obsolete.ts`
 
 ## Current Limitations
 
-COMPLEX 실행, Planner/Lead 실행, 병렬 Agent, DAG scheduler, T3Code, Windows, 범용 R3, arbitrary shell/install/deploy 도구, 자동 resume/checkpoint/rollback은 지원하지 않는다. 전체 Runtime RPC 실행도 검증된 지원 범위가 아니다. Print/JSON 모드에서는 Runtime 명령의 UI가 없어 명시적으로 실패한다.
+COMPLEX 실행, Planner/Lead 실행, 병렬 Agent, DAG scheduler, T3 실행 control, Windows, 범용 R3, arbitrary shell/install/deploy 도구, 자동 resume/checkpoint/rollback은 지원하지 않는다. T3는 위 read-only 관찰만 지원하며 전체 Runtime RPC 실행도 검증된 지원 범위가 아니다. Print/JSON 모드에서는 Runtime 명령의 UI가 없어 명시적으로 실패한다.
 
 DeepSeek 공식 API와 다른 Provider, Linux/다른 OS·Node 조합, 전체 upstream e2e 및 배포물 검증은 NOT VERIFIED다. CommandCode 경유 DeepSeek smoke는 한정된 조건의 관찰이며 [기록](docs/WEAVRA_COMMANDCODE_DEEPSEEK_SMOKE_2026-09-18.md)을 따른다. GPT validation의 한정된 PASS를 모든 환경/모델의 보장으로 확대하지 않는다.
 
 ## Roadmap
 
-V0.2A의 순수 DTO/ASCII 조회 위에 V0.2B 정적 TUI Viewer를 연결했다. 향후 live update는 snapshot을 다시 투영하는 별도 후속 범위이며 Kernel을 UI에 종속시키지 않는다. 실행 scheduler/COMPLEX/Planner/Lead/병렬화/T3Code는 추가하지 않는다.
+V0.2A의 순수 DTO/ASCII 조회 위에 V0.2B 정적 TUI Viewer를 연결했고, V0.6A에서는 T3의 snapshots-only read-only 조회를 추가했다. Pi TUI의 live update는 별도 후속 범위이며 Kernel을 UI에 종속시키지 않는다. 실행 scheduler/COMPLEX/Planner/Lead/병렬화/T3 control은 추가하지 않는다.
 
 내부 `CompanyKernel`, `CompanyExtensionOptions`, `registerCompanyRuntime`, `packages/company-runtime`, 세션 경로와 package `0.85.1` 메타데이터는 유지한다. 이는 Weavra 제품 버전이 아니다. 안정된 worker prompt와 역사적 설계/validation 기록의 기존 명칭도 보존한다. 상세 구현은 [Runtime 문서](packages/company-runtime/README.md), 작업 기록은 [WORK_LOG](docs/WORK_LOG.md)를 참고한다.
 

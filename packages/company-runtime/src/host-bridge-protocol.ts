@@ -1,4 +1,5 @@
 import { type Static, Type } from "typebox";
+import runtimePackage from "../package.json" with { type: "json" };
 import type { Run, StepReference } from "./contracts.ts";
 import type { RuntimeEvent } from "./events.ts";
 import type { GraphEdge, GraphNode } from "./graph.ts";
@@ -23,6 +24,8 @@ export const HostBridgeRequestSchema = Type.Object(
 		id: identifier,
 		type: Type.Enum(HOST_BRIDGE_COMMANDS),
 		runId: Type.Optional(identifier),
+		clientName: Type.Optional(identifier),
+		capabilities: Type.Optional(Type.Array(Type.Literal("snapshots-only"), { maxItems: 1, uniqueItems: true })),
 	},
 	{ additionalProperties: false },
 );
@@ -105,6 +108,20 @@ export interface HostSnapshotSummary {
 	evidence: HostEvidenceSummary | null;
 	configuration: HostConfigSummary;
 }
+export interface HostBridgeCapabilities {
+	readOnly: true;
+	commands: typeof HOST_BRIDGE_COMMANDS;
+	events: "observations-only";
+	reconnect: "fresh-canonical-snapshot-no-replay";
+	authority: "Runtime/Kernel";
+	maxRequestBytes: number;
+	maxResponseBytes: number;
+	runtimeVersion: string;
+	transport: "in-process" | "stdio";
+	observationMode: "runtime-events" | "snapshots-only";
+	/** Local doctor checks only; never a claim of Provider authentication or readiness. */
+	readiness: "READY" | "NOT_SETUP" | "CONFIG_INVALID";
+}
 export const HOST_BRIDGE_CAPABILITIES = Object.freeze({
 	readOnly: true,
 	commands: HOST_BRIDGE_COMMANDS,
@@ -113,9 +130,13 @@ export const HOST_BRIDGE_CAPABILITIES = Object.freeze({
 	authority: "Runtime/Kernel",
 	maxRequestBytes: HOST_BRIDGE_MAX_REQUEST_BYTES,
 	maxResponseBytes: HOST_BRIDGE_MAX_RESPONSE_BYTES,
-} as const);
+	runtimeVersion: runtimePackage.version,
+	transport: "in-process",
+	observationMode: "runtime-events",
+	readiness: "READY",
+} as const satisfies HostBridgeCapabilities);
 export type HostBridgeData =
-	| typeof HOST_BRIDGE_CAPABILITIES
+	| HostBridgeCapabilities
 	| HostRunSummary
 	| HostGraphSummary
 	| HostEvidenceSummary
