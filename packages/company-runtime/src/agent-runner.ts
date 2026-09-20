@@ -1,6 +1,7 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	createAgentSession,
@@ -51,7 +52,7 @@ type WorkerModel = NonNullable<ReturnType<ModelRuntime["getModel"]>>;
 const UNRESOLVED_GUIDANCE =
 	"Handoff unresolved contains only task requirements or implementation problems you could not finish, and concrete blockers that prevent completing the task. " +
 	"Do not list general caveats, 'may need further verification', possibilities the task did not require, pending Reviewer execution/PASS, SELF_CHECK, TEST or Human Approval, other Runtime-owned obligations enforced by Kernel/Workflow, or low confidence. " +
-	"Use assumptions, known_risks and criteria[].status for those instead. " +
+	"Record task-relevant assumptions and genuine residual risks in their respective fields; pending Runtime-owned stages are not residual task risks or missing implementation. " +
 	"Never hide real blockers or claim unexecuted checks/approval succeeded; an unexecuted required change is real unfinished work. " +
 	"Use unresolved: [] only when no requirement or implementation problem remains.";
 
@@ -64,6 +65,7 @@ const INSTRUCTION_PROTECTION_GUIDANCE =
 /** Bounded observations for opt-in evaluation; callbacks never receive model text or tool payloads. */
 export interface FitnessWorkerObserver {
 	providerActivity?(): void;
+	protocolError?(): void;
 	context?(bytes: number): void;
 	toolResult?(event: {
 		name: string;
@@ -555,6 +557,9 @@ export class PiAgentExecutor implements AgentExecutor {
 							"Do not invent references from filenames, diffDigest or descriptions. All verdicts require at least one top-level reference; PASS also requires every criterion MET with at least one reference per criterion. " +
 							"If submit_review returns a coverage or evidence validation error, correct it and resubmit alone in this same session.",
 					request.role === "Executor" && request.scope.risk === "R1" ? ANCHORED_EDIT_GUIDANCE : "",
+					request.role === "Executor" && request.scope.risk === "R1"
+						? "QUICK/R1 completion requires no genuine residual known_risks and every implemented criterion MET. Pending Runtime checks alone are neither a known risk nor a reason to mark completed implementation UNVERIFIED. Do not hide actual risks or unfinished work; those prevent QUICK completion and require STANDARD."
+						: "",
 					mutationToolsAvailable && this.options.config.mutation.mode === "strict" ? STRICT_MUTATION_GUIDANCE : "",
 					lsp
 						? "Use runtime_lsp_* for read-only diagnostics/navigation when useful. LSP AVAILABLE is not PASS; UNAVAILABLE/PARTIAL/STALE/ERROR never replace required process checks. Re-query stale results. No LSP mutation is available."
@@ -678,10 +683,28 @@ export class PiAgentExecutor implements AgentExecutor {
 					measurement?.observeAssistant(event.message);
 					const calls = event.message.content.filter((part) => part.type === "toolCall");
 					if (
+						this.options.fitnessObserver?.protocolError &&
+						event.message.stopReason !== "aborted" &&
+						event.message.stopReason !== "error"
+					) {
+						for (const call of calls) {
+							const tool = worker.tools.find((candidate) => candidate.name === call.name);
+							try {
+								if (!tool) throw new Error("Unknown tool");
+								// Use the SDK's own coercion/schema rules, on its cloned arguments.
+								validateToolArguments(tool, call);
+							} catch {
+								this.observe((observer) => observer.protocolError?.());
+							}
+						}
+					}
+					if (
 						calls.some((call) => call.name === "submit_handoff" || call.name === "submit_review") &&
 						calls.length !== 1
-					)
+					) {
+						this.observe((observer) => observer.protocolError?.());
 						failure ??= "Structured submission must be the only tool call";
+					}
 					if (
 						event.message.stopReason === "error" ||
 						(event.message.stopReason === "aborted" && !signal.aborted)
@@ -791,11 +814,14 @@ export class PiAgentExecutor implements AgentExecutor {
 		if (executionError)
 			throw new WorkerExecutionError(
 				executionError.message,
-				measurement?.finish(signal.aborted ? "CANCELLED" : "FAILED"),
+				measurement?.finish(parentSignal?.aborted ? "CANCELLED" : "FAILED"),
 			);
 		if (signal.aborted) {
 			this.stoppedRuns.add(request.runId);
-			throw new WorkerExecutionError("Worker aborted during cleanup", measurement?.finish("CANCELLED"));
+			throw new WorkerExecutionError(
+				"Worker aborted during cleanup",
+				measurement?.finish(parentSignal?.aborted ? "CANCELLED" : "FAILED"),
+			);
 		}
 		if (!result) throw new WorkerExecutionError("Worker result unavailable", measurement?.finish("FAILED"));
 		return { ...result, measurement: measurement?.finish("SUCCEEDED") };

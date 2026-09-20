@@ -6,10 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	compareFitnessRuns,
 	FitnessRecordStore,
+	fitnessCalibrationState,
 	fitnessDigest,
+	fitnessEvaluationState,
+	fitnessIntegrityReasons,
 	freezeFitnessRecord,
 	passesFitnessCalibrationFixture,
 	safeEndpointIdentity,
+	summarizeFitnessRun,
 	validateFitnessRecord,
 } from "../src/fitness-records.ts";
 import type { FitnessFixtureResult, ProviderFitnessRun } from "../src/fitness-types.ts";
@@ -33,6 +37,29 @@ function fixture(): FitnessFixtureResult {
 		terminalStatus: "COMPLETED",
 		oracle: "PASS",
 		falseCompletion: false,
+		integrity: { state: "READY", reasons: [] },
+		audit: {
+			files: [],
+			unexpectedFileCount: 0,
+			unexpectedFilesDigest: null,
+			workspaceDiffDigest: null,
+			protectedUnchanged: null,
+			taskContractMatches: null,
+			submissionKind: "NONE",
+			submissionDigest: null,
+			summaryDigest: null,
+			submittedCriteria: [],
+			unknownCriterionCount: 0,
+			acceptance: [],
+			reviewer: null,
+			knownRisksCount: null,
+			unresolvedCount: null,
+			changedFilesMatch: null,
+			phase: null,
+			answer: null,
+			checks: [],
+			harnessError: false,
+		},
 		latencyMs: 12,
 		ac: { met: 1, notMet: 0 },
 		checks: { passed: 2, failed: 0, notRun: 0 },
@@ -44,7 +71,16 @@ function fixture(): FitnessFixtureResult {
 			handoffRejections: 0,
 			reviewRejections: 0,
 		},
-		tools: { calls: 2, invalidCalls: 0, retries: 0, runtimeRead: 1, runtimeEdit: 0, runtimeWrite: 0, lsp: 0 },
+		tools: {
+			calls: 2,
+			invalidCalls: 0,
+			protocolErrors: 0,
+			retries: 0,
+			runtimeRead: 1,
+			runtimeEdit: 0,
+			runtimeWrite: 0,
+			lsp: 0,
+		},
 		reliability: {
 			providerErrors: 0,
 			authErrors: 0,
@@ -66,7 +102,7 @@ function fixture(): FitnessFixtureResult {
 		evidenceDigest: digest,
 	};
 }
-function record(overrides: Partial<ProviderFitnessRun> = {}): ProviderFitnessRun {
+function historicalRecord(overrides: Partial<ProviderFitnessRun> = {}): ProviderFitnessRun {
 	return freezeFitnessRecord({
 		schemaVersion: 1,
 		id: randomUUID(),
@@ -94,27 +130,110 @@ function record(overrides: Partial<ProviderFitnessRun> = {}): ProviderFitnessRun
 	});
 }
 
+function record(overrides: Partial<ProviderFitnessRun> = {}): ProviderFitnessRun {
+	const fixtures = (overrides.fixtures ?? []).map((result) => {
+		const reasons = fitnessIntegrityReasons(result);
+		return { ...result, integrity: { state: reasons.length ? ("INVALID" as const) : ("READY" as const), reasons } };
+	});
+	const run = { ...historicalRecord(), ...overrides, schemaVersion: 2 as const, fixtures };
+	return freezeFitnessRecord({
+		...run,
+		calibration: fitnessCalibrationState(fixtures),
+		evaluation: fitnessEvaluationState(run),
+		stopReasons: [...new Set(fixtures.flatMap(fitnessIntegrityReasons))],
+	});
+}
+
 describe("Fitness calibration admission", () => {
-	it("requires adherence, clean scope, both checks, cleanup and known usage beyond oracle PASS", () => {
+	it("admits semantic and contract failures when the observations have integrity", () => {
 		const good = fixture();
-		expect(passesFitnessCalibrationFixture(good)).toBe(true);
-		const rejected: FitnessFixtureResult[] = [
+		const outcomes: FitnessFixtureResult[] = [
+			{ ...good, oracle: "FAIL", falseCompletion: true },
 			{ ...good, terminalStatus: "BLOCKED" },
-			{ ...good, contract: { ...good.contract, taskContractAdherence: false } },
-			{ ...good, contract: { ...good.contract, scopeViolations: 1 } },
-			{ ...good, contract: { ...good.contract, forbiddenMutationAttempts: 1 } },
-			{ ...good, checks: { passed: 1, failed: 1, notRun: 0 } },
-			{ ...good, checks: { passed: 1, failed: 0, notRun: 1 } },
-			{ ...good, reliability: { ...good.reliability, cleanup: "UNCONFIRMED" } },
+			{ ...good, terminalStatus: "FAILED" },
 			{
 				...good,
-				efficiency: {
-					...good.efficiency,
-					usage: { state: "UNKNOWN", input: null, output: null, total: null, knownTotal: 10 },
+				contract: {
+					...good.contract,
+					taskContractAdherence: false,
+					scopeViolations: 1,
+					forbiddenMutationAttempts: 1,
+				},
+			},
+			{ ...good, checks: { passed: 0, failed: 1, notRun: 1 }, ac: { met: 0, notMet: 1 } },
+			{
+				...good,
+				audit: {
+					...good.audit!,
+					acceptance: [{ id: "AC-001", status: "UNMET" }],
+					checks: [{ id: "check", status: "FAIL", stage: null, diffDigest: null, registrationDigest: null }],
 				},
 			},
 		];
-		for (const result of rejected) expect(passesFitnessCalibrationFixture(result)).toBe(false);
+		for (const result of outcomes) {
+			expect(fitnessIntegrityReasons(result)).toEqual([]);
+			expect(passesFitnessCalibrationFixture(result)).toBe(true);
+			expect(fitnessCalibrationState([result, { ...result, fixtureId: "F02" }])).toBe("CALIBRATION_READY");
+		}
+	});
+	it("classifies each explicit integrity stop without duplicate reasons", () => {
+		const good = fixture();
+		const cases: Array<[FitnessFixtureResult, string]> = [
+			[{ ...good, reliability: { ...good.reliability, authErrors: 1 } }, "AUTH_ERROR"],
+			[{ ...good, reliability: { ...good.reliability, providerErrors: 1 } }, "PROVIDER_ERROR"],
+			[{ ...good, reliability: { ...good.reliability, transportErrors: 1 } }, "TRANSPORT_ERROR"],
+			[{ ...good, tools: { ...good.tools, protocolErrors: 1 } }, "TOOL_PROTOCOL_ERROR"],
+			[{ ...good, tools: { ...good.tools, protocolErrors: undefined } }, "MEASUREMENT_INVALID"],
+			[{ ...good, audit: undefined }, "MEASUREMENT_INVALID"],
+			[{ ...good, oracle: "INVALID", falseCompletion: null }, "ORACLE_INVALID"],
+			[{ ...good, reliability: { ...good.reliability, cleanup: "UNCONFIRMED" } }, "CLEANUP_UNCONFIRMED"],
+			[
+				{
+					...good,
+					efficiency: {
+						...good.efficiency,
+						usage: { state: "UNKNOWN", input: null, output: null, total: null, knownTotal: 10 },
+					},
+				},
+				"USAGE_UNKNOWN",
+			],
+			[{ ...good, reliability: { ...good.reliability, timeouts: 1 } }, "TIMEOUT"],
+			[{ ...good, audit: { ...good.audit!, harnessError: true } }, "HARNESS_DEFECT"],
+			[{ ...good, runId: null }, "HARNESS_DEFECT"],
+			[{ ...good, terminalStatus: "NOT_STARTED" }, "HARNESS_DEFECT"],
+		];
+		for (const [result, reason] of cases) {
+			expect(fitnessIntegrityReasons(result)).toEqual([reason]);
+			expect(passesFitnessCalibrationFixture(result)).toBe(false);
+			expect(fitnessCalibrationState([result])).toBe("CALIBRATION_INVALID");
+		}
+		const invalid = fixture();
+		invalid.tools.protocolErrors = undefined;
+		invalid.audit = undefined;
+		invalid.runId = null;
+		invalid.terminalStatus = "NOT_STARTED";
+		invalid.efficiency.usage.total = null;
+		expect(fitnessIntegrityReasons(invalid)).toEqual(["MEASUREMENT_INVALID", "HARNESS_DEFECT"]);
+	});
+	it("rejects unmeasured or invalid known usage rather than treating it as zero", () => {
+		for (const value of [null, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+			const result = fixture();
+			result.efficiency.usage.input = value;
+			expect(fitnessIntegrityReasons(result)).toEqual(["MEASUREMENT_INVALID"]);
+		}
+		const mismatch = fixture();
+		mismatch.efficiency.usage.knownTotal = 11;
+		expect(fitnessIntegrityReasons(mismatch)).toEqual(["MEASUREMENT_INVALID"]);
+	});
+	it("requires the observed F01/F02 prefix for calibration readiness", () => {
+		const first = fixture();
+		const second = { ...fixture(), fixtureId: "F02" };
+		expect(fitnessCalibrationState([])).toBe("PENDING");
+		expect(fitnessCalibrationState([first])).toBe("PENDING");
+		expect(fitnessCalibrationState([second])).toBe("PENDING");
+		expect(fitnessCalibrationState([first, second])).toBe("CALIBRATION_READY");
+		second.reliability.authErrors = 1;
+		expect(fitnessCalibrationState([first, second])).toBe("CALIBRATION_INVALID");
 	});
 	it("refuses observed provider failures without fabricating an unobserved transport count", () => {
 		const good = fixture();
@@ -148,7 +267,7 @@ describe("Fitness immutable records", () => {
 		const bytes = await readFile(path);
 		expect(await store.read(initial.id)).toEqual(initial);
 		expect(await readFile(path)).toEqual(bytes);
-		await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 2 }), { mode: 0o600 });
+		await writeFile(path, JSON.stringify({ ...initial, schemaVersion: 3 }), { mode: 0o600 });
 		await expect(store.read(initial.id)).rejects.toThrow();
 		expect(() => validateFitnessRecord({ ...initial, startedAt: 0 })).toThrow();
 	});
@@ -167,16 +286,108 @@ describe("Fitness immutable records", () => {
 			efficiency: { tokens: 6391, costUsd: null },
 			reliability: { transportErrors: null },
 		});
+		expect(summarizeFitnessRun(loaded).fixtureResults[0].integrity).toBeNull();
 		expect(await store.list()).toEqual([loaded]);
 		expect(await readFile(path, "utf8")).toBe(bytes);
+	});
+	it("reads historical schema1 corpus-v2 records without adding readiness or migrating identity", async () => {
+		const { audit: _audit, integrity: _integrity, tools, ...result } = fixture();
+		const { protocolErrors: _protocolErrors, ...historicalTools } = tools;
+		const historical = historicalRecord({
+			corpusRevision: "weavra-fitness-2",
+			fixtures: [{ ...result, tools: historicalTools }],
+		});
+		const bytes = `${JSON.stringify(historical)}\n`;
+		const path = join(directory, `${historical.id}.json`);
+		await writeFile(path, bytes, { mode: 0o600 });
+		const store = await FitnessRecordStore.open(directory);
+		const loaded = await store.read(historical.id);
+		const summary = summarizeFitnessRun(loaded);
+		expect(summary.fixtureResults[0].integrity).toBeNull();
+		expect(loaded).toEqual(historical);
+		expect(summary).not.toHaveProperty("calibration");
+		expect(summary).not.toHaveProperty("evaluation");
+		expect(summary).not.toHaveProperty("stopReasons");
+		await expect(store.save(record({ ...loaded, fixtures: [fixture()] }))).rejects.toThrow();
+		expect(await readFile(path, "utf8")).toBe(bytes);
+	});
+	it("recomputes v2 readiness and rejects omitted or forged integrity observations", () => {
+		const initial = record({ fixtures: [fixture()] });
+		for (const field of ["calibration", "evaluation", "stopReasons"] as const) {
+			const omitted = structuredClone(initial);
+			delete omitted[field];
+			expect(() => freezeFitnessRecord(omitted)).toThrow();
+		}
+		for (const field of ["audit", "integrity"] as const) {
+			const omitted = structuredClone(initial);
+			delete omitted.fixtures[0][field];
+			expect(() => freezeFitnessRecord(omitted)).toThrow();
+		}
+		const unobserved = structuredClone(initial);
+		delete unobserved.fixtures[0].tools.protocolErrors;
+		expect(() => freezeFitnessRecord(unobserved)).toThrow();
+		expect(() => freezeFitnessRecord({ ...initial, calibration: "CALIBRATION_READY" })).toThrow();
+		expect(() => freezeFitnessRecord({ ...initial, evaluation: "EVALUATION_COMPLETE" })).toThrow();
+		expect(() => freezeFitnessRecord({ ...initial, stopReasons: ["AUTH_ERROR"] })).toThrow();
+		const forged = structuredClone(initial);
+		forged.fixtures[0].reliability.authErrors = 1;
+		expect(() => freezeFitnessRecord(forged)).toThrow();
+		forged.fixtures[0].integrity = { state: "INVALID", reasons: ["AUTH_ERROR"] };
+		expect(() => freezeFitnessRecord(forged)).toThrow();
+		const historical = historicalRecord();
+		expect(() => freezeFitnessRecord({ ...historical, calibration: "PENDING" })).toThrow();
+		expect(() => historicalRecord({ fixtures: [fixture()] })).toThrow();
+	});
+	it("retains unknown post-invocation identity only in schema2", () => {
+		const observed = fixture();
+		observed.runId = null;
+		observed.terminalStatus = "UNKNOWN";
+		observed.oracle = "INVALID";
+		observed.falseCompletion = null;
+		const current = record({ fixtures: [observed], status: "FAILED", completedAt: 2 });
+		expect(current.fixtures[0].terminalStatus).toBe("UNKNOWN");
+		expect(current.fixtures[0].integrity).toEqual({
+			state: "INVALID",
+			reasons: ["ORACLE_INVALID", "HARNESS_DEFECT"],
+		});
+		const { audit: _audit, integrity: _integrity, tools, ...result } = observed;
+		const { protocolErrors: _protocolErrors, ...historicalTools } = tools;
+		expect(() => historicalRecord({ fixtures: [{ ...result, tools: historicalTools }] })).toThrow();
+		expect(() =>
+			record({ fixtures: [{ ...observed, terminalStatus: "FAILED" }], status: "FAILED", completedAt: 2 }),
+		).toThrow();
+	});
+	it("preserves canonical completion on invalid cleanup and limits unattached harness faults to stopped runs", () => {
+		const observed = fixture();
+		observed.oracle = "INVALID";
+		observed.falseCompletion = null;
+		observed.reliability.cleanup = "UNCONFIRMED";
+		const invalid = record({ fixtures: [observed], status: "FAILED", completedAt: 2 });
+		expect(invalid.fixtures[0].terminalStatus).toBe("COMPLETED");
+		expect(invalid.stopReasons).toEqual(["ORACLE_INVALID", "CLEANUP_UNCONFIRMED"]);
+		const running = record();
+		expect(() => freezeFitnessRecord({ ...running, stopReasons: ["HARNESS_DEFECT"] })).toThrow();
+		const interrupted = freezeFitnessRecord({
+			...running,
+			status: "INTERRUPTED",
+			completedAt: 2,
+			stopReasons: ["HARNESS_DEFECT"],
+		});
+		expect(interrupted.evaluation).toBe("EVALUATION_PARTIAL");
+		expect(() => freezeFitnessRecord({ ...interrupted, status: "BUDGET_EXHAUSTED" })).toThrow();
 	});
 	it("preserves partial results and refuses terminal or settled-prefix rewrites", async () => {
 		const store = await FitnessRecordStore.open(directory);
 		const initial = record();
 		await store.save(initial);
-		const partial = freezeFitnessRecord({ ...initial, fixtures: [fixture()] });
+		const failed = { ...fixture(), oracle: "FAIL" as const, falseCompletion: true };
+		const partial = record({ ...initial, fixtures: [failed] });
 		await store.save(partial);
+		expect(partial.fixtures[0].integrity).toEqual({ state: "READY", reasons: [] });
 		expect((await store.read(initial.id)).fixtures).toEqual(partial.fixtures);
+		await expect(
+			store.save(record({ ...partial, fixtures: [{ ...failed, oracle: "PASS", falseCompletion: false }] })),
+		).rejects.toThrow();
 		await expect(store.save(freezeFitnessRecord({ ...partial, fixtures: [] }))).rejects.toThrow();
 		await expect(
 			store.save(freezeFitnessRecord({ ...partial, fixtures: [{ ...partial.fixtures[0], latencyMs: 13 }] })),
@@ -243,22 +454,109 @@ describe("Fitness immutable records", () => {
 		expect(record({ fixtures: [value] }).fixtures[0].falseCompletion).toBeNull();
 		expect(() => record({ status: "COMPLETED", completedAt: 2, fixtures: [fixture()] })).toThrow();
 	});
-	it("compares raw dimensions and marks mismatched corpus noncomparable", () => {
+	it("compares complete failed outcomes without dropping failure counts", () => {
 		const plannedFixtures = ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F09", "F10", "F08"];
 		const left = record({
 			status: "COMPLETED",
 			completedAt: 2,
 			budget: { maxFixtures: 10, maxWorkerCalls: 32, maxTotalTokens: 100000 },
 			plannedFixtures,
-			fixtures: plannedFixtures.map((fixtureId) => ({ ...fixture(), fixtureId })),
+			fixtures: plannedFixtures.map((fixtureId) => ({
+				...fixture(),
+				fixtureId,
+				oracle: "FAIL",
+				falseCompletion: true,
+				contract: {
+					...fixture().contract,
+					taskContractAdherence: false,
+					scopeViolations: 1,
+					forbiddenMutationAttempts: 2,
+				},
+			})),
 		});
 		const right = record({ ...left, id: randomUUID() });
 		const comparison = compareFitnessRuns(left, right);
 		expect(comparison.comparable).toBe(true);
-		expect(comparison.left.correctness).toMatchObject({ executed: 10, oraclePass: 10, falseCompletion: 0 });
+		expect(comparison.left.correctness).toMatchObject({
+			executed: 10,
+			oraclePass: 0,
+			oracleFail: 10,
+			falseCompletion: 10,
+		});
+		expect(comparison.left.contract).toMatchObject({ scopeViolations: 10, forbiddenMutationAttempts: 20 });
+		expect(comparison.left.calibration).toBe("CALIBRATION_READY");
+		expect(comparison.left.evaluation).toBe("EVALUATION_COMPLETE");
+		expect(
+			comparison.left.fixtureResults.every((item) => item.oracle === "FAIL" && item.taskContractAdherence === false),
+		).toBe(true);
 		expect(compareFitnessRuns(left, record({ ...right, corpusDigest: fitnessDigest("different") })).comparable).toBe(
 			false,
 		);
+		const failedCollection = freezeFitnessRecord({
+			...left,
+			status: "FAILED",
+			evaluation: fitnessEvaluationState({ ...left, status: "FAILED" }),
+			stopReasons: ["HARNESS_DEFECT"],
+		});
+		expect(failedCollection.evaluation).toBe("EVALUATION_PARTIAL");
+		expect(compareFitnessRuns(left, failedCollection).comparable).toBe(false);
+	});
+	it("allows only the final F08 cancellation usage exception to complete coverage", () => {
+		const plannedFixtures = ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F09", "F10", "F08"];
+		const fixtures = plannedFixtures.map((fixtureId) => ({ ...fixture(), fixtureId }));
+		const cancelled = fixtures[9];
+		cancelled.terminalStatus = "CANCELLED";
+		cancelled.efficiency.usage = { state: "UNKNOWN", input: null, output: null, total: null, knownTotal: 10 };
+		const complete = record({
+			status: "BUDGET_EXHAUSTED",
+			completedAt: 2,
+			budget: { maxFixtures: 10, maxWorkerCalls: 32, maxTotalTokens: 100000 },
+			plannedFixtures,
+			fixtures,
+		});
+		expect(complete.evaluation).toBe("EVALUATION_COMPLETE");
+		expect(complete.stopReasons).toEqual(["USAGE_UNKNOWN"]);
+		expect(compareFitnessRuns(complete, record({ ...complete, id: randomUUID() })).comparable).toBe(true);
+		expect(fitnessEvaluationState({ ...complete, status: "RUNNING" })).toBe("EVALUATION_PARTIAL");
+		expect(fitnessEvaluationState({ ...complete, plannedFixtures: [...plannedFixtures].reverse() })).toBe(
+			"EVALUATION_PARTIAL",
+		);
+		cancelled.oracle = "FAIL";
+		expect(record({ ...complete, fixtures }).evaluation).toBe("EVALUATION_PARTIAL");
+		cancelled.oracle = "PASS";
+		cancelled.reliability.authErrors = 1;
+		expect(record({ ...complete, fixtures }).evaluation).toBe("EVALUATION_PARTIAL");
+		cancelled.reliability.authErrors = 0;
+		fixtures[0].efficiency.usage = cancelled.efficiency.usage;
+		expect(record({ ...complete, fixtures }).evaluation).toBe("EVALUATION_PARTIAL");
+	});
+	it("retains full historical comparison rules without comparing across schema versions", () => {
+		const plannedFixtures = ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F09", "F10", "F08"];
+		const current = record({
+			status: "COMPLETED",
+			completedAt: 2,
+			budget: { maxFixtures: 10, maxWorkerCalls: 32, maxTotalTokens: 100000 },
+			plannedFixtures,
+			fixtures: plannedFixtures.map((fixtureId) => ({
+				...fixture(),
+				fixtureId,
+				oracle: "FAIL",
+				falseCompletion: true,
+			})),
+		});
+		const { calibration: _calibration, evaluation: _evaluation, stopReasons: _stopReasons, ...body } = current;
+		const historical = historicalRecord({
+			...body,
+			schemaVersion: 1,
+			fixtures: current.fixtures.map((item) => {
+				const { audit: _audit, integrity: _integrity, tools, ...result } = item;
+				const { protocolErrors: _protocolErrors, ...historicalTools } = tools;
+				return { ...result, tools: historicalTools };
+			}),
+		});
+		expect(compareFitnessRuns(historical, historical).comparable).toBe(true);
+		expect(compareFitnessRuns(historical, current).comparable).toBe(false);
+		expect(summarizeFitnessRun(historical).fixtureResults.every((item) => item.integrity === null)).toBe(true);
 	});
 	it("keeps identical completed calibration subsets noncomparable as a full matrix", () => {
 		const calibration = record({

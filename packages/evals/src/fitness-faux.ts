@@ -108,7 +108,7 @@ export function fitnessFauxResponse(behavior: FitnessFauxBehavior, context: Cont
 		changed_files: mutations,
 		summary: mutations.length
 			? "Bounded fixture changes"
-			: "classify(0)=non-positive because the comparison is strictly greater than zero.",
+			: JSON.stringify({ classificationAtZero: "non-positive", cause: { operator: ">", boundary: 0 } }),
 		assumptions: [],
 		tests_run: [],
 		known_risks: [],

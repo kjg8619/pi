@@ -17,10 +17,12 @@ const help = `Usage:
   weavra fitness show <run-id> [--json]
   weavra fitness compare <run-a> <run-b> [--json]
   weavra fitness run <provider/model> --allow-paid --confirm-corpus <digest> --calibration --max-fixtures 2 --max-worker-calls 4 --max-tokens 100000
-  weavra fitness run <provider/model> --allow-paid --confirm-corpus <digest> --calibration-id <id> --fixtures F01,F02,F03,F04,F05,F06,F07,F09,F10,F08 --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
+  weavra fitness run <provider/model> --allow-paid --confirm-corpus <digest> --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
   weavra fitness faux <GOOD|CONTRACT_VIOLATOR|UNRELIABLE|FALSE_COMPLETER> --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
 Optional: --store-dir <absolute-private-directory>, --max-cost-usd <positive-number>.
-Actual execution requires exact-target F01/F02 calibration, strict mutation/trust and required verifier sandbox.
+Fresh actual evaluation includes F01/F02 integrity calibration in the same full ordered cohort. Semantic failures remain results, not admission failures.
+Optional --calibration-id <id> runs only the remaining eight fixtures in a separate PARTIAL cohort; it never imports or reruns the original results.
+Actual execution requires strict mutation/trust and required verifier sandbox. Infrastructure failure or unsafe usage stops subsequent calls.
 Token limits stop subsequent worker calls; they are not in-flight billing caps. Cost is UNKNOWN; a monetary ceiling admits no call.
 No automatic retry, fallback, routing, ranking or transcript persistence. SIGINT/SIGTERM await Runtime cleanup and preserve partial results.\n`;
 
@@ -151,6 +153,8 @@ try {
 				maxTotalTokens: Number(flags.get("--max-tokens")),
 				...(flags.has("--max-cost-usd") ? { maxCostUsd: Number(flags.get("--max-cost-usd")) } : {}),
 			};
+			if (flags.has("--calibration") && (flags.has("--calibration-id") || flags.has("--fixtures")))
+				throw new Error("Calibration selection cannot be combined with another fixture selection");
 			let agentDir: string;
 			let models: ModelRuntime;
 			let provider: string;
@@ -201,7 +205,7 @@ try {
 						? ["F01", "F02"]
 						: flags.has("--fixtures")
 							? String(flags.get("--fixtures")).split(",")
-							: FITNESS_CORPUS.map((fixture) => fixture.id),
+							: FITNESS_CORPUS.slice(flags.has("--calibration-id") ? 2 : 0).map((fixture) => fixture.id),
 					kind: command === "faux" ? "FAUX" : "ACTUAL",
 					allowPaid: flags.get("--allow-paid") === true,
 					calibration: flags.get("--calibration") === true,

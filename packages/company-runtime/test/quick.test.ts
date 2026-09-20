@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyRequest, selectWorkflow } from "../src/classification.ts";
 import type { ExecutorHandoff, QuickScope, Run, VerificationResult } from "../src/contracts.ts";
+import { taskContractDigest } from "../src/criterion-evidence.ts";
 import { assertCanComplete, type CompletionEvidence } from "../src/kernel.ts";
 import { evaluatePolicy } from "../src/policy.ts";
 import { assertQuickWorkspace, changedLineCount, QUICK_MAX_CHANGED_LINES, selectQuickScope } from "../src/quick.ts";
@@ -50,6 +51,11 @@ function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 			},
 		],
 	};
+	const task = testContract(risk === "R0" ? requirement : "Fix typo in src/app.ts", {
+		taskId: "task",
+		checkIds: ["test"],
+		workflow: "QUICK",
+	});
 	return {
 		executionMode: risk === "R0" ? "READ_ONLY" : "EDIT", // Explicit grants for these two test scenarios.
 		workflow: "QUICK",
@@ -65,11 +71,8 @@ function evidence(risk: "R0" | "R1" = "R1"): CompletionEvidence {
 		},
 		runId: "run",
 		revision: 0,
-		task: testContract(risk === "R0" ? requirement : "Fix typo in src/app.ts", {
-			taskId: "task",
-			checkIds: ["test"],
-			workflow: "QUICK",
-		}),
+		task,
+		taskContractDigest: taskContractDigest(task),
 		checks: [{ id: "test", kind: "test", required: true }],
 		handoff,
 		selfCheck,
@@ -149,6 +152,14 @@ describe.each(["R0", "R1"] as const)("QUICK/%s Kernel completion guard", (risk) 
 		value.handoff!.known_risks = ["Existing code does not handle division by zero"];
 		if (risk === "R0") expect(() => assertCanComplete(value)).not.toThrow();
 		else expect(() => assertCanComplete(value)).toThrow("STANDARD required");
+	});
+	it("rejects a missing frozen digest or a changed Task Contract despite valid checks", () => {
+		const missing = evidence(risk);
+		delete missing.taskContractDigest;
+		expect(() => assertCanComplete(missing)).toThrow();
+		const changed = evidence(risk);
+		changed.task.acceptanceCriteria[0].statement = "A different requirement";
+		expect(() => assertCanComplete(changed)).toThrow();
 	});
 	it.each([
 		(e: CompletionEvidence) => {

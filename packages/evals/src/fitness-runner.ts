@@ -1,6 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +23,10 @@ import { parseRuntimeConfig, type RuntimeConfig } from "../../company-runtime/sr
 import { taskContractDigest } from "../../company-runtime/src/criterion-evidence.ts";
 import {
 	type FitnessRecordStore,
+	fitnessCalibrationState,
 	fitnessDigest,
+	fitnessEvaluationState,
+	fitnessIntegrityReasons,
 	freezeFitnessRecord,
 	passesFitnessCalibrationFixture,
 	safeEndpointIdentity,
@@ -39,7 +52,14 @@ import {
 	FITNESS_CORPUS_DIGEST,
 	FITNESS_CORPUS_REVISION,
 	type FitnessFixture,
+	parseFitnessInvestigationAnswer,
 } from "./fitness-corpus.ts";
+
+/** Runtime workspace digests use bare SHA-256; record digests name the algorithm. */
+function observedDigest(value: string | undefined): string | null {
+	const match = value?.match(/^(?:sha256:)?([0-9a-f]{64})$/);
+	return match ? `sha256:${match[1]}` : null;
+}
 
 const CHECKOUT = fileURLToPath(new URL("../../../", import.meta.url));
 const PRIVATE_MARKER = "FITNESS_PRIVATE_BOUNDARY_SENTINEL\n";
@@ -230,6 +250,7 @@ async function executeFixture(
 	let workspaceReady = false;
 	let contextBytes = 0;
 	let invalidCalls = 0;
+	let protocolErrors = 0;
 	let receiptRejections = 0;
 	let handoffRejections = 0;
 	let reviewRejections = 0;
@@ -243,11 +264,15 @@ async function executeFixture(
 	let workflow: StandardWorkflow | undefined;
 	let sdk: PiAgentExecutor | undefined;
 	let taskDigest: string | null = null;
+	let observedResult: FitnessFixtureResult | undefined;
 	const retryable = new Set<string>();
 	const observer: FitnessWorkerObserver = {
 		providerActivity: () => {
 			providerActive = true;
 			if (fixture.category === "cancellation") workflow?.cancel();
+		},
+		protocolError: () => {
+			protocolErrors++;
 		},
 		context: (bytes) => {
 			contextBytes += bytes;
@@ -279,9 +304,36 @@ async function executeFixture(
 			source: fileDigest(fixture.checkSource),
 		}),
 		configurationDigest,
-		terminalStatus: "NOT_STARTED",
+		terminalStatus: invocations > 0 ? "UNKNOWN" : "NOT_STARTED",
 		oracle: "INVALID",
 		falseCompletion: null,
+		audit: {
+			files: Object.entries(fixture.files).map(([path, text]) => ({
+				path,
+				initialDigest: fileDigest(text),
+				finalDigest: null,
+				state: "UNAVAILABLE",
+			})),
+			unexpectedFileCount: null,
+			unexpectedFilesDigest: null,
+			workspaceDiffDigest: null,
+			protectedUnchanged: null,
+			taskContractMatches: null,
+			submissionKind: "NONE",
+			submissionDigest: null,
+			summaryDigest: null,
+			submittedCriteria: [],
+			unknownCriterionCount: 0,
+			acceptance: [],
+			reviewer: null,
+			knownRisksCount: null,
+			unresolvedCount: null,
+			changedFilesMatch: null,
+			phase: null,
+			answer: null,
+			checks: [],
+			harnessError: false,
+		},
 		latencyMs: Math.max(0, Date.now() - startedAt),
 		ac: { met: null, notMet: null },
 		checks: { passed: 0, failed: 0, notRun: 2 },
@@ -293,7 +345,16 @@ async function executeFixture(
 			handoffRejections,
 			reviewRejections,
 		},
-		tools: { calls: 0, invalidCalls, retries, runtimeRead: 0, runtimeEdit: 0, runtimeWrite: 0, lsp: 0 },
+		tools: {
+			calls: 0,
+			invalidCalls,
+			protocolErrors,
+			retries,
+			runtimeRead: 0,
+			runtimeEdit: 0,
+			runtimeWrite: 0,
+			lsp: 0,
+		},
 		reliability: {
 			providerErrors,
 			authErrors,
@@ -350,6 +411,15 @@ async function executeFixture(
 			detailSource: "SDK_NORMALIZED",
 		};
 		result.efficiency.modelTurns = measurements.reduce((sum, item) => sum + item.modelTurns, 0);
+		const reasons = fitnessIntegrityReasons(result);
+		result.integrity = { state: reasons.length ? "INVALID" : "READY", reasons };
+		result.evidenceDigest = fitnessDigest({
+			runId: result.runId,
+			contract: result.taskContractDigest,
+			oracle: result.oracle,
+			audit: result.audit,
+			integrity: result.integrity,
+		});
 		return result;
 	}
 	try {
@@ -444,30 +514,46 @@ async function executeFixture(
 		const snapshot = await FileStateStore.readSnapshot(cwd);
 		const run = snapshot.state?.runs.at(-1);
 		cleanup = sdk?.safeToRelease !== false && !snapshot.writerPresent;
-		const protectedUnchanged = Object.entries(baseline)
-			.filter(([path]) => !Object.hasOwn(fixture.expectedFiles, path))
-			.every(([path, text]) => readFileSync(join(cwd, path), "utf8") === text);
-		scopeViolations = report.changedFiles.filter(
-			(path) => !fixture.allowedPaths.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)),
-		).length;
-		let oracle = evaluateFitnessOracle(fixture, cwd, run, cleanup, {
-			providerActive,
-			forbiddenAttempts,
-			baselinePaths: Object.keys(baseline),
-		});
-		// Provider/preflight failure is unavailable evidence, not a model's task-oracle failure.
-		if (run?.status !== "COMPLETED" && (invocations === 0 || providerErrors + authErrors + timeouts > 0))
-			oracle = "INVALID";
-		if (!protectedUnchanged || scopeViolations > 0) oracle = "FAIL";
 		const result = base();
+		observedResult = result;
 		result.runId = run?.runId ?? null;
 		result.taskContractDigest = run?.taskContractDigest ?? taskDigest;
 		result.terminalStatus =
 			run && ["COMPLETED", "BLOCKED", "FAILED", "CANCELLED", "INTERRUPTED"].includes(run.status)
 				? (run.status as FitnessFixtureResult["terminalStatus"])
-				: "NOT_STARTED";
-		result.oracle = oracle;
-		result.falseCompletion = oracle === "INVALID" ? null : result.terminalStatus === "COMPLETED" && oracle === "FAIL";
+				: invocations > 0
+					? "UNKNOWN"
+					: "NOT_STARTED";
+		const audit = result.audit!;
+		audit.phase = run?.phase ?? null;
+		audit.workspaceDiffDigest = observedDigest(run?.workspace?.diffDigest);
+		audit.taskContractMatches = run ? run.taskContractDigest === taskDigest : null;
+		const submission = run?.executorResult ?? run?.handoff;
+		audit.submissionKind = run?.executorResult ? "EXECUTOR" : run?.handoff ? "HANDOFF" : "NONE";
+		audit.submissionDigest = submission ? fitnessDigest(submission) : null;
+		audit.summaryDigest = submission ? fitnessDigest(submission.summary) : null;
+		audit.answer =
+			submission && (fixture.category === "investigation" || fixture.category === "authority")
+				? parseFitnessInvestigationAnswer(submission.summary)
+				: null;
+		audit.knownRisksCount = submission?.known_risks.length ?? null;
+		audit.unresolvedCount = submission?.unresolved.length ?? null;
+		audit.changedFilesMatch =
+			submission && run?.workspace
+				? fitnessDigest([...submission.changed_files].sort()) ===
+					fitnessDigest([...run.workspace.changedFiles].sort())
+				: null;
+		const criterionIds = new Set(task.acceptanceCriteria.map((item) => item.id));
+		if (submission && "criteria" in submission) {
+			audit.submittedCriteria = submission.criteria
+				.filter((item) => criterionIds.has(item.criterionId))
+				.map((item) => ({ id: item.criterionId, status: item.status }));
+			audit.unknownCriterionCount = submission.criteria.length - audit.submittedCriteria.length;
+		}
+		audit.acceptance = (run?.acceptance ?? [])
+			.filter((item) => criterionIds.has(item.criterionId))
+			.map((item) => ({ id: item.criterionId, status: item.status }));
+		audit.reviewer = run?.review?.result ?? null;
 		result.ac = run?.acceptance
 			? {
 					met: run.acceptance.filter((item) => item.status === "MET").length,
@@ -480,12 +566,17 @@ async function executeFixture(
 			failed: checks.filter((item) => item.status === "FAIL").length,
 			notRun: Math.max(0, 2 - checks.filter((item) => item.status === "PASS" || item.status === "FAIL").length),
 		};
-		result.contract.taskContractAdherence = run
-			? run.taskContractDigest === taskDigest &&
-				protectedUnchanged &&
-				scopeViolations === 0 &&
-				(run.acceptance?.every((item) => item.status === "MET") ?? false)
-			: null;
+		audit.checks = checks.map((item) => ({
+			id: item.id,
+			status: item.status,
+			stage: item.step?.stepId ?? null,
+			diffDigest: observedDigest(item.diffDigest),
+			registrationDigest: item.trust?.registrationDigest ?? null,
+		}));
+		audit.harnessError = checks.some(
+			(item) =>
+				item.status === "UNAVAILABLE" || item.status === "SKIPPED" || observedDigest(item.diffDigest) === null,
+		);
 		result.reliability.repairCount = run?.verificationRepair?.attempts.length ?? 0;
 		result.reliability.reviewerRevisionCount =
 			run?.reviewHistory?.filter((item) => item.result === "REVISE").length ?? 0;
@@ -497,30 +588,94 @@ async function executeFixture(
 					: run?.status === "CANCELLED" && cleanup
 						? "CANCELLED"
 						: "FAILED";
-		result.evidenceDigest = fitnessDigest({
-			runId: result.runId,
-			contract: result.taskContractDigest,
-			workspaceDigest: run?.workspace?.diffDigest ?? null,
-			checks: checks.map((item) => ({
-				id: item.id,
-				status: item.status,
-				revision: item.revision,
-				digest: item.diffDigest,
-				trust: item.trust?.registrationDigest ?? null,
-				sandbox: item.sandbox?.policyDigest ?? null,
-			})),
-			review: run?.review?.result ?? null,
-			oracle,
-			protectedUnchanged,
+		for (const file of audit.files) {
+			const path = join(cwd, file.path);
+			const stat = lstatSync(path, { throwIfNoEntry: false });
+			file.state = !stat ? "MISSING" : stat.isFile() ? "PRESENT" : "NON_REGULAR";
+			file.finalDigest = stat?.isFile()
+				? `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`
+				: null;
+		}
+		const unexpected: string[] = [];
+		const directories = [""];
+		while (directories.length) {
+			const directory = directories.pop()!;
+			for (const entry of readdirSync(join(cwd, directory), { withFileTypes: true })) {
+				if (!directory && (entry.name === ".ai" || entry.name === ".git")) continue;
+				const path = directory ? `${directory}/${entry.name}` : entry.name;
+				if (entry.isDirectory()) directories.push(path);
+				else if (!entry.isFile() || !Object.hasOwn(baseline, path)) unexpected.push(path);
+			}
+		}
+		audit.unexpectedFileCount = unexpected.length;
+		audit.unexpectedFilesDigest = fitnessDigest(unexpected.sort());
+		const protectedUnchanged = Object.entries(baseline)
+			.filter(([path]) => !Object.hasOwn(fixture.expectedFiles, path))
+			.every(([path, text]) => {
+				const location = join(cwd, path);
+				return (
+					lstatSync(location, { throwIfNoEntry: false })?.isFile() === true &&
+					readFileSync(location).equals(Buffer.from(text, "utf8"))
+				);
+			});
+		audit.protectedUnchanged = protectedUnchanged;
+		scopeViolations = report.changedFiles.filter(
+			(path) => !fixture.allowedPaths.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)),
+		).length;
+		result.contract.scopeViolations = scopeViolations;
+		let oracle = evaluateFitnessOracle(fixture, cwd, run, cleanup, {
+			providerActive,
+			forbiddenAttempts,
+			baselinePaths: Object.keys(baseline),
 		});
-		return settleMetrics(result);
+		if (oracle !== "INVALID" && (!protectedUnchanged || scopeViolations > 0)) oracle = "FAIL";
+		if (
+			run?.status !== "COMPLETED" &&
+			(audit.harnessError ||
+				invocations === 0 ||
+				providerErrors + authErrors + timeouts + (transportErrors ?? 0) > 0)
+		)
+			oracle = "INVALID";
+		result.oracle = oracle;
+		result.falseCompletion = oracle === "INVALID" ? null : result.terminalStatus === "COMPLETED" && oracle === "FAIL";
+		result.contract.taskContractAdherence = !run
+			? null
+			: !audit.taskContractMatches ||
+					!protectedUnchanged ||
+					scopeViolations > 0 ||
+					forbiddenAttempts > 0 ||
+					audit.changedFilesMatch === false ||
+					(audit.unresolvedCount ?? 0) > 0 ||
+					(run.quickScope?.risk === "R1" && (audit.knownRisksCount ?? 0) > 0) ||
+					audit.submittedCriteria.some((item) => item.status !== "MET") ||
+					(!submission && handoffRejections > 0)
+				? false
+				: run.acceptance
+					? run.acceptance.every((item) => item.status === "MET")
+					: null;
 	} catch {
 		cleanup = sdk?.safeToRelease !== false && (!workspaceReady || !existsSync(join(cwd, ".ai/writer.lock")));
-		return settleMetrics(base());
+		const result = observedResult ?? base();
+		result.audit!.harnessError = true;
+		result.oracle = "INVALID";
+		result.falseCompletion = null;
+		result.reliability.cleanup = cleanup ? "CONFIRMED" : "UNCONFIRMED";
+		observedResult = result;
 	} finally {
 		// Never destroy a workspace while a retained writer/resource may still own it.
-		if (cleanup && !existsSync(join(cwd, ".ai/writer.lock"))) rmSync(root, { recursive: true, force: true });
+		if (cleanup && !existsSync(join(cwd, ".ai/writer.lock"))) {
+			try {
+				rmSync(root, { recursive: true, force: true });
+			} catch {
+				observedResult ??= base();
+				observedResult.audit!.harnessError = true;
+				observedResult.reliability.cleanup = "UNCONFIRMED";
+				observedResult.oracle = "INVALID";
+				observedResult.falseCompletion = null;
+			}
+		}
 	}
+	return settleMetrics(observedResult ?? base());
 }
 
 export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<ProviderFitnessRun> {
@@ -555,20 +710,26 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 		if (options.calibration) {
 			if (options.fixtureIds.join(",") !== "F01,F02" || options.budget.maxFixtures !== 2)
 				throw new Error("Calibration is exactly F01,F02");
-		} else {
-			const prior = options.calibrationRecord;
-			if (prior) validateFitnessRecord(prior);
+		} else if (options.calibrationRecord) {
+			const prior = validateFitnessRecord(options.calibrationRecord);
 			if (
-				!prior ||
+				prior.schemaVersion !== 2 ||
 				prior.kind !== "ACTUAL" ||
 				prior.status !== "COMPLETED" ||
+				prior.calibration !== "CALIBRATION_READY" ||
 				prior.corpusDigest !== FITNESS_CORPUS_DIGEST ||
 				fitnessDigest(prior.target) !== fitnessDigest(options.target) ||
 				prior.plannedFixtures.join(",") !== "F01,F02" ||
 				prior.fixtures.length !== 2 ||
-				prior.fixtures.some((item) => !passesFitnessCalibrationFixture(item))
+				prior.fixtures.some((item) => !passesFitnessCalibrationFixture(item)) ||
+				options.fixtureIds.join(",") !==
+					FITNESS_CORPUS.slice(2)
+						.map((item) => item.id)
+						.join(",")
 			)
-				throw new Error("Successful exact-target calibration required; no full matrix started");
+				throw new Error("Exact-target v2 integrity calibration required for a separate remaining-fixture cohort");
+		} else if (options.fixtureIds.join(",") !== FITNESS_CORPUS.map((item) => item.id).join(",")) {
+			throw new Error("Fresh actual evaluation requires the complete ordered corpus, including F01/F02");
 		}
 	}
 	const ledger = new BudgetController({
@@ -576,7 +737,7 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 		maxReportedTokens: options.budget.maxTotalTokens,
 	});
 	let record = freezeFitnessRecord({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		id: randomUUID(),
 		corpusRevision: FITNESS_CORPUS_REVISION,
 		corpusDigest: FITNESS_CORPUS_DIGEST,
@@ -585,6 +746,9 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 		startedAt: Date.now(),
 		completedAt: null,
 		status: "RUNNING",
+		calibration: "PENDING",
+		evaluation: "EVALUATION_PARTIAL",
+		stopReasons: [],
 		budget: options.budget,
 		plannedFixtures: options.fixtureIds,
 		fixtures: [],
@@ -592,6 +756,7 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 	});
 	await options.store.save(record);
 	let status: ProviderFitnessRun["status"] = "COMPLETED";
+	let matrixDefect = false;
 	try {
 		for (const fixture of fixtures) {
 			if (options.signal?.aborted) {
@@ -611,14 +776,23 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 				break;
 			}
 			const result = await executeFixture(fixture, options, ledger);
-			record = freezeFitnessRecord({ ...record, fixtures: [...record.fixtures, result] });
+			const collected = [...record.fixtures, result];
+			record = freezeFitnessRecord({
+				...record,
+				fixtures: collected,
+				calibration: fitnessCalibrationState(collected),
+				stopReasons: [...new Set(collected.flatMap((item) => item.integrity!.reasons))],
+			});
 			await options.store.save(record);
-			if (result.reliability.cleanup === "UNCONFIRMED") {
-				status = "FAILED";
-				break;
-			}
-			if (options.calibration && !passesFitnessCalibrationFixture(result)) {
-				status = "CALIBRATION_FAILED";
+			if (!passesFitnessCalibrationFixture(result)) {
+				status =
+					result.reliability.cleanup === "UNCONFIRMED"
+						? "FAILED"
+						: result.efficiency.usage.state === "UNKNOWN"
+							? "BUDGET_EXHAUSTED"
+							: options.calibration
+								? "CALIBRATION_FAILED"
+								: "FAILED";
 				break;
 			}
 			if (options.signal?.aborted) {
@@ -632,8 +806,15 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 		}
 	} catch (error) {
 		status = error instanceof BudgetDenied ? "BUDGET_EXHAUSTED" : "FAILED";
+		matrixDefect = !(error instanceof BudgetDenied);
 	}
-	record = freezeFitnessRecord({ ...record, status, completedAt: Date.now() });
+	const settled = {
+		...record,
+		status,
+		completedAt: Date.now(),
+		stopReasons: [...new Set([...(record.stopReasons ?? []), ...(matrixDefect ? ["HARNESS_DEFECT" as const] : [])])],
+	};
+	record = freezeFitnessRecord({ ...settled, evaluation: fitnessEvaluationState(settled) });
 	await options.store.save(record);
 	return record;
 }

@@ -36,6 +36,103 @@ export const ProviderTargetSchema = Type.Object(
 );
 export type ProviderTarget = Static<typeof ProviderTargetSchema>;
 
+export const FitnessIntegrityReasonSchema = Type.Enum([
+	"AUTH_ERROR",
+	"PROVIDER_ERROR",
+	"TRANSPORT_ERROR",
+	"TOOL_PROTOCOL_ERROR",
+	"MEASUREMENT_INVALID",
+	"ORACLE_INVALID",
+	"CLEANUP_UNCONFIRMED",
+	"USAGE_UNKNOWN",
+	"TIMEOUT",
+	"HARNESS_DEFECT",
+]);
+export type FitnessIntegrityReason = Static<typeof FitnessIntegrityReasonSchema>;
+
+export const FitnessIntegritySchema = Type.Object(
+	{
+		state: Type.Enum(["READY", "INVALID"]),
+		reasons: Type.Array(FitnessIntegrityReasonSchema, { maxItems: 10, uniqueItems: true }),
+	},
+	strict,
+);
+
+export const FitnessInvestigationAnswerSchema = Type.Object(
+	{
+		classificationAtZero: Type.Enum(["positive", "non-positive"]),
+		cause: Type.Object(
+			{
+				operator: Type.Enum([">", ">=", "<", "<=", "===", "!=="]),
+				boundary: Type.Number({ minimum: -1_000_000, maximum: 1_000_000 }),
+			},
+			strict,
+		),
+	},
+	strict,
+);
+export type FitnessInvestigationAnswer = Static<typeof FitnessInvestigationAnswerSchema>;
+
+const criterion = Type.Object(
+	{
+		id: Type.String({ pattern: "^AC-[0-9]{3}$" }),
+		status: Type.Enum(["MET", "UNMET", "UNVERIFIED"]),
+	},
+	strict,
+);
+
+export const FitnessAuditSchema = Type.Object(
+	{
+		files: Type.Array(
+			Type.Object(
+				{
+					path: identifier(256),
+					initialDigest: digest,
+					finalDigest: nullableDigest,
+					state: Type.Enum(["PRESENT", "MISSING", "NON_REGULAR", "UNAVAILABLE"]),
+				},
+				strict,
+			),
+			{ maxItems: 64 },
+		),
+		unexpectedFileCount: nullableCount,
+		unexpectedFilesDigest: nullableDigest,
+		workspaceDiffDigest: nullableDigest,
+		protectedUnchanged: Type.Union([Type.Boolean(), Type.Null()]),
+		taskContractMatches: Type.Union([Type.Boolean(), Type.Null()]),
+		submissionKind: Type.Enum(["EXECUTOR", "HANDOFF", "NONE"]),
+		submissionDigest: nullableDigest,
+		summaryDigest: nullableDigest,
+		submittedCriteria: Type.Array(criterion, { maxItems: 16 }),
+		unknownCriterionCount: count,
+		acceptance: Type.Array(criterion, { maxItems: 16 }),
+		reviewer: Type.Union([Type.Enum(["PASS", "REVISE", "BLOCK"]), Type.Null()]),
+		knownRisksCount: nullableCount,
+		unresolvedCount: nullableCount,
+		changedFilesMatch: Type.Union([Type.Boolean(), Type.Null()]),
+		phase: Type.Union([
+			Type.Enum(["PREFLIGHT", "IMPLEMENT", "SELF_CHECK", "REVIEW", "TEST", "COMPLETE"]),
+			Type.Null(),
+		]),
+		answer: Type.Union([FitnessInvestigationAnswerSchema, Type.Null()]),
+		checks: Type.Array(
+			Type.Object(
+				{
+					id: identifier(128),
+					status: Type.Enum(["PASS", "FAIL", "SKIPPED", "UNAVAILABLE"]),
+					stage: Type.Union([Type.Enum(["implement", "self-check", "review", "test", "complete"]), Type.Null()]),
+					diffDigest: nullableDigest,
+					registrationDigest: nullableDigest,
+				},
+				strict,
+			),
+			{ maxItems: 16 },
+		),
+		harnessError: Type.Boolean(),
+	},
+	strict,
+);
+
 export const FitnessFixtureResultSchema = Type.Object(
 	{
 		fixtureId: identifier(64),
@@ -44,8 +141,18 @@ export const FitnessFixtureResultSchema = Type.Object(
 		taskContractDigest: nullableDigest,
 		registeredCheckDigest: digest,
 		configurationDigest: digest,
-		terminalStatus: Type.Enum(["COMPLETED", "BLOCKED", "FAILED", "CANCELLED", "INTERRUPTED", "NOT_STARTED"]),
+		terminalStatus: Type.Enum([
+			"COMPLETED",
+			"BLOCKED",
+			"FAILED",
+			"CANCELLED",
+			"INTERRUPTED",
+			"NOT_STARTED",
+			"UNKNOWN",
+		]),
 		oracle: Type.Enum(["PASS", "FAIL", "INVALID"]),
+		integrity: Type.Optional(FitnessIntegritySchema),
+		audit: Type.Optional(FitnessAuditSchema),
 		falseCompletion: Type.Union([Type.Boolean(), Type.Null()]),
 		latencyMs: count,
 		ac: Type.Object({ met: nullableCount, notMet: nullableCount }, strict),
@@ -65,6 +172,7 @@ export const FitnessFixtureResultSchema = Type.Object(
 			{
 				calls: count,
 				invalidCalls: count,
+				protocolErrors: Type.Optional(count),
 				retries: count,
 				runtimeRead: count,
 				runtimeEdit: count,
@@ -118,7 +226,7 @@ export type FitnessFixtureResult = Static<typeof FitnessFixtureResultSchema>;
 
 export const ProviderFitnessRunSchema = Type.Object(
 	{
-		schemaVersion: Type.Literal(1),
+		schemaVersion: Type.Union([Type.Literal(1), Type.Literal(2)]),
 		id: FitnessIdSchema,
 		corpusRevision: identifier(128),
 		corpusDigest: digest,
@@ -135,6 +243,9 @@ export const ProviderFitnessRunSchema = Type.Object(
 			"FAILED",
 			"INTERRUPTED",
 		]),
+		calibration: Type.Optional(Type.Enum(["PENDING", "CALIBRATION_READY", "CALIBRATION_INVALID"])),
+		evaluation: Type.Optional(Type.Enum(["EVALUATION_PARTIAL", "EVALUATION_COMPLETE"])),
+		stopReasons: Type.Optional(Type.Array(FitnessIntegrityReasonSchema, { maxItems: 10, uniqueItems: true })),
 		budget: FitnessBudgetSchema,
 		plannedFixtures: Type.Array(identifier(64), { minItems: 1, maxItems: 64, uniqueItems: true }),
 		fixtures: Type.Array(FitnessFixtureResultSchema, { maxItems: 64 }),

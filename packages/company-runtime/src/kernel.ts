@@ -328,6 +328,10 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 			finalCheck.step.attempt === revision + 1,
 		"Completion verification belongs to another step attempt",
 	);
+	requireEvidence(
+		evidence.taskContractDigest === taskContractDigest(task),
+		"Task Contract changed after confirmation; completion refused",
+	);
 	if (quick) {
 		requireEvidence(
 			revision === 0 && checks.some((check) => check.required) && !review,
@@ -378,10 +382,6 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 	requireEvidence(
 		review.diffDigest === finalCheck.diffDigest,
 		"Final verification changed the reviewed diff; another review is required",
-	);
-	requireEvidence(
-		evidence.taskContractDigest === taskContractDigest(task),
-		"Task Contract changed after confirmation; completion refused",
 	);
 }
 

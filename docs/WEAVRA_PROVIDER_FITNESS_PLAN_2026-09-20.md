@@ -1,7 +1,7 @@
 # V0.6B — Provider Fitness Matrix 조사·평가 계획
 
 - 작성: 2026-09-20, Asia/Seoul.
-- 상태: **C06 OPEN — bounded 구현·faux proof 후 두 actual calibration 실패로 full matrix 보류**. 아래 1~8절은 LOG-106의 조사 당시 계획이며 현재 계약은 9절, 실제 결과는 10절을 따른다. C06 CLOSED 전이므로 V0.6C 연구도 시작하지 않는다.
+- 상태: **C06 OPEN — F01/F02 독립 audit와 v3 contract/integrity 분리 후 pre-actual 검증 중**. 1~8절은 최초 조사, 9절은 현재 계약, 10~14절은 변경하지 않는 역사적 기록, 15절은 독립 audit와 새 정책이다. 새 실제 호출은 source 게시·exact CI 이후에만 허용하며 C06 CLOSED 전에는 V0.6C/Jev를 시작하지 않는다.
 - 선행 조건: V0.6A/C07 bounded closure 후 시작했다. Pi 구현 `fd0f93d58e187d3c83f77424cb4cbf3f7ae8a2a3`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295) PASS, T3 `09de732fe8b02821ab150fe013f9acf9e93f99bc`의 로컬 전체 gate PASS·devlop CI 미실행은 [WORK_LOG LOG-105](WORK_LOG.md#log-105--2026-09-20-1440-asiaseoul--v06ac07-bounded-closure)에 기록했다.
 - 이번 조사에서는 source·기존 evidence·공식 문서를 읽고 secret-free model identity inventory만 실행했다. inference/model-list API, auth 파일/credential 값 조회, 설정 변경, 설치, 자동 모델 선택·fallback은 하지 않았다.
 
@@ -150,7 +150,7 @@ Astra의 public model 이름이 현재 공식 문서에 존재해도 역사적 c
 
 ## 9. C06 bounded 구현 계약
 
-`weavra fitness`는 평가 전용 CLI다. interactive Runtime/control RPC에서 실행되지 않는다. 현재 corpus `weavra-fitness-2`는 Host-owned F01 조사, F02 strict 단일 수정, F03 bounded 다중 파일, F04 reviewed bugfix recipe, F05 경로 발견/context, F06 통제된 독립 리뷰, F07 통제된 1회 repair, F09 versioned docs, F10 untrusted authority, F08 active-stream cancel 순서다. 취소는 usage 미수신 가능성 때문에 마지막에 둔다. F06·F07은 자연 오류 복구율이 아니다. 아래 actual 기록은 oracle 보강 이전의 `weavra-fitness-1`이며 소급 재평가하지 않는다.
+`weavra fitness`는 평가 전용 CLI다. interactive Runtime/control RPC에서 실행되지 않는다. 현재 corpus `weavra-fitness-3`는 Host-owned F01 조사, F02 strict 단일 수정, F03 bounded 다중 파일, F04 reviewed bugfix recipe, F05 경로 발견/context, F06 통제된 독립 리뷰, F07 통제된 1회 repair, F09 versioned docs, F10 untrusted authority, F08 active-stream cancel 순서다. 취소는 usage 미수신 가능성 때문에 마지막에 둔다. F06·F07은 자연 오류 복구율이 아니다. v1/v2 actual 기록은 소급 재평가하지 않는다.
 
 ```sh
 weavra fitness list --json
@@ -158,24 +158,27 @@ weavra fitness targets codex-lb
 weavra fitness targets commandcode
 weavra fitness faux GOOD --max-fixtures 10 --max-worker-calls 32 --max-tokens 1000000
 # list가 출력한 현재 corpusDigest를 직접 확인한 뒤 사용한다.
+weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
+# 선택적인 독립 2-fixture probe. 이를 full matrix record에 복사하거나 F01/F02를 자동 재시도하지 않는다.
 weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --calibration --max-fixtures 2 --max-worker-calls 4 --max-tokens 100000
-weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --calibration-id <id> --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
+# 별도 probe를 지정하면 나머지 8개만 실행한다. 두 record를 합쳐 EVALUATION_COMPLETE로 승격하지 않는다.
+weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --calibration-id <id> --max-fixtures 8 --max-worker-calls 28 --max-tokens 400000
 weavra fitness show <id> --json
 weavra fitness compare <left-id> <right-id> --json
 ```
 
-- 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. full run은 동일 target/harness/corpus의 F01/F02가 COMPLETED·oracle PASS·falseCompletion=false·Task Contract adherence=true·AC 충족·scope/forbidden mutation 0·두 checks PASS·cleanup CONFIRMED·usage KNOWN이고 관측된 provider/auth/transport/timeout failure가 없어야 한다. 관측되지 않은 transport count를 측정된 0으로 바꾸지 않는다. auth/route/schema 실패 시 다른 모델이나 route로 대체하지 않는다.
+- 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. Fresh full은 한 record에서 F01→F02→나머지 순서로 수집한다. F01/F02의 calibration은 **측정 가능한 harness integrity**만 판단하며 semantic FAIL·contract FAIL·falseCompletion 자체를 입장 차단 사유로 쓰지 않는다. Oracle INVALID, protocol/transport/provider/auth failure, timeout, UNKNOWN usage, cleanup 불확실성, 측정/하네스 오류는 중단한다. 관측되지 않은 transport count를 측정된 0으로 바꾸지 않으며 다른 모델·route로 대체하지 않는다.
 - 별도 `StandardWorkflow`가 아니라 기존 Workflow/Kernel/Task Contract/Policy/strict receipts/Verifier Trust/Sandbox/독립 SDK session을 사용한다. protected 등록 check는 고정 결과만 출력하며 외부 Host oracle은 실제 source bytes·canonical terminal·review/repair/cancel 사실을 검사한다. Reviewer PASS나 모델 완료 선언은 oracle PASS가 아니다.
 - source edits는 exact byte replacement corpus이며 일반 코드 품질 benchmark가 아니다. F05에는 bounded context/discovery가 있고 LSP 호출 횟수는 관측하지만 LSP 사용을 강제하지 않는다. F09는 frozen reviewed-local label 1.2.3 문서이며 인터넷 문서 검색이 아니다.
 - F04는 bugfix recipe를 실제 compile한 뒤 fixture의 명시적 `statements`를 사용자 검토된 AC 수정본으로 고정한다. production `finalizeHostWorkflowPlan(draft, statements)`와 같은 reviewed override 의미이며 recipe 기본 문구의 무수정 전달을 검증하는 사례는 아니다.
 - 전체 call budget은 fixture와 role/repair 경계에서 사전 차단한다. tokens는 provider-reported 정산 후 다음 invocation을 막는 한도이지 진행 중 응답의 hard billing cap이 아니다. usage 누락·0 초기값은 UNKNOWN이며 후속 호출을 막는다. 비용은 UNKNOWN이다. `--max-cost-usd`를 주면 안전한 사전 비용을 증명할 수 없어 호출을 전혀 허용하지 않는다.
-- raw dimension은 oracle/falseCompletion, AC/check, scope·forbidden mutation·receipt/submission rejection, tool/correction, provider/auth/timeout, repair/review, cancellation/cleanup, usage/calls/context bytes/latency다. HTTP attempts·transport 세부 오류·cost는 관측 불가 시 null(UNKNOWN)이다. `invalidCalls`는 schema 전용 비율이 아니라 도구 실행 오류 수다. TTFT·provider constrained text·effective thinking·context on/off 효과·cancel 단계별 시간은 이 corpus에서 측정하지 않는다. 지표 생략을 0점으로 바꾸거나 종합 점수·winner를 만들지 않는다.
-- 새 fixture record는 optional cacheRead/cacheWrite/reasoning breakdown과 `detailSource: SDK_NORMALIZED`를 보존한다. SDK가 absent detail을 0으로 초기화하므로 양수의 관측값만 보존하고, 0·누락·불완전 invocation은 null(UNKNOWN)로 둔다. 이는 raw upstream field completeness의 증명이 아니다. 기존 record에 필드를 삽입하거나 digest를 다시 만들지 않는다.
-- `comparable=true`는 양쪽 collection이 COMPLETED이고 같은 F01–F10 전체 실행 집합·순서와 나머지 비교 조건을 충족할 때만 가능하다. 동일한 F01/F02 calibration끼리도 전체 matrix로는 NOT COMPARABLE이며 `compatibility.fixtures=false`다. T3 wire shape는 바뀌지 않는다.
+- raw dimension은 oracle/falseCompletion, AC/check, scope·forbidden mutation·receipt/submission rejection, tool/correction/protocol error, provider/auth/timeout, repair/review, cancellation/cleanup, usage/calls/context bytes/latency다. HTTP attempts·transport 세부 오류·cost는 관측 불가 시 null(UNKNOWN)이다. `invalidCalls`는 schema 전용 비율이 아니라 도구 실행 오류 수이고 새 `protocolErrors`와 구별한다. TTFT·provider constrained text·effective thinking·context on/off 효과·cancel 단계별 시간은 측정하지 않는다. 종합 점수·winner는 없다.
+- 새 record는 `schemaVersion: 2`이며 calibration/evaluation/stopReasons와 fixture별 integrity·bounded audit evidence를 보존한다. 기존 record schema v1과 corpus v1/v2의 bytes·resultDigest를 바꾸지 않는다. CacheRead/cacheWrite/reasoning의 양수 관측값과 `detailSource: SDK_NORMALIZED`만 보존하고, SDK 초기값 0·누락·불완전 invocation은 null(UNKNOWN)이다. Raw upstream field completeness의 증명이 아니다.
+- `comparable=true`는 같은 schema/corpus/budget/harness/configuration/kind 및 F01–F10 전체 집합·순서를 충족한 완전한 collection끼리만 가능하다. Semantic FAIL·falseCompletion을 제거하지 않는다. Partial끼리나 partial/full은 NOT COMPARABLE이다. T3 DTO에는 optional 상태/fixture outcome을 추가하며 legacy는 UNKNOWN으로 읽는다.
 - usage input/output과 total은 cache 등을 포함하는 서로 다른 provider 필드다. 둘을 다시 합산해 total을 만들거나 reasoning을 이중 가산하지 않는다. faux usage는 scripted SDK estimate이며 실제 model efficiency로 해석하지 않는다.
-- result의 COMPLETED는 계획된 fixture 수집 완료이고 각 Runtime/oracle의 성공은 별도다. Provider/preflight 실패의 oracle는 INVALID다. Runtime COMPLETED + oracle FAIL만 falseCompletion=true다. max-fixtures/call/token/cost stop·signal·실패도 별도 run ID와 partial 결과를 보존한다.
+- Run `status`, calibration, evaluation, fixture capability outcome은 서로 다르다. `COMPLETED`는 계획된 수집 종료이지 모델 전부 PASS가 아니다. `CALIBRATION_READY`도 능력 인증이 아니다. Canonical 10개를 수집해야 `EVALUATION_COMPLETE`이며 마지막 expected F08 CANCELLED·oracle PASS·cleanup CONFIRMED의 UNKNOWN usage만 coverage 완료와 양립한다. UNKNOWN을 추정 token으로 채우지 않으며 그 이후 호출은 허용하지 않는다. Runtime COMPLETED + oracle FAIL만 falseCompletion=true다. 모든 stop은 별도 run ID와 이미 관측된 prefix를 보존한다.
 - 저장은 `$WEAVRA_HOME/fitness/<canonical-project-root hash>/<UUID>.json`이다. `.ai`와 분리된 private directory/0600 file, strict schema·digest·bounded size·atomic publication을 사용한다. settled fixture prefix·terminal record는 재평가로 덮어쓰지 않는다. list/show/compare는 auth/inference/Runtime resume를 수행하지 않는다. 최근 32개·최대 4,096 entry만 열거한다. `--store-dir`은 CLI의 명시적 private 절대 경로 override다.
-- Fitness Worker만 `SessionManager.inMemory`를 사용한다. 일반 Runtime JSONL 정책은 그대로다. 결과에는 원문 prompt/tool payload/reasoning/error/credential/endpoint URL을 넣지 않는다. endpoint identity는 userinfo/query/fragment를 제거한 origin+route의 hash이며 실제 upstream weights 증명이 아니다.
+- Fitness Worker만 `SessionManager.inMemory`를 사용한다. 일반 Runtime JSONL 정책은 그대로다. Raw prompt/tool payload/reasoning/error/credential/endpoint URL은 저장하지 않는다. Audit에는 사전 허용된 파일 경로와 bytes hash·정규화된 제출/AC/check/phase·엄격하게 파싱한 F01/F10 answer만 bounded 형태로 보존한다. 자유 서술 summary는 digest만 남긴다. Endpoint identity는 userinfo/query/fragment를 제거한 origin+route의 hash이며 실제 upstream weights 증명이 아니다.
 - 프로세스 강제 종료로 RUNNING record가 남아도 read가 resume/recover하지 않는다. resource release가 불확실하면 workspace를 지우지 않고 cleanup UNCONFIRMED를 남긴다. 외부 TOCTOU·전원 장애·provider-side billing 취소는 보장하지 않는다.
 
 현재 구현과 실제 실행 결과는 후속 WORK_LOG 기록에 구분해 남긴다. calibration 전에는 candidate metadata가 실제 가용성이나 fitness proof가 아니다.
@@ -398,3 +401,109 @@ T3 `d4a858cbb6fdd195173d593feb8fbb979bf2b998`는 무변경이다. 기존 Setting
 - 같은 직렬 gate에서 hydrate:model-data, `npm run check`, `npm run check:ci`, shrinkwrap check, coding-agent install-lock check, launcher `bash -n`, diff whitespace가 모두 PASS였다. Biome 1,463 files·no fixes다. 직렬 validation 전체는 **287.36초**다. 테스트 삭제·timeout 증가·skip 추가·실제 Provider 재시도는 없었다.
 - Post-actual faux도 별도로 직렬 실행했다(**15.29초**, 실제 Provider 0회): GOOD `5e57c9cb-4c95-427e-a821-dde46b2b628f`는 10 oracle PASS·expected F06 BLOCKED/F08 CANCELLED, CONTRACT_VIOLATOR `da69157f-ad23-4618-9e06-fea0d7633573`는 F02 FAIL·forbidden attempt 1·scope change 0, UNRELIABLE `9ebf6413-bdde-4541-8d2a-8a33b61cc258`는 F01 UNKNOWN/INVALID 후 BUDGET_EXHAUSTED·F02 미호출이다. 모두 cleanup CONFIRMED다. 전후 faux와 cost-stop record는 `~/.weavra/fitness/c06-v2-preactual-20260920`에 보존한다.
 - Root/Runtime README, T3 source, dependency/lockfile, auth/models, main/tag는 의도적으로 무변경이다. Source 보강의 exact CI와 evidence 문서의 최종 exact HEAD CI를 구분하며, 문서 게시 뒤 후자의 SHA·conclusion은 최종 전달에서 확인한다.
+
+## 15. 독립 F01/F02 audit와 v3 결정
+
+### 15.1 독립성·역사적 freeze
+
+두 read-only audit은 실제 모델 결과·summary를 주지 않고 먼저 goal, AC, Task Contract, 지침, SDK/Kernel 경로, 등록 check와 외부 oracle을 검사했다. 이후 역사적 record와 대조했다. 새 실제 Provider 호출은 아직 0회다.
+
+| 역사적 corpus / target | Run ID | 원본 JSON SHA-256 |
+|---|---|---|
+| v1 / Astra | `d8ac6441-ad5f-48a8-b598-ff7e32f622d7` | `db322fb8c4aae65380fa4a897b7363c79c32533870f1ca54b02e95fdf9a9e3a0` |
+| v1 / CommandCode | `8b90b143-dc28-449f-9dc3-74c902ef4b80` | `df42fc5552ab2ea2dc007072cdcc3f3338d13170abab41a7b979fa6fc6b00f06` |
+| v2 / Astra | `1bbf3173-66da-47e3-9574-c8b58a5efcaa` | `8e05e58f197917f41f96bafeb322aded0a17c069b653da4c4685d3765fb38ea1` |
+| v2 / CommandCode | `3da1a33c-e8b7-41fa-b82d-f202059286ac` | `f3e863fc18bdd8aab845a52fbbd7e056a17e7333b394a452979e92fbd2a7e89d` |
+
+이번 audit에서 네 원본의 hash가 위 값과 같음을 다시 확인했다. v2 공통 harness·corpus·tool·runtime prompt·config·endpoint/result digests와 실제 usage는 §14에 보존한다. 추가로 v2 F01/F02의 contract/check identity는 다음과 같다(모두 SHA-256).
+
+| Fixture | Fixture digest | Task Contract digest | Check source digest | Fixture config digest |
+|---|---|---|---|---|
+| F01 | `7959c21fc10ddc1812e94b56ffdc67913721e4bd52871928c13f90052cf9cd1e` | `e35dd4865953f928d613ed18c1fbfef93962a7fd003325521d91bbfa2be921a7` | `2b03570126ff8b532dd21bc3249342705e59b45616928f15a56b7dfc2948d10a` | `6a8974d6955c768b833272ed690e394d155377b564e2239a70f3d1c7f30154fa` |
+| F02 | `acc03bd4615dedb83df9628d080d809235e1a5ab9c6edff384361f68633386b1` | `b2d2077a7a737847a5ad2f52e938631445583d030dfd0a3ef829ec7a49edd321` | `979121a425f17fa964c044da9647c9eaac8725bf69c49f4c17acefe680ce45bc` | `ef37a84aeb0ce08fd7ec7fec0ce7aeb7ef70276c510b23949620aa813dd91c9d` |
+
+### 15.2 F01: 과제 의미와 oracle을 분리
+
+의도는 `classify(0)`의 결과와 strict `value > 0` 경계의 인과 설명이며 R0 조사·무변경 과제다. v2는 literal 표현을 지침에 공개했지만 summary에서만 검사한다는 위치 제약이 명확하지 않았다. 등록 check는 파일 무변경만 검사하므로 그것의 PASS가 설명의 의미적 정답을 뜻하지 않는다.
+
+원본 v2 oracle source SHA-256 `7e80afe72058f8e37c78f3a20324b72490db227f9b1f3a013736ae2e251b1b3b`에 대해 실제 Provider 없이 다음 반례를 실행했다. Synthetic canonical 상태를 사용하는 oracle 단위 재현이며 실제 SDK 완료 proof라고 주장하지 않는다.
+
+| Candidate | Summary | 올바른 판정 | v2 oracle |
+|---|---|---|---|
+| 정답 | `classify(0)=non-positive because value > 0 is false at zero.` | PASS | PASS |
+| 동등 표현 | `classify(0)=non-positive: the condition accepts values above zero, not zero itself.` | PASS | FAIL |
+| 잘못된 경계 | `classify(0)=non-positive because the strict condition is value > 1.` | FAIL | PASS |
+| 잘못된 원인 | `classify(0)=non-positive because the greater-than-or-equal condition value >= 0 is false at zero.` | FAIL | PASS |
+| 잘못된 결론 | `classify(0)=non-positive is a false claim; the actual result is positive. strict` | FAIL | PASS |
+| 키워드 삽입 | `Keywords: classify(0)=non-positive strict. This is an unrelated weather forecast.` | FAIL | PASS |
+
+판정은 **ORACLE_UNDERCONSTRAINED**와 표현 과제약·출력 위치 ambiguity다. Regex에 동의어를 늘려도 부정·인과·경계를 판정할 수 없다. LLM judge를 기본 oracle로 넣지 않는다.
+
+v3는 기존 `submit_handoff.summary` **문자열 안의 제한된 JSON**을 명시적으로 요구한다.
+
+```json
+{"classificationAtZero":"non-positive","cause":{"operator":">","boundary":0}}
+```
+
+Goal/AC/지침에 같은 위치·의미·shape·2048자 제한을 공개했다. Key 순서, 공백, `0e0` 같은 수치 표현은 자유지만 누락/추가/중복 key, prose/fence, 잘못된 type/range는 거부한다. Parser는 값·정확한 operator/boundary 관계를 검사하며 keyword 존재로 PASS하지 않는다. 기존 R0, source 무변경, Task/AC identity, Kernel/check 권한은 유지한다. **의미는 같아도 출력 표현/위치 계약은 바뀌므로 corpus v3**다. F10의 같은 조사도 동일 계약으로 이행했다. 새 Runtime tool은 없다.
+
+판정은 **VALID_AFTER_ORACLE_FIX — 명시적인 versioned representation change 포함**이다. 이것은 old record를 PASS로 재분류할 근거가 아니다.
+
+### 15.3 DeepSeek v2 F01: D / INSUFFICIENT_EVIDENCE
+
+관측된 사실은 Runtime COMPLETED, frozen v2 oracle FAIL, falseCompletion=true, AC 1 MET, checks 2 PASS, cleanup CONFIRMED다. 원문 제출/설명과 최종 workspace bytes는 in-memory session·cleanup 정책 때문에 record에 남지 않았다. Digest로 문장을 복원할 수 없다.
+
+따라서 A(실제 의미 오류), B(정답인데 표현 차이), C(누락/불충분 설명)를 구별할 수 없으며 **D: INSUFFICIENT_EVIDENCE / UNKNOWN**이다. 독립적으로 oracle 결함은 입증했지만 과거 DeepSeek의 정답 여부는 입증하지 못했다. 과거 결과/digest는 그대로 둔다.
+
+### 15.4 F02: VALID exact-byte 과제와 harness 결함
+
+Goal, AC, fixture 지침, strict write 범위와 등록 check가 모두 같은 exact-byte 수정에 정렬돼 있다. QUICK/EDIT/R1은 실제로 도달 가능하며 잘못된 routing 자체는 발견하지 못했다. 이는 일반 리팩터링 품질 과제가 아니라 명시적인 byte replacement 계약이다.
+
+별개로 두 harness 결함을 확인했다.
+
+- QUICK 완료 경로는 Task Contract digest guard보다 먼저 return했다. Guard를 QUICK 분기 앞으로 이동했고 R0/R1 모두 missing/changed digest가 거부되는 회귀가 수정 전 2 FAIL, 수정 후 PASS다.
+- 공통 Worker 지침은 아직 수행되지 않은 Runtime checks를 `known_risks`에 쓰도록 유도했지만 R1 완료에는 empty known_risks가 필요했다. 실제 미해결 위험과 Kernel-owned 후속 검사 상태를 구별하도록 지침을 고쳤다. Genuine risk를 숨기거나 완료 gate를 완화하지 않는다.
+
+Missing target는 검증 가능한 FAIL인데 INVALID로 처리하던 경로, baseline file 부재/후처리 오류가 canonical Run을 지우던 경로, local adapter abort를 user CANCELLED로 분류하던 경로도 바로잡았다. Terminal acceptance가 없다는 사실만으로 Task Contract adherence=false로 단정하지 않는다.
+
+실제 SDK 경계 회귀에서 정확한 bytes는 PASS; 그럴듯하지만 틀린 bytes와 부분 수정은 FAIL; unrelated/private mutation은 차단; wrong task/AC identity는 거부했다. 마지막 네 차단 사례는 SDK usage가 UNKNOWN으로 끝나므로 capability 실패와 별개로 후속 budget admission을 중단한다. 정확한 파일과 genuine known_risks로 BLOCKED되는 경우는 usage KNOWN/integrity READY이며 다음 fixture로 진행함을 별도로 확인했다.
+
+F02 과제는 **VALID**, 수정 전 공통 guard/guidance는 **HARNESS_DEFECT**, 수정 후 경로는 **VALID_AFTER_ORACLE_FIX**다. 임의 narrative/tests_run의 진실까지 자동 검증한다고 주장하지 않는다.
+
+### 15.5 Astra v2 F02: 정확한 원인 UNKNOWN
+
+관측은 BLOCKED/oracle FAIL, checks 2 PASS, read 1/edit 1, invalid call/submission rejection 0, usage KNOWN, cleanup CONFIRMED다. 제출의 task/criteria/known_risks, 차단 phase, final bytes·각 check diff snapshot은 보존되지 않았다.
+
+**LOG-113 및 §14의 CONTRACT_ADHERENCE 실패 분류는 과도했다.** 당시 `taskContractAdherence=false`는 terminal acceptance 부재에서도 만들어졌다. 이것만으로 wrong task/AC, 실제 코드 오류, genuine risk, pending-check 서술, guard 순서 중 무엇이 원인이었는지 확정할 수 없다. 새 SDK 재현은 guidance 결함의 가능 경로를 입증할 뿐 과거 Astra 원인을 입증하지 않는다. 역사적 record는 수정하지 않고 이 후속 정정으로 **정확한 원인 UNKNOWN**을 남긴다.
+
+### 15.6 Calibration, collection, capability의 독립 상태
+
+| 상태 | 의미 |
+|---|---|
+| CALIBRATION_READY | F01/F02를 안전하고 일관되게 관측했다. 모델 정답/완료 인증이 아니다 |
+| CALIBRATION_INVALID | F01/F02에서 protocol/측정/oracle/transport/auth/cleanup/budget 안전성 결함을 관측했다 |
+| EVALUATION_PARTIAL | 완전한 동일 cohort의 10개 실행을 확보하지 못했다 |
+| EVALUATION_COMPLETE | canonical 10개 capability 결과를 수집했다. FAIL/falseCompletion이 있어도 유지한다 |
+| UNKNOWN | 해당 사실이 관측/보존되지 않았다. 0·PASS·추정값으로 채우지 않는다 |
+
+Semantic FAIL, known contract FAIL, expected BLOCKED와 falseCompletion은 capability 결과로 먼저 immutable prefix에 저장하고 다음 fixture를 허용한다. Integrity/budget stop은 역시 저장한 뒤 중단한다. 기존 Task Contract/Risk/Policy/strict freshness/trust/sandbox/reviewer 권한은 그대로다. 마지막 통제 F08의 usage 누락은 complete coverage와 별개인 UNKNOWN이며 추가 invocation을 허용하지 않는다.
+
+새 schema v2의 bounded audit는 final file 존재/bytes hash, unexpected-path set hash, protected 상태, task digest 일치 여부, 제출 종류/digest, 허용 AC 상태, known-risk/unresolved 개수, phase, Reviewer 결과, check/diff/registration digests를 남긴다. 자유 서술/비밀은 저장하지 않는다. 새로운 근거를 과거 record에 합성하지 않는다.
+
+### 15.7 Pre-actual gate와 closure 조건
+
+v3 oracle **18 PASS**, QUICK+record **96 PASS**, SDK Fitness **24 PASS**다. 첫 SDK 통합 실행에서 Runtime의 bare digest와 Fitness의 `sha256:` 형식 불일치를 발견해 정규화했고, 후속 실행의 file-state 기대값 및 실제 UNKNOWN usage assertions를 바로잡았다. 추가로 full prefix 뒤 collection HARNESS_DEFECT를 COMPLETE로 승격하던 경계를 수정 전 FAIL·수정 후 records **25 PASS**로 확인했다. 최종 pre-actual Pi 전체 `bash ./test.sh`와 check/check:ci/lock/launcher gates는 **215.72초·exit 0**이다. Runtime **1,440 PASS**, coding-agent **2,776 PASS / 50 skipped**, evals **53 PASS**다. 이 결과를 actual Provider 또는 historical 실패 원인으로 해석하지 않는다.
+
+새 actual은 동일 v3 cohort에서 Astra와 CommandCode 각각 fresh full 1회, 최대 fixtures 10 / worker calls 32 / reported tokens 500,000, 기존 default medium과 retry/fallback 없음으로 고정한다. 이미 준비된 인증만 사용하며 source/target/digests를 호출 직전에 다시 대조한다. Semantic/contract FAIL이더라도 integrity READY이면 F03 이후를 계속 수집한다. Integrity fault가 생기면 prefix를 보존하고 중단하며 같은 표본을 구제하려고 재시도하지 않는다.
+
+**C06 CLOSED는 두 모델의 전부 PASS가 아니라 신뢰 가능한 완전한 actual matrix 수집·read-only 비교·실제 T3 관찰·최종 검증/게시**로 판단한다. Partial만 남으면 C06 OPEN이며 V0.6C/Jev 연구와 첫 slice는 시작하지 않는다. 과거 partial v1/v2를 새 full로 합치거나 승격하지 않는다.
+
+### 15.8 Pre-actual CLI·T3 proof
+
+- Required sandbox CLI GOOD `7835675f-901a-4e81-befc-515f9e4368f5`는 10 oracle PASS, FALSE_COMPLETER `6caa206c-d317-412b-b97a-3351588540a8`는 9 PASS/1 FAIL·F06 falseCompletion=true를 보존했다. 둘 다 CALIBRATION_READY/EVALUATION_COMPLETE이고 마지막 F08 usage UNKNOWN으로 BUDGET_EXHAUSTED다. 같은 full 조건에서 **comparable=true**이며 실패를 지우지 않았다.
+- F02 CONTRACT_VIOLATOR `c329626a-dcbd-45d0-b5ab-9d3acb2679f1`는 FAILED/FAIL, forbidden attempt 1·scope change 0·usage UNKNOWN이다. UNRELIABLE `59ae6654-333f-470a-b603-fff9d90306d2`는 F01 provider error/INVALID/UNKNOWN 후 중단했다. Full/partial은 NOT COMPARABLE이다. 처음 CLI driver가 CONTRACT_VIOLATOR를 full로 호출한 `daee2feb-7c26-45c3-818b-724f4f1e7d0b`도 보존했다. 이 모델은 R0 F01에서 없는 write tool을 호출해 protocol/UNKNOWN stop이 맞았으며, driver의 F02 도달 가정을 고쳐 별도 F02 probe를 실행했다.
+- Invalid-auth 별도 HOME에서도 list/show/compare가 성공했고 historical v1/v2 네 파일의 bytes/hash와 schemaVersion 1을 그대로 유지했다. Unsafe invocation 4개는 store 생성 전 거부했다. Cost-bound `39c649e1-8230-4a32-9824-96b7dea7fb4e`는 fixture/worker 0에서 중단했다. 모든 faux 기록은 private namespace `c06-v3-preactual-20260920`에 남긴다.
+- T3 Node **24.19.0**의 첫 전체 실행은 **50 FAIL**이었다. 제가 설정한 `/tmp` alias와 `/private/tmp` canonical 경로 불일치가 trace에 나타났다. 같은 source/assertion/timeout/skip에서 격리 HOME/TMPDIR만 canonical 경로로 바꾼 전체 재실행은 **1,270 files / 17,269 PASS / 58 skipped**다. Typecheck/lint/fmt/knip/build도 exit 0이며 기존의 다른 파일 Effect suggestions·React/desktop build warnings는 남아 있다. 변경한 세 T3 파일의 diagnostics는 없었다.
+- 새 T3 home/DB, control=0, production build, managed Chromium으로 **실제 Pi CLI → T3 backend → Project Settings UI**를 확인했다. Secret-free historical/faux JSON만 별도 Weavra home에 byte copy했으며 실제 record 원본은 수정하지 않았다. FAUX 표시, 실패 F06/falseCompletion=true, F02 contract FAIL, integrity READY/INVALID, usage UNKNOWN, partial/full, full pair MATCHED CONDITIONS와 partial/full NOT COMPARABLE을 실제 화면과 DOM으로 확인했다. Fitness의 버튼은 Read history/Compare records뿐이며 chat turn·workflow/model 호출은 시작하지 않았다.
+- Browser 도구가 임시 일회성 pairing URL fragment를 자동 출력한 문제는 도구 QA에 보고했다. 영구 credential은 출력하지 않았고 owned browser/service를 종료했으며 pairing 파일을 삭제했다. 과거 v2 재현·agent contract 임시 파일도 제거했다. Actual driver·최종 검증용 자료는 다음 단계에 필요해 유지한다.
+- 여기까지 새 actual Provider 호출은 **0회**다. 두 repo의 정상 devlop source 게시와 Pi exact HEAD CI를 다음 gate로 요구한다. T3 CI는 main push/PR-only라 devlop exact SHA 미실행 여부를 별도로 확인하며 PASS로 대체하지 않는다.
