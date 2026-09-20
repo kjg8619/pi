@@ -496,7 +496,7 @@ UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 �
 
 ## V0.6A Read-only Host Bridge
 
-첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 두 번째 slice는 `src/launcher-bridge.ts`의 standalone observer를 실제 T3 backend와 read-only Project Settings UI에 연결한다. 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다.
+첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 두 번째 slice는 `src/launcher-bridge.ts`의 standalone observer를 실제 T3 backend와 read-only Project Settings UI에 연결한다. **아래 legacy read-only argv/protocol v1은 그대로 유지하며, C07 control은 별도 opt-in endpoint로 구현했다.** 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다. 최종 acceptance/remote gates와 전체 C07은 OPEN이다.
 
 ### Host 연결과 wire
 
@@ -551,7 +551,7 @@ argv:       ["bridge", "--stdio", "--project-trusted"]
 cwd:        기존 authorized T3 ProjectId의 canonical project root
 ```
 
-`--project-trusted`는 Host의 명시적 trust assertion이지 자동 trust 승인·Runtime 실행 권한이 아니다. launcher는 정확한 세 인수만 허용하고 Pi prompt/worktree 옵션과 혼용하지 않는다. T3는 기존 인증 RPC `weavra.observe`의 `orchestration:read` 권한을 요구하며, optional environment capability `weavraReadOnly`가 없는 구형 서버에는 조회를 보내지 않는다. 새 listener/network service는 없다. T3 backend/frontend는 `.ai` 파일을 직접 열지 않고 child stdout JSONL만 소비한다.
+`--project-trusted`는 Host의 명시적 trust assertion이지 자동 trust 승인·Runtime 실행 권한이 아니다. **legacy read-only launcher 경로**는 정확한 세 인수만 허용하고 Pi prompt/worktree 옵션과 혼용하지 않는다. T3는 기존 인증 RPC `weavra.observe`의 `orchestration:read` 권한을 요구하며, optional environment capability `weavraReadOnly`가 없는 구형 서버에는 조회를 보내지 않는다. 새 listener/network service는 없다. T3 backend/frontend는 `.ai` 파일을 직접 열지 않고 child stdout JSONL만 소비한다.
 
 T3의 첫 요청과 응답 계약:
 
@@ -568,10 +568,11 @@ T3의 첫 요청과 응답 계약:
 
 ### T3 사용과 진단
 
-1. T3 server와 같은 로컬 실행 환경에서 Weavra checkout/의존성을 준비하고, server 환경의 `T3_WEAVRA_EXECUTABLE`에 검토한 `weavra` launcher의 절대경로를 설정한다. Node `24.19.0`에서 실제 연결을 확인했다. credentials나 executable 경로를 browser 입력으로 전달하지 않는다.
+1. T3 server와 같은 로컬 실행 환경에서 Weavra checkout/의존성을 준비하고, server 환경의 `T3_WEAVRA_EXECUTABLE`에 **`<Weavra checkout>/packages/company-runtime/bin/weavra`의 절대경로**를 설정한다. Node `24.19.0`에서 실제 read-only 연결을 확인했다. credentials나 executable 경로를 browser 입력으로 전달하지 않는다. control을 사용하려면 server에 별도로 **`T3_WEAVRA_CONTROL=1`**을 설정한다(기본은 control 비활성).
 2. 사용자가 직접 `weavra setup`을 수행하고 `weavra doctor`로 로컬 설치를 진단한다. bridge/T3는 setup·repair·config 생성을 자동 수행하지 않는다.
-3. T3의 기존 등록 프로젝트를 선택한 뒤 **Settings → project scope → Project → Weavra**를 연다. grouped project는 environment/checkout 하나를 선택해야 하며 임의 root를 입력하는 기능은 없다.
-4. overview, 원본 projection의 graph node/edge, bounded evidence/config summary를 읽는다. 누락 필드는 UNKNOWN이며 config는 **현재 project config**, Run의 frozen config가 아니다. raw prompt/reasoning/credential/transcript/source/docs/tool output과 control button은 없다.
+3. **Settings → 정확한 project scope 선택 → Project → Weavra**를 연다. 기존 등록 프로젝트의 grouped scope라면 environment/checkout 하나를 먼저 선택해야 하며 임의 root를 입력하는 기능은 없다.
+4. overview, 원본 projection의 graph node/edge, bounded evidence/config summary를 읽는다. 누락 필드는 UNKNOWN이며 config는 **현재 project config**, Run의 frozen config가 아니다. raw prompt/reasoning/credential/transcript/source/docs/tool output은 제공하지 않는다. read-only 연결은 control button/실행 권한을 갖지 않는다.
+5. opt-in control이 활성화된 Project panel에서는 goal·선택적 recipe data·AC 문장을 입력해 Prepare한다. AC를 수정했으면 preview를 새로 만들고, Runtime이 산출한 scope/checks/계약을 확인한 뒤 modal의 명시적 확인으로 실행한다. 준비·preview 갱신에는 Provider 호출이 없으며 확인 전에는 worker를 시작하지 않는다. 이 확인은 아래 R3 action approval과 별개다.
 
 readiness는 project config validation이나 Provider readiness가 아니라 **로컬 product-home/doctor 결과**다. home/agent가 없으면 NOT_SETUP, 경로/권한/JSON/build 등의 로컬 진단 실패면 CONFIG_INVALID, doctor가 성공하면 READY다. doctor의 missing auth 같은 WARN은 READY와 공존할 수 있다. READY는 credential 유효성·Provider 연결·Run 존재·worker 생존·PASS를 뜻하지 않는다. 프로젝트 config summary의 missing/invalid는 별도 관찰 결과다. 전체 doctor 진단은 terminal에서 확인하며 wire에는 고정 readiness enum만 보낸다.
 
@@ -588,9 +589,38 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 
 두 번째 slice의 actual proof는 isolated managed Chromium의 실제 CLI → T3 backend → UI다. CONNECTED·graph/evidence를 확인했고, 관찰 child SIGTERM 뒤 DISCONNECTED+STALE 표시에도 RUNNING/state/writer.lock bytes와 별도 Runtime owner 생존이 유지됐다. 자동 재연결 후 새 canonical Run 및 project revision 2→4를 관찰했다. real CompanyKernel/FileStateStore fixture를 사용했으며 agent/check/Provider는 실행하지 않았다. **paid-provider E2E·다른 OS/모델까지 검증했다고 주장하지 않는다.**
 
-현재 검증은 [WORK_LOG LOG-097~100](../../docs/WORK_LOG.md)을 따른다. Weavra 구현 `2f7822451`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35483948383)는 PASS다. T3 `8486dbd48`은 전체 로컬 test/static/build와 실제 UI proof를 확인했으며, `main` push/PR만 받는 workflow 때문에 `devlop` remote CI는 미실행이다. 두 결과를 같은 CI PASS로 합치지 않는다.
+두 번째 read-only slice의 검증은 [WORK_LOG LOG-097~100](../../docs/WORK_LOG.md)을 따른다. Weavra 구현 `2f7822451`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35483948383)는 PASS다. T3 `8486dbd48`은 전체 로컬 test/static/build와 실제 UI proof를 확인했으며, `main` push/PR만 받는 workflow 때문에 `devlop` remote CI는 미실행이다. 두 결과를 같은 CI PASS로 합치거나 현재 control HEAD에 승계하지 않는다.
 
-**두 read-only slice는 완료, 전체 V0.6A/C07은 OPEN이다.** Runtime start/resume/cancel/approve/reject/write/edit, Task Contract 변경, Policy·PASS·COMPLETE authority, 자동 setup, event replay, 별도 network service는 제공하지 않는다. Provider Fitness Matrix와 Browser 확장도 이번 범위가 아니다.
+### C07 별도 control 계약
+
+**Control은 구현됐지만 전체 V0.6A/C07은 OPEN이다.** 실행 파일은 위와 같은 실제 launcher이며 opt-in endpoint의 argv만 `["bridge","--stdio","--project-trusted","--control"]`이다. read-only protocol v1의 command·4 KiB request bound를 넓히지 않는다. 별도 control 요청은 newline 포함 **32 KiB**, 응답은 **64 KiB**로 제한한다.
+
+| 닫힌 command 집합 | 계약 |
+|---|---|
+| `control.hello` | control owner/epoch와 요청 identity 계약 확인 |
+| `control.snapshot` | 현재 canonical state와 control 상태 조회; 접수 ACK를 실행 결과로 추정하지 않음 |
+| `workflow.prepare` | goal·선택적 recipe data·AC prose로 Runtime preview 준비; Provider 호출 없음 |
+| `workflow.confirm` | 현재 preview의 명시적 사용자 확인을 전달하고 기존 Workflow 실행 시작 |
+| `workflow.cancel` | 이미 존재하는 owned Run에 취소 요청; terminal/cleanup 확인은 별도 |
+| `approval.resolve` | 현재 exact pending R3 request의 approve/reject 응답; grant/소비는 Runtime 소유 |
+
+- **입력은 data뿐이다.** classification·execution mode·scope·checks·frozen Task Contract·revision, approval grant/consumption·Policy·PASS·COMPLETE는 Runtime/Kernel이 소유한다. T3가 임의 계약 필드나 도구/셸 명령을 실행 인수로 지정하지 않는다. confirmation 뒤 계약을 UI에서 변경하지 않는다.
+- owner UUID + **Runtime-issued 단조 증가 request ID** + 최대 **64개 payload-bound receipt**를 사용한다. 다른 payload로 같은 ID를 재사용하거나 같은 epoch에서 이미 evicted된 ID를 replay해 새 실행을 만들 수 없다. 이 bounded receipt는 durable replay log나 재시작 recovery가 아니다.
+- **ACK != canonical outcome.** confirm/cancel/approval 응답을 `COMPLETED`/`CANCELLED`/`CONSUMED`로 바꾸지 않는다. fresh canonical Run·revision·approval 기록과 cleanup 상태를 따로 확인한다. read-only의 `ownerObserved: false`와 writer presence는 계속 liveness 증명이 아니며 control owner identity와 혼동하지 않는다.
+- 브라우저 disconnect·Project panel 이탈은 **server-owned 실행을 종료하지 않는다.** reconnect는 fresh canonical state를 읽고 mutation을 자동 재전송하지 않는다. 이전 UI snapshot·receipt로 approval/실행을 복원하지 않는다. backend/Runtime 종료 뒤 resume/recovery를 제공한다는 뜻도 아니다.
+- cancel은 **기존 owned Run**이 있어야 한다. canonical Run 생성 전 model/Git/LSP preflight에는 wire cancellation ID가 없으므로 존재하지 않는 runId로 cancel을 보낼 수 없다. 취소 ACK 뒤 worker/check 정리·terminal state와 writer 해제를 확인한다. 비협조 I/O의 즉시 종료나 rollback을 보장하지 않으며 부분 변경은 보존한다.
+- R3는 기존 S5C의 **허용된 Git 추적 텍스트 파일 한 개 삭제**뿐이다. 일반 preview 확인은 삭제 승인이 아니며 현재 exact action·revision·digest·expiry에 대한 인간 응답만 전달한다. grant·검사·1회 소비·독립 review/checks·완료는 기존 Runtime 경로를 따른다. stale/다른 요청이나 재연결만으로 승인하지 않는다.
+- 임의 write/edit/tool/shell, 범용 R3, COMPLEX, resume/recovery/rollback/fallback, 새 network Host, 자동 setup·Policy 완화·UI의 완료 판정은 범위 밖이다. V0.6B Provider Fitness Matrix는 C07 closure 이후 조건부이며 아직 착수하지 않았다.
+
+### C07 현재 proof와 열린 gate
+
+실제 T3 Project Settings → 실제 launcher/backend → 기존 Workflow를 로컬 faux Provider에 연결해 다음을 확인했다. 이는 브라우저/UI actual proof이지 paid-provider E2E나 모든 모델/OS의 검증이 아니다.
+
+- edited AC로 preview가 갱신되고 modal 확인 전 model 호출은 0회였다. 확인 후 실제 checks·독립 review를 거쳐 `COMPLETED`, active agents 0, writer 해제와 파일 수정을 확인했다.
+- 응답을 대기시킨 Developer 실행 중 브라우저를 비운 뒤 reconnect해도 **같은 RUNNING Run과 writer**가 유지됐다. 명시적 cancel 후 `CANCELLED`, active agents 0, writer 해제, 로컬 faux SSE 종료와 partial changes 보존을 확인했다.
+- 실제 R3 카드의 Runtime-issued identity·revision·raw SHA-256 fingerprint와 별도 승인 dialog를 확인했다. 승인은 **CONSUMED → COMPLETED**, 삭제·독립 review PASS·실제 checks 2 PASS·active agents 0·writer false로 끝났다. Reject는 **DENIED → BLOCKED**, 원본 보존·checks/review/COMPLETE 미진입·active agents 0·writer false였다.
+- 실제 launcher에서 권한 위조·과대 goal·forged Run/preview·stale project·confirm replay·owner restart·canonical root 변경·invalid UTF-8/oversized frame을 공격했다. 중복 confirm은 같은 receipt와 Run 1개만 남기고, 새 ID의 소비된 preview는 `PLAN_CONSUMED`, 이전 owner는 `OWNER_CHANGED`, 변경 root는 `PROJECT_CHANGED`로 거부됐다. 네 프로젝트의 browser raw WebSocket 71 frames와 UI에서 credential/source sentinel 노출은 0이었다.
+- 현재 Pi full test/check/check:ci와 T3 typecheck/fmt/knip/build/lint exit 0을 확인했다(기존 무관한 warning 있음). 첫 T3 full test는 localhost `ETIMEDOUT` 1건으로 실패했고, package 동시 실행을 끈 전체 재실행은 **1,269 files / 17,262 PASS / 7 files·58 tests skipped**였다. 초기 실패와 재실행을 구분하며 OS-level 원인이 해결됐다고 주장하지 않는다. 최종 게시·remote gates와 C07 closure는 아직 OPEN이다.
 
 ## 설정 schema 1
 

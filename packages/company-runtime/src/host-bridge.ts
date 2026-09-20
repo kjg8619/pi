@@ -303,12 +303,14 @@ export class ReadOnlyHostBridge implements RuntimeEventSink {
 
 /** Dedicated local JSONL streams. Bounds framing before parsing; never owns/destroys the supplied streams. */
 export function attachHostBridgeStreams(
-	bridge: ReadOnlyHostBridge,
+	bridge: Pick<ReadOnlyHostBridge, "connect">,
 	input: Readable,
 	output: Writable,
 	onClose?: () => void,
+	limits?: { maxRequestBytes?: number; maxBufferedResponseBytes?: number },
 ): HostBridgeConnection {
-	const buffer = Buffer.allocUnsafe(HOST_BRIDGE_MAX_REQUEST_BYTES);
+	const buffer = Buffer.allocUnsafe(limits?.maxRequestBytes ?? HOST_BRIDGE_MAX_REQUEST_BYTES);
+	const utf8 = new TextDecoder("utf-8", { fatal: true });
 	let length = 0;
 	let ended = false;
 	let last = Promise.resolve();
@@ -321,7 +323,13 @@ export function attachHostBridgeStreams(
 		output.off("close", close);
 		return onClose?.();
 	};
-	const connection = bridge.connect((line) => output.write(line), detach);
+	const connection = bridge.connect((line) => {
+		const accepted = output.write(line);
+		// A control reply is already queued even when write() signals backpressure. Permit one
+		// bounded response instead of interpreting a full pipe buffer as owner shutdown.
+		const bufferedLimit = limits?.maxBufferedResponseBytes ?? 0;
+		return accepted || (!output.destroyed && bufferedLimit > 0 && output.writableLength <= bufferedLimit);
+	}, detach);
 	const close = () => {
 		connection.close();
 	};
@@ -346,7 +354,12 @@ export function attachHostBridgeStreams(
 			chunk.copy(buffer, length, offset, stop);
 			length += bytes;
 			if (newline >= 0) {
-				last = connection.receive(buffer.toString("utf8", 0, length));
+				try {
+					last = connection.receive(utf8.decode(buffer.subarray(0, length)));
+				} catch {
+					close();
+					return;
+				}
 				length = 0;
 			}
 			offset = stop + 1;
@@ -354,7 +367,14 @@ export function attachHostBridgeStreams(
 	};
 	const end = () => {
 		ended = true;
-		if (length) last = connection.receive(buffer.toString("utf8", 0, length));
+		if (length) {
+			try {
+				last = connection.receive(utf8.decode(buffer.subarray(0, length)));
+			} catch {
+				close();
+				return;
+			}
+		}
 		void last.finally(close);
 	};
 	input.on("data", data);

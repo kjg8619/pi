@@ -20,7 +20,10 @@ if [[ "${1-}" = setup || "${1-}" = doctor ]]; then
   exec node "$DIRECTORY/../src/launcher-home.ts" "$1"
 fi
 if [[ "${1-}" = bridge ]]; then
-  [[ $# == 3 && "$2" = --stdio && "$3" = --project-trusted ]] || fail "Usage: weavra bridge --stdio --project-trusted"
+  if [[ $# == 4 && "$2" = --stdio && "$3" = --project-trusted && "$4" = --control ]]; then
+    exec node "$DIRECTORY/../src/launcher-control.ts" --stdio --project-trusted --control
+  fi
+  [[ $# == 3 && "$2" = --stdio && "$3" = --project-trusted ]] || fail "Usage: weavra bridge --stdio --project-trusted [--control]"
   exec node "$DIRECTORY/../src/launcher-bridge.ts" --stdio --project-trusted
 fi
 

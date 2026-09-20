@@ -1,19 +1,23 @@
-import { join } from "node:path";
 import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
 	getAgentDir,
-	ModelRuntime,
+	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { PiAgentExecutor } from "./agent-runner.ts";
-import { classifyRequest, selectWorkflow } from "./classification.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { RuntimeEventSink } from "./events.ts";
 import { formatEvidencePack, projectEvidencePack } from "./evidence.ts";
-import { proposeExecutionMode } from "./execution-contract.ts";
 import { GraphProjectionError, projectRunGraph, renderGraphText } from "./graph.ts";
 import { GraphViewSession } from "./graph-view-component.ts";
+import {
+	applyHostWorkflowRecipe,
+	createHostWorkflow,
+	finalizeHostWorkflowPlan,
+	HostWorkflowError,
+	type HostWorkflowPlan,
+	prepareHostWorkflowDraft,
+} from "./host-workflow.ts";
 import { registerLspCommand } from "./lsp/command.ts";
 import {
 	displayText,
@@ -27,11 +31,10 @@ import {
 import { formatPlanPreview } from "./plan-preview.ts";
 import { FileStateStore } from "./state-store.ts";
 import { formatWeavraStatus } from "./status.ts";
-import { acceptanceStatementsError, buildTaskContract, parseAcceptanceStatements } from "./task-contract.ts";
+import { parseAcceptanceStatements } from "./task-contract.ts";
 import { parseWorkflowRunArgument } from "./task-recipe-command.ts";
-import { compileTaskRecipe, TaskRecipeError } from "./task-recipe-compiler.ts";
 import { recipeInputTemplate } from "./task-recipes.ts";
-import { formatWorkflowReport, StandardWorkflow, type WorkflowReport } from "./workflow.ts";
+import { formatWorkflowReport, type StandardWorkflow, type WorkflowReport } from "./workflow.ts";
 
 /** Explicit composition seam for local faux tests/Hosts, not a worker-visible provider registration mechanism. */
 export interface CompanyExtensionOptions {
@@ -282,28 +285,14 @@ export function registerCompanyRuntime(
 						pending = (async () => {
 							const loaded = await loadRuntimeConfig(ctx.cwd);
 							if (loaded.status !== "configured") throw new Error(".ai/config.yaml is missing");
-							const { config } = loaded;
-							const proposal = proposeExecutionMode(goal);
-							if (proposal.requiresConfirmation || !proposal.mode) throw new Error(proposal.reason);
-							const executionMode = proposal.mode;
-							const { classification, requiresConfirmation } = classifyRequest(goal);
-							if (requiresConfirmation || classification.complexity === "COMPLEX")
-								throw new Error(
-									`Unsupported classification/workflow: ${classification.complexity}/${classification.risk}; no downgrade performed`,
-								);
-							const selection = selectWorkflow(classification, config.runtime.workflow);
-							if (recipeId && selection.workflow !== "STANDARD") {
+							let draft = prepareHostWorkflowDraft({ goal, config: loaded.config });
+							if (recipeId && draft.workflow !== "STANDARD") {
 								ctx.ui.notify(
 									`Weavra: recipe ${recipeId} needs the STANDARD acceptance-criteria step; QUICK runs take a goal only. No run was created.`,
 									"warning",
 								);
 								return;
 							}
-							if (selection.workflow === "QUICK" && ["R2", "R3"].includes(classification.risk))
-								throw new Error("R2/R3 cannot run as QUICK; STANDARD is required");
-							// Reviewed recipe = reviewed data only: it drafts criteria, never scope, checks or authority.
-							let recipeMeta: { id: string; version: number; digest: string } | undefined;
-							let recipePrefill: string | undefined;
 							if (recipeId) {
 								const inputText = await ctx.ui.editor(
 									`Recipe ${recipeId}: inputs as JSON (data only; not permission, approval or authority)`,
@@ -317,24 +306,13 @@ export function registerCompanyRuntime(
 									return;
 								}
 								try {
-									const draft = compileTaskRecipe({
+									draft = applyHostWorkflowRecipe(draft, {
 										recipeId,
 										inputs: JSON.parse(inputText) as Record<string, unknown>,
-										executionMode,
-										allowedPaths: config.files.allowed_paths,
-										registeredCheckIds: config.verification.checks
-											.filter((check) => check.required)
-											.map((check) => check.id),
 									});
-									recipeMeta = {
-										id: draft.recipe.id,
-										version: draft.recipe.version,
-										digest: draft.recipe.digest,
-									};
-									recipePrefill = draft.statements.join("\n");
 								} catch (error) {
 									ctx.ui.notify(
-										`Weavra: ${error instanceof TaskRecipeError ? error.message : "recipe inputs must be a JSON object"}; no run, worker, check or approval was created.`,
+										`Weavra: ${error instanceof HostWorkflowError ? error.message : "recipe inputs must be a JSON object"}; no run, worker, check or approval was created.`,
 										"warning",
 									);
 									return;
@@ -342,51 +320,29 @@ export function registerCompanyRuntime(
 							}
 							// FEAT-01: Host-side plan preview. No Planner model call; the editor is the only AC input.
 							const statements =
-								selection.workflow === "STANDARD"
+								draft.workflow === "STANDARD"
 									? parseAcceptanceStatements(
 											(await ctx.ui.editor(
 												"Acceptance criteria: one line = one criterion (AC-001, AC-002, ... are assigned after confirmation)",
-												recipePrefill ?? goal,
+												draft.statements.join("\n"),
 											)) ?? "",
 										)
-									: [goal];
-							if (selection.workflow === "STANDARD" && !statements.length) {
+									: draft.statements;
+							if (draft.workflow === "STANDARD" && !statements.length) {
 								ctx.ui.notify("Weavra: plan cancelled; no run, worker, check or approval was created.", "info");
 								return;
 							}
-							const statementsError = acceptanceStatementsError(statements);
-							if (statementsError) {
-								ctx.ui.notify(`Weavra: acceptance criteria rejected: ${statementsError}`, "warning");
+							let plan: HostWorkflowPlan;
+							try {
+								plan = finalizeHostWorkflowPlan(draft, statements);
+							} catch (error) {
+								if (!(error instanceof HostWorkflowError) || error.code !== "INVALID_CRITERIA") throw error;
+								ctx.ui.notify(`Weavra: acceptance criteria rejected: ${error.message}`, "warning");
 								return;
 							}
-							const taskContract = buildTaskContract({
-								goal,
-								statements,
-								workflow: selection.workflow,
-								config,
-							});
 							const approved = await ctx.ui.confirm(
 								"Weavra: confirm this plan? (not an approval or permission token)",
-								`${formatPlanPreview({
-									goal,
-									workflow: selection.workflow,
-									executionMode,
-									risk: classification.risk,
-									acceptanceCriteria: taskContract.acceptanceCriteria,
-									allowedPaths: config.files.allowed_paths,
-									checks: config.verification.checks,
-									projectInstructionPath: config.project?.instructions.path ?? null,
-									lspEnabled: config.code_intelligence?.lsp.enabled === true,
-									mutationMode: config.mutation.mode,
-									verifierTrustMode: config.verification.trust.mode,
-									verifierSandboxMode: config.verification.sandbox.mode,
-									contextPackMode: config.agents.context_pack.mode,
-									verificationRepairMode: config.verification.repair.mode,
-									...(recipeMeta ? { recipe: recipeMeta } : {}),
-									verifierTrustSources: [
-										...new Set(config.verification.checks.flatMap((check) => check.trust.files)),
-									].sort(),
-								})}\n${executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. Trust only reviewed executables and scripts.`,
+								`${formatPlanPreview(plan.preview)}\n${plan.executionMode === "READ_ONLY" ? "Worker mutation tools are unavailable. Registered checks/LSP servers remain trusted programs, not sandboxed." : "Worker edits remain subject to Policy, R2 independent review and separate R3 human approval."}\nR2 file changes require independent STANDARD review. Only preselected single-file R3 deletion can request separate human approval; no other destructive or install/shell tools.\nCredential environment is filtered. Trust only reviewed executables and scripts.`,
 								{ signal },
 							);
 							if (!approved) {
@@ -399,22 +355,11 @@ export function registerCompanyRuntime(
 								return;
 							}
 							signal.throwIfAborted();
-							const agentDir = options.agentDir ?? getAgentDir();
-							const models = options.createModels
-								? await options.createModels(signal)
-								: await ModelRuntime.create({
-										authPath: join(agentDir, "auth.json"),
-										modelsPath: join(agentDir, "models.json"),
-										allowModelNetwork: false,
-										signal,
-									});
-							workflow = new StandardWorkflow({
+							workflow = await createHostWorkflow({
 								cwd: ctx.cwd,
-								goal,
-								taskContract,
-								executionMode,
-								...(recipeMeta ? { recipe: recipeMeta } : {}),
-								config,
+								plan,
+								agentDir: options.agentDir ?? getAgentDir(),
+								createModels: options.createModels,
 								signal,
 								events: {
 									emit: (event) => {
@@ -447,21 +392,6 @@ export function registerCompanyRuntime(
 												!signal?.aborted,
 										};
 									},
-								},
-								createAgents: async (store, quickScope, r2RunId, r3Scope, executionContract) => {
-									const executor = await PiAgentExecutor.create({
-										executionContract,
-										cwd: ctx.cwd,
-										agentDir,
-										config,
-										timeoutMs: config.agents.worker_timeout_ms,
-										modelRuntime: models,
-										audit: store,
-										quickScope,
-										r2RunId,
-										r3Scope,
-									});
-									return { executor, policy: executor.policyContext };
 								},
 							});
 							last = await workflow.execute();

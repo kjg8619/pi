@@ -55,6 +55,8 @@ export interface WorkflowOptions {
 	signal?: AbortSignal;
 	approval?: ApprovalPort;
 	approvalTimeoutMs?: number;
+	/** Trusted Host freshness fence; guarded starts never recover an interrupted Run. */
+	startGuard?: (store: FileStateStore) => Promise<void>;
 }
 export interface WorkflowReport {
 	run?: Run;
@@ -84,7 +86,12 @@ export class StandardWorkflow {
 	private started = false;
 	private readonly options: WorkflowOptions;
 	constructor(options: WorkflowOptions) {
-		this.options = { ...options, config: structuredClone(options.config) };
+		this.options = {
+			...options,
+			config: structuredClone(options.config),
+			taskContract: structuredClone(options.taskContract),
+			...(options.recipe ? { recipe: structuredClone(options.recipe) } : {}),
+		};
 	}
 	get snapshot(): Run | undefined {
 		return this.kernel?.snapshot;
@@ -161,8 +168,12 @@ export class StandardWorkflow {
 			if (!this.options.config.verification.checks.some((check) => check.required))
 				throw new Error("Configure at least one trusted required verification check");
 			const r2RunId = classification.risk === "R2" ? runId : undefined;
-			store = await FileStateStore.open(this.options.cwd, { events: this.options.events });
+			store = await FileStateStore.open(this.options.cwd, {
+				events: this.options.events,
+				...(this.options.startGuard ? { recoverInterrupted: false } : {}),
+			});
 			this.store = store;
+			await this.options.startGuard?.(store);
 			let agents = await this.options.createAgents(store, quickScope, r2RunId, r3Scope, contract);
 			executor = agents.executor;
 			const configuredInstruction = this.options.config.project?.instructions.path;
@@ -233,6 +244,7 @@ export class StandardWorkflow {
 			}
 			verifier = await RegisteredVerifier.create(this.options.config, agents.policy, store, workspace, lsp);
 			signal.throwIfAborted();
+			await this.options.startGuard?.(store);
 			this.kernel = await CompanyKernel.create(
 				{
 					runId,
