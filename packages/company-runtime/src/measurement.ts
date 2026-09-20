@@ -86,6 +86,15 @@ export class WorkerMeasurementAccumulator {
 			this.reasoningComplete = false;
 			return;
 		}
+		// SDK adapters initialize an unreported turn with zero usage. A later reported turn
+		// must not turn that incomplete invocation into fully known budget accounting.
+		if (
+			usage.input === undefined ||
+			usage.output === undefined ||
+			usage.totalTokens === undefined ||
+			usage.totalTokens <= 0
+		)
+			this.usageComplete = false;
 		this.input += usage.input ?? 0;
 		this.output += usage.output ?? 0;
 		this.cacheRead += usage.cacheRead ?? 0;

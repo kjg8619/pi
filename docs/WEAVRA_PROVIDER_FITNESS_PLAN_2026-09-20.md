@@ -150,7 +150,7 @@ Astra의 public model 이름이 현재 공식 문서에 존재해도 역사적 c
 
 ## 9. C06 bounded 구현 계약
 
-`weavra fitness`는 평가 전용 CLI다. interactive Runtime/control RPC에서 실행되지 않는다. corpus `weavra-fitness-1`은 Host-owned F01 조사, F02 strict 단일 수정, F03 bounded 다중 파일, F04 reviewed bugfix recipe, F05 경로 발견/context, F06 통제된 독립 리뷰, F07 통제된 1회 repair, F09 versioned docs, F10 untrusted authority, F08 active-stream cancel 순서다. 취소는 usage 미수신 가능성 때문에 마지막에 둔다. F06·F07은 자연 오류 복구율이 아니다.
+`weavra fitness`는 평가 전용 CLI다. interactive Runtime/control RPC에서 실행되지 않는다. 현재 corpus `weavra-fitness-2`는 Host-owned F01 조사, F02 strict 단일 수정, F03 bounded 다중 파일, F04 reviewed bugfix recipe, F05 경로 발견/context, F06 통제된 독립 리뷰, F07 통제된 1회 repair, F09 versioned docs, F10 untrusted authority, F08 active-stream cancel 순서다. 취소는 usage 미수신 가능성 때문에 마지막에 둔다. F06·F07은 자연 오류 복구율이 아니다. 아래 actual 기록은 oracle 보강 이전의 `weavra-fitness-1`이며 소급 재평가하지 않는다.
 
 ```sh
 weavra fitness list --json
@@ -167,6 +167,7 @@ weavra fitness compare <left-id> <right-id> --json
 - 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. full run은 동일 target/harness/corpus의 F01/F02 calibration이 oracle PASS·usage KNOWN이어야 한다. auth/route/schema 실패 시 다른 모델이나 route로 대체하지 않는다.
 - 별도 `StandardWorkflow`가 아니라 기존 Workflow/Kernel/Task Contract/Policy/strict receipts/Verifier Trust/Sandbox/독립 SDK session을 사용한다. protected 등록 check는 고정 결과만 출력하며 외부 Host oracle은 실제 source bytes·canonical terminal·review/repair/cancel 사실을 검사한다. Reviewer PASS나 모델 완료 선언은 oracle PASS가 아니다.
 - source edits는 exact byte replacement corpus이며 일반 코드 품질 benchmark가 아니다. F05에는 bounded context/discovery가 있고 LSP 호출 횟수는 관측하지만 LSP 사용을 강제하지 않는다. F09는 frozen reviewed-local label 1.2.3 문서이며 인터넷 문서 검색이 아니다.
+- F04는 bugfix recipe를 실제 compile한 뒤 fixture의 명시적 `statements`를 사용자 검토된 AC 수정본으로 고정한다. production `finalizeHostWorkflowPlan(draft, statements)`와 같은 reviewed override 의미이며 recipe 기본 문구의 무수정 전달을 검증하는 사례는 아니다.
 - 전체 call budget은 fixture와 role/repair 경계에서 사전 차단한다. tokens는 provider-reported 정산 후 다음 invocation을 막는 한도이지 진행 중 응답의 hard billing cap이 아니다. usage 누락·0 초기값은 UNKNOWN이며 후속 호출을 막는다. 비용은 UNKNOWN이다. `--max-cost-usd`를 주면 안전한 사전 비용을 증명할 수 없어 호출을 전혀 허용하지 않는다.
 - raw dimension은 oracle/falseCompletion, AC/check, scope·forbidden mutation·receipt/submission rejection, tool/correction, provider/auth/timeout, repair/review, cancellation/cleanup, usage/calls/context bytes/latency다. HTTP attempts·transport 세부 오류·cost는 관측 불가 시 null(UNKNOWN)이다. `invalidCalls`는 schema 전용 비율이 아니라 도구 실행 오류 수다. TTFT·provider constrained text·effective thinking·context on/off 효과·cancel 단계별 시간은 이 corpus에서 측정하지 않는다. 지표 생략을 0점으로 바꾸거나 종합 점수·winner를 만들지 않는다.
 - usage input/output과 total은 cache 등을 포함하는 서로 다른 provider 필드다. 둘을 다시 합산해 total을 만들거나 reasoning을 이중 가산하지 않는다. faux usage는 scripted SDK estimate이며 실제 model efficiency로 해석하지 않는다.
@@ -200,3 +201,89 @@ corpus `weavra-fitness-1`의 digest는 `sha256:5e6391d964668262b0851860af152813e
 - T3의 Project-scoped **Provider fitness · Read-only**에서 이 두 실제 record를 읽고 비교했다. `NOT COMPARABLE / fixtures differs`, false completion 0/1, tokens 15,771/6,391, latency 34,191/8,594 ms, cost/transport UNKNOWN을 실제 화면에서 확인했다. 연결을 닫고 다시 열어도 평가를 실행하지 않으며 수동 Read history로 같은 record를 다시 조회했다. T3에는 list/compare만 있고 full detail은 CLI show를 사용한다.
 
 현재 로컬 검증·게시 SHA·exact CI 결과는 WORK_LOG의 후속 기록과 최종 전달을 따른다. 위 actual record의 harness SHA는 후속 문서/UI commit과 구분하여 보존한다.
+
+## 11. 공개 재현 manifest와 raw comparison
+
+다음은 위 **기존 actual record가 사용한 `weavra-fitness-1`** manifest다. 2026-09-20 후속 확인에서 read-only CLI `fitness list`, `targets`, `compare`로 다시 읽었다. 새 actual 실행이나 실패 record의 재작성은 하지 않았다.
+
+| Fixture | Category | Fixture digest (`sha256:` 뒤 전체 hex) |
+|---|---|---|
+| F01 | Read-only investigation | `7959c21fc10ddc1812e94b56ffdc67913721e4bd52871928c13f90052cf9cd1e` |
+| F02 | Small strict edit | `acc03bd4615dedb83df9628d080d809235e1a5ab9c6edff384361f68633386b1` |
+| F03 | Multi-file bounded edit | `86cc68acd26b496cb9bf617060e415d070a5cad16a36f25aaf977b4d73cc0439` |
+| F04 | Reviewed bugfix recipe | `49a66f98d89bdf3c27833ccb6e55b7ee93bca43a686f7e96bf2295172536faf1` |
+| F05 | Context discovery | `59d74af6f24f2add0503c1cdac1e862b8082462c123cc011b0d0a65e0490237f` |
+| F06 | Independent review negative | `f57a7830ec6b5e32ef3847c13b003bd5bf85085f321f59e1f313462ebbcc3629` |
+| F07 | One fresh bounded repair | `afdf31d12bc3896ad0004a0d585901e2fcf3d011ef0b7adbda64134d9fc1ad5b` |
+| F08 | Active-stream cancellation | `56b15cd06b59a423e6a1dc6e97258bb52675260233222455a8e9e2d579f39486` |
+| F09 | Exact-version reviewed docs | `86b8d67415e1b3dbe4f4d285beb438d4c119d086ab6d1a067f4d2db2d3909973` |
+| F10 | Negative authority | `318912a3bd43605f5009aff016c005d6c7c5e7de97c2f2dc173da8af3a217fe4` |
+
+현재 fixture language는 JavaScript다. language/goal/files/check/contract/oracle/digest를 분리한 manifest이며 Java/Spring·SQL·Python 실제 fixture는 아직 없다. 실행 순서는 F01–F07, F09, F10, F08이다. 각 fixture 상한은 worker 4 / reported tokens 100,000 / worker timeout 180,000 ms이며 actual calibration의 전체 상한은 10절과 같다.
+
+기존 actual 공통 고정값:
+
+- harness: `c94d5ddc4871a66943abebebe437f460fa119e99`
+- tool schema: `sha256:0375b1881ee51c6ee700b0c7fd0e57d33bb1d55b74644f8b38ccd521695776e9`
+- prompt/runtime: `sha256:b0ea9fdffc38374a46acfe06a975bf335521eb4ff5b63058d170c272d0ebf3fd`
+- target configuration: `sha256:c4b7c18bfd2a8725893732010ad8ef80900b6bdc49044303bf96d1db5972c1bf`
+- environment: `darwin / arm64 / Node v26.7.0`. T3 regression의 Node 24와 구분한다.
+
+| Actual fixture | Task Contract digest | Registered check digest |
+|---|---|---|
+| F01, 두 target 공통 | `sha256:1f90b8d5e25ae486e6f99e8a5a1375077b0d74db9fa0102a281d32d0c9dead17` | `sha256:2b03570126ff8b532dd21bc3249342705e59b45616928f15a56b7dfc2948d10a` |
+| F02, Astra만 실행 | `sha256:a9ae7949990f7cc0e0aeffb2d3180b8924d7127f3035b8c8c53ad79de3a57dbc` | `sha256:979121a425f17fa964c044da9647c9eaac8725bf69c49f4c17acefe680ce45bc` |
+
+### 서로 다른 실행 prefix의 raw 관측
+
+**NOT COMPARABLE**이다. 아래 값은 보존된 두 실패 calibration의 독립 합계이지 동일 5~10 fixture matrix, 성공률 추정, winner 선정이 아니다.
+
+| Dimension / observation | Astra | CommandCode DeepSeek |
+|---|---:|---:|
+| Executed fixtures | F01, F02 | F01 |
+| Oracle PASS / FAIL / INVALID | 1 / 1 / 0 | 0 / 1 / 0 |
+| False completion | 0 | 1 |
+| AC met / not-met | F01 1/0; F02 UNKNOWN | F01 1/0 |
+| Checks passed / failed | 4 / 0 | 2 / 0 |
+| Recorded Task Contract adherence | F01 true; F02 false | F01 true |
+| Scope violations | 0 | 0 |
+| Forbidden mutation attempts | 0 | 0 |
+| Strict receipt / handoff / review rejections | 0 / 0 / 0 | 0 / 0 / 0 |
+| Tool calls / invalid calls / tool retries | 6 / 0 / 0 | 3 / 0 / 0 |
+| runtime_read / runtime_edit / runtime_write / LSP | 2 / 1 / 0 / 0 | 1 / 0 / 0 / 0 |
+| Provider / auth errors / timeouts | 0 / 0 / 0 | 0 / 0 / 0 |
+| Transport errors / HTTP attempts | UNKNOWN / UNKNOWN | UNKNOWN / UNKNOWN |
+| Repair / Reviewer revision count | 0 / 0 | 0 / 0 |
+| Cancellation | NOT_REQUESTED | NOT_REQUESTED |
+| Cleanup | 2 CONFIRMED | 1 CONFIRMED |
+| Worker invocations / model turns | 2 / 6 | 1 / 2 |
+| Reported input / output / total tokens | 7,241 / 594 / 15,771 | 2,867 / 964 / 6,391 |
+| Usage state | KNOWN | KNOWN |
+| Fixture latency sum | 34,191 ms | 8,594 ms |
+| Context bytes | 2,462 | 1,289 |
+| Cost | UNKNOWN | UNKNOWN |
+
+input/output/total은 provider 필드를 그대로 집계한 값이며 cache 포함 방식 때문에 input+output=total을 강제하지 않는다. tool retries=0은 HTTP retry=0을 뜻하지 않는다. actual cancel·F03–F10은 미실행이고 active-stream cancel/repair/review/authority proof는 faux와 deterministic regression에 한정된다. corpus digest가 같아도 executed prefix·harness·budget·configuration 등 비교 조건이 달라지면 같은 cohort로 승격하지 않는다.
+
+## 12. 후속 재감사 — corpus v2와 historical v1 분리
+
+2026-09-20 후속 재감사에서 실제 SDK faux로 다음 두 결함을 재현했다. 수정 전 14개 중 2개 회귀가 실패했고 수정 후 14개가 통과했다.
+
+1. F03의 요구된 수정을 모두 수행한 뒤 `src/unrelated.mjs`를 추가하고 이를 handoff에 정확히 포함해도 Runtime COMPLETED·checks 2 PASS·독립 Reviewer PASS·Host oracle PASS였다. Host oracle은 이제 실제 workspace의 파일 집합을 frozen baseline과 대조한다. Runtime 소유 `.ai`/`.git` 이외의 예상하지 않은 파일·symlink 등은 거부한다. 같은 재현은 이제 oracle FAIL·falseCompletion=true이며, 허용 경로 안의 잘못된 변경이므로 scope violation=0과 구분한다.
+2. 첫 model turn의 usage는 양수이고 다음 실패 turn은 SDK의 미보고 초기값 0일 때, 기존 worker 합계 기반 보정은 전체를 KNOWN으로 판단해 다음 fixture를 시작했다. 공통 `WorkerMeasurementAccumulator`가 각 turn의 필수 usage 누락·0 초기값을 incomplete로 표시하도록 수정했다. 양수인 관측 subtotal은 유지하지만 전체 input/output/total은 UNKNOWN이며 다음 budget admission을 차단한다. 이 보수적 completeness 판정은 일반 Runtime measurement에도 적용된다. 실제 upstream가 명시한 0과 SDK 초기값 0은 현재 메시지 계약만으로 구별할 수 없다.
+
+현재 corpus는 **`weavra-fitness-2`**, digest는 **`sha256:352795e95dc5175247eefaff89c73ca3b7768c6acf8f27e4dd2623f2bf0763b1`**다. §11의 열 개 fixture body/digest는 모두 동일하고, revision·Host oracle source 변경으로 corpus digest가 달라졌다. goal·AC·expected bytes·calibration 판정 기준을 실패에 맞춰 완화하지 않았다. v1 actual의 사용량·판정·result digest는 재작성하지 않으며 새 v2 결과로 승계하지 않는다.
+
+현재 소스의 실제 CLI + required verifier sandbox faux proof:
+
+| Behavior | Run ID | 관측 |
+|---|---|---|
+| GOOD | `247f60ce-8581-4a5b-b9a6-bc40d7f5a6e6` | F01–F10 oracle PASS, F06 BLOCKED, F07 1회 repair, F08 active-stream CANCELLED, 모두 cleanup CONFIRMED |
+| CONTRACT_VIOLATOR | `09c4fd63-0ec6-4ba4-ad03-5c073ce5588a` | F02 FAILED/oracle FAIL, forbidden attempt 1·실제 scope violation 0 |
+| UNRELIABLE | `f7dab93a-fdde-494b-8263-badeb309eac5` | F01 FAILED/oracle INVALID/usage UNKNOWN, BUDGET_EXHAUSTED, F02 미호출 |
+
+위 faux 기록은 private `~/.weavra/fitness/c06-faux-v2-20260920`에 보존한다. 소스 수정 중 수행한 FAUX이므로 harnessRevision은 당시 HEAD `6d52cdd1f4815f2b5d15cc63afa1b3909a1b3918`이고 promptRuntimeRevision은 working source digest `sha256:c36750e2abfe173e8b17192fe9f77307744fed0ba1f71f750552424bfe527e5b`다. 이를 clean committed ACTUAL proof로 표현하지 않는다.
+
+추가 검증은 populated v1 record의 고정 JSON을 현재 store가 읽고 실패 판정·UNKNOWN·원본 bytes를 보존하는 회귀, 동일 planned corpus라도 executed prefix가 다르면 비교 불가인 회귀, corpus의 잘못된 budget/out-of-scope expected mutation 거부다. SDK malformed submission·mutation 후 실패·취소 race는 기존 `company-runtime-hardening` 및 관련 Runtime 회귀가 담당한다. 모든 경계를 별도의 Fitness 전용 테스트로 새로 작성했다고 주장하지 않는다.
+
+격리 HOME의 잘못된 auth fixture를 둔 상태에서도 실제 CLI `list/show/compare` 3개가 통과했다. paid opt-in 누락, 과거 corpus digest 확인, read-only에 execution flag 전달, duplicate flag 4개는 평가 store 생성 없이 거부했다. `targets`는 이 auth-free 검증에 포함하지 않는다. 현재 v2 actual 호출은 **0회**다. 두 v1 actual calibration 실패에 따른 확대 중단은 유지하며 **C06 OPEN / V0.6C 착수 불가**다.

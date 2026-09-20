@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { Context } from "@earendil-works/pi-ai";
+import { type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FitnessRecordStore } from "../../../company-runtime/src/fitness-records.ts";
 import type { FitnessBudget } from "../../../company-runtime/src/fitness-types.ts";
@@ -87,6 +87,65 @@ describe("Fitness through actual SDK and Runtime boundaries", () => {
 		expect(result.fixtures[0].reliability.providerErrors).toBe(1);
 		expect(JSON.stringify(await options.store.read(result.id))).not.toContain("FAUX_PRIVATE_CREDENTIAL_MARKER");
 	});
+	it("retains partial known usage but stops after a later turn has only SDK zero defaults", async () => {
+		harness.setResponses(
+			Array.from({ length: 256 }, (_, index) => (context: Context) => {
+				if (index === 1) throw new Error("FAUX_PRIVATE_CREDENTIAL_MARKER");
+				return fitnessFauxResponse("GOOD", context);
+			}),
+		);
+		const result = await runFitnessMatrix({ ...options, fixtureIds: ["F01", "F02"] });
+		expect(result.status).toBe("BUDGET_EXHAUSTED");
+		expect(result.fixtures).toHaveLength(1);
+		expect(result.fixtures[0].efficiency.usage).toMatchObject({
+			state: "UNKNOWN",
+			input: null,
+			output: null,
+			total: null,
+		});
+		expect(result.fixtures[0].efficiency.usage.knownTotal).toBeGreaterThan(0);
+		expect(sessions).toHaveLength(1);
+		expect(await options.store.read(result.id)).toEqual(result);
+		expect(JSON.stringify(result)).not.toContain("FAUX_PRIVATE_CREDENTIAL_MARKER");
+	});
+	it("rejects an unrelated in-scope addition despite complete checks, handoff and independent review", async () => {
+		harness.setResponses(
+			Array.from({ length: 256 }, () => (context: Context) => {
+				const response = fitnessFauxResponse("GOOD", context);
+				const handoff = response.content.find((part) => part.type === "toolCall" && part.name === "submit_handoff");
+				if (handoff?.type === "toolCall") {
+					if (
+						!context.messages.some(
+							(message) => message.role === "toolResult" && message.toolName === "runtime_write",
+						)
+					)
+						return fauxAssistantMessage(
+							fauxToolCall("runtime_write", {
+								path: "src/unrelated.mjs",
+								operation: "create",
+								mustNotExist: true,
+								content: "export const unrelated = true;\n",
+							}),
+							{ stopReason: "toolUse" },
+						);
+					handoff.arguments.changed_files = [
+						...(handoff.arguments.changed_files as string[]),
+						"src/unrelated.mjs",
+					];
+				}
+				return response;
+			}),
+		);
+		const result = await runFitnessMatrix({ ...options, fixtureIds: ["F03"] });
+		expect(result.fixtures[0]).toMatchObject({
+			terminalStatus: "COMPLETED",
+			oracle: "FAIL",
+			falseCompletion: true,
+			checks: { passed: 2, failed: 0 },
+			contract: { scopeViolations: 0 },
+			tools: { runtimeWrite: 1 },
+		});
+	});
 	it("detects canonical false completion despite a schema-valid independent Reviewer PASS", async () => {
 		responses("FALSE_COMPLETER");
 		const result = await runFitnessMatrix({ ...options, fixtureIds: ["F06"] });
@@ -134,5 +193,10 @@ describe("Fitness through actual SDK and Runtime boundaries", () => {
 	it("rejects oracle, private, runtime and traversal paths in corpus input", () => {
 		for (const path of ["oracle", "oracle/check.mjs", "private", ".ai", ".git", "../escape", "fixture-context.txt"])
 			expect(() => validateFitnessFixture({ ...FITNESS_CORPUS[0], allowedPaths: [path] })).toThrow();
+	});
+	it("rejects invalid corpus budgets and expected mutations outside the allowed scope", () => {
+		const fixture = FITNESS_CORPUS.find((item) => item.id === "F03")!;
+		expect(() => validateFitnessFixture({ ...fixture, budget: { ...fixture.budget, maxWorkerCalls: 0 } })).toThrow();
+		expect(() => validateFitnessFixture({ ...fixture, allowedPaths: ["src/units.mjs"] })).toThrow();
 	});
 });

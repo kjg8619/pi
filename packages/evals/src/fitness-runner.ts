@@ -212,14 +212,6 @@ export interface FitnessRunnerOptions {
 	onRequest?: (request: AgentExecutionRequest) => void;
 }
 
-function usableMeasurement(measurement: WorkerMeasurement | undefined): WorkerMeasurement | undefined {
-	if (!measurement) return undefined;
-	// SDK adapters initialize usage to zero before receiving upstream usage. Zero cannot prove reporting.
-	if (measurement.usage.totalTokens <= 0)
-		return { ...measurement, usage: { ...measurement.usage, source: "unavailable" } };
-	return measurement;
-}
-
 async function executeFixture(
 	fixture: FitnessFixture,
 	options: FitnessRunnerOptions,
@@ -420,13 +412,10 @@ async function executeFixture(
 						try {
 							options.onRequest?.(request);
 							const result = await executor.execute(request);
-							measurement = usableMeasurement(result.measurement);
-							return { ...result, measurement };
+							measurement = result.measurement;
+							return result;
 						} catch (error) {
-							if (error instanceof WorkerExecutionError) {
-								measurement = usableMeasurement(error.measurement);
-								throw new WorkerExecutionError(error.message, measurement);
-							}
+							if (error instanceof WorkerExecutionError) measurement = error.measurement;
 							throw error;
 						} finally {
 							if (measurement) {
@@ -449,7 +438,11 @@ async function executeFixture(
 		scopeViolations = report.changedFiles.filter(
 			(path) => !fixture.allowedPaths.some((allowed) => path === allowed || path.startsWith(`${allowed}/`)),
 		).length;
-		let oracle = evaluateFitnessOracle(fixture, cwd, run, cleanup, { providerActive, forbiddenAttempts });
+		let oracle = evaluateFitnessOracle(fixture, cwd, run, cleanup, {
+			providerActive,
+			forbiddenAttempts,
+			baselinePaths: Object.keys(baseline),
+		});
 		// Provider/preflight failure is unavailable evidence, not a model's task-oracle failure.
 		if (run?.status !== "COMPLETED" && (invocations === 0 || providerErrors + authErrors + timeouts > 0))
 			oracle = "INVALID";

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Static, Type } from "typebox";
 import { Check } from "typebox/value";
@@ -48,7 +48,7 @@ export const FitnessFixtureSchema = Type.Object(
 	strict,
 );
 export type FitnessFixture = Static<typeof FitnessFixtureSchema>;
-export const FITNESS_CORPUS_REVISION = "weavra-fitness-1";
+export const FITNESS_CORPUS_REVISION = "weavra-fitness-2";
 const BUDGET = { maxWorkerCalls: 4, maxTotalTokens: 100000, workerTimeoutMs: 180000 };
 const labelOriginal = "export function formatLabel(value) {\n\treturn value;\n}\n";
 const labelTrimmed = "export function formatLabel(value) {\n\treturn value.trim();\n}\n";
@@ -284,10 +284,21 @@ export function evaluateFitnessOracle(
 	workspace: string,
 	run: Run | undefined,
 	cleanup: boolean,
-	facts: { providerActive: boolean; forbiddenAttempts: number },
+	facts: { providerActive: boolean; forbiddenAttempts: number; baselinePaths: readonly string[] },
 ): "PASS" | "FAIL" | "INVALID" {
 	if (!run || !cleanup) return "INVALID";
 	try {
+		const baseline = new Set(facts.baselinePaths);
+		const directories = [""];
+		while (directories.length) {
+			const directory = directories.pop()!;
+			for (const entry of readdirSync(join(workspace, directory), { withFileTypes: true })) {
+				if (!directory && (entry.name === ".ai" || entry.name === ".git")) continue;
+				const path = directory ? `${directory}/${entry.name}` : entry.name;
+				if (entry.isDirectory()) directories.push(path);
+				else if (!entry.isFile() || !baseline.has(path)) return "FAIL";
+			}
+		}
 		for (const [path, original] of Object.entries(fixture.files)) {
 			if (readFileSync(join(workspace, path), "utf8") !== (fixture.expectedFiles[path] ?? original)) return "FAIL";
 		}

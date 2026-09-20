@@ -117,6 +117,24 @@ describe("Fitness immutable records", () => {
 		await expect(store.read(initial.id)).rejects.toThrow();
 		expect(() => validateFitnessRecord({ ...initial, startedAt: 0 })).toThrow();
 	});
+	it("reads a frozen populated v1 record without rewriting its failed verdict or bytes", async () => {
+		// This fixture predates corpus v2; do not regenerate it with current record helpers.
+		const bytes = await readFile(new URL("./fixtures/fitness-v1.json", import.meta.url), "utf8");
+		const historical = validateFitnessRecord(JSON.parse(bytes));
+		const path = join(directory, `${historical.id}.json`);
+		await writeFile(path, bytes, { mode: 0o600 });
+		const store = await FitnessRecordStore.open(directory);
+		const loaded = await store.read(historical.id);
+		expect(loaded.corpusRevision).toBe("weavra-fitness-1");
+		expect(loaded.status).toBe("CALIBRATION_FAILED");
+		expect(compareFitnessRuns(loaded, loaded).left).toMatchObject({
+			correctness: { executed: 1, oraclePass: 0, oracleFail: 1, falseCompletion: 1 },
+			efficiency: { tokens: 6391, costUsd: null },
+			reliability: { transportErrors: null },
+		});
+		expect(await store.list()).toEqual([loaded]);
+		expect(await readFile(path, "utf8")).toBe(bytes);
+	});
 	it("preserves partial results and refuses terminal or settled-prefix rewrites", async () => {
 		const store = await FitnessRecordStore.open(directory);
 		const initial = record();
@@ -199,6 +217,27 @@ describe("Fitness immutable records", () => {
 		expect(compareFitnessRuns(left, record({ ...right, corpusDigest: fitnessDigest("different") })).comparable).toBe(
 			false,
 		);
+	});
+	it("does not compare unequal executed prefixes even when both planned the same corpus and budget", () => {
+		const first = fixture();
+		const left = record({ status: "BUDGET_EXHAUSTED", completedAt: 2, fixtures: [first] });
+		const right = record({
+			status: "COMPLETED",
+			completedAt: 2,
+			fixtures: [first, { ...fixture(), fixtureId: "F02" }],
+		});
+		const comparison = compareFitnessRuns(left, right);
+		expect(comparison.comparable).toBe(false);
+		expect(comparison.compatibility).toEqual({
+			corpus: true,
+			budget: true,
+			harness: true,
+			configuration: true,
+			fixtures: false,
+			kind: true,
+		});
+		expect(comparison.left.correctness).toMatchObject({ executed: 1, oraclePass: 1 });
+		expect(comparison.right.correctness).toMatchObject({ executed: 2, oraclePass: 2 });
 	});
 	it("rejects path traversal and symlink records without reading the target", async () => {
 		const store = await FitnessRecordStore.open(directory);
