@@ -1,7 +1,7 @@
 # V0.6B — Provider Fitness Matrix 조사·평가 계획
 
 - 작성: 2026-09-20, Asia/Seoul.
-- 상태: **C06 구현·오프라인 검증 진행 / actual calibration 및 closure 대기**. 아래 1~8절은 LOG-106의 조사 당시 계획이며 현재 구현 범위는 9절을 따른다.
+- 상태: **C06 OPEN — bounded 구현·faux proof 후 두 actual calibration 실패로 full matrix 보류**. 아래 1~8절은 LOG-106의 조사 당시 계획이며 현재 계약은 9절, 실제 결과는 10절을 따른다. C06 CLOSED 전이므로 V0.6C 연구도 시작하지 않는다.
 - 선행 조건: V0.6A/C07 bounded closure 후 시작했다. Pi 구현 `fd0f93d58e187d3c83f77424cb4cbf3f7ae8a2a3`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295) PASS, T3 `09de732fe8b02821ab150fe013f9acf9e93f99bc`의 로컬 전체 gate PASS·devlop CI 미실행은 [WORK_LOG LOG-105](WORK_LOG.md#log-105--2026-09-20-1440-asiaseoul--v06ac07-bounded-closure)에 기록했다.
 - 이번 조사에서는 source·기존 evidence·공식 문서를 읽고 secret-free model identity inventory만 실행했다. inference/model-list API, auth 파일/credential 값 조회, 설정 변경, 설치, 자동 모델 선택·fallback은 하지 않았다.
 
@@ -176,3 +176,27 @@ weavra fitness compare <left-id> <right-id> --json
 - 프로세스 강제 종료로 RUNNING record가 남아도 read가 resume/recover하지 않는다. resource release가 불확실하면 workspace를 지우지 않고 cleanup UNCONFIRMED를 남긴다. 외부 TOCTOU·전원 장애·provider-side billing 취소는 보장하지 않는다.
 
 현재 구현과 실제 실행 결과는 후속 WORK_LOG 기록에 구분해 남긴다. calibration 전에는 candidate metadata가 실제 가용성이나 fitness proof가 아니다.
+
+## 10. 실제 calibration과 중단 판정
+
+2026-09-20 macOS에서 clean committed harness `c94d5ddc4871a66943abebebe437f460fa119e99`로 실행했다.
+corpus `weavra-fitness-1`의 digest는 `sha256:5e6391d964668262b0851860af152813e40e3d9071d0e3b697e079a4ce4b8b57`다.
+각 target은 동일하게 F01/F02, 최대 fixtures 2 / worker calls 4 / reported tokens 100,000의 opt-in calibration만 허용했다.
+가격·청구액은 UNKNOWN이며 이 token limit을 hard billing cap으로 표현하지 않는다.
+
+| 실제 target / API | Fixture | Runtime | 외부 oracle / false completion | worker / model turns | reported tokens | latency |
+|---|---|---|---|---|---|---|
+| codex-lb / gpt-6-astra / openai-responses | F01 | COMPLETED | PASS / false | 1 / 2 | 4,155 | 13,649 ms |
+| 위와 동일 | F02 | BLOCKED | FAIL / false | 1 / 4 | 11,616 | 20,542 ms |
+| commandcode / deepseek/deepseek-v4.1-flash / openai-completions | F01 | COMPLETED | FAIL / true | 1 / 2 | 6,391 | 8,594 ms |
+| 위와 동일 | F02 | NOT STARTED | calibration 실패로 미실행 | 0 / 0 | 해당 없음 | 해당 없음 |
+
+- Astra record: `d8ac6441-ad5f-48a8-b598-ff7e32f622d7`, **CALIBRATION_FAILED**. endpoint identity `sha256:5ed82577e56de9393ae4e36bdafbb1af3a13dd2a1ebcb2933b79aa8251e70e65`, result digest `sha256:44319a63d93691d8be24893051e9af6e155b815d59283cddbb1a2394fc58f0df`. F02 strict edit 1회와 checks 2 PASS는 있었지만 task adherence=false, canonical BLOCKED였다. 성공으로 승격하지 않는다.
+- CommandCode record: `8b90b143-dc28-449f-9dc3-74c902ef4b80`, **CALIBRATION_FAILED**. endpoint identity `sha256:54098f3495c573bb3398e9d9c3f11e3493dbbdb631366891b5b113b3b2b7b2d2`, result digest `sha256:e592cf3ef6cfdecdfa08bd1128972501bb91f53dd36e2663ea903b7c1d074c44`. F01 AC met/checks PASS/Runtime COMPLETED와 별개로 고정 설명 oracle는 FAIL이다.
+- F01 oracle는 **summary에 정확한 `classify(0)=non-positive` 사실과 strict-greater 원인이 있는지** 검사한다. 따라서 CommandCode 결과는 이 고정 계약의 false completion이지 일반 이해력·코드 품질 실패의 증거가 아니다. 원문 transcript와 세부 mismatch 이유를 저장하지 않았으므로 표현 차이와 누락 원인을 더 세분하지 않는다. 결과를 구제하려고 oracle·prompt·모델을 바꾸거나 재호출하지 않았다.
+- 세 실제 fixture의 usage는 KNOWN, cleanup은 CONFIRMED다. scope violations·forbidden attempts·invalid tool calls·tool retries·기록된 provider/auth/timeout errors는 0이다. transport 세부 오류·HTTP attempts·가격·실제 upstream backend는 UNKNOWN이다. 모델명과 endpoint hash는 실제 weights의 증명이 아니다.
+- 실제 CLI compare는 corpus/budget/harness/configuration/kind 일치, **fixtures 불일치 → comparable=false**를 반환했다. 서로 다른 실행 prefix의 token·latency 합계로 순위를 만들지 않는다.
+- 두 calibration 모두 실패했으므로 실제 5~10 fixture full matrix는 **실행하지 않았다**. C06은 OPEN이며 V0.6C Jev 연구·구현은 시작하지 않았다. 다음 판단은 실패 계약과 oracle 적합성을 별도 조사할지 여부이며, 현 결과를 덮어쓰거나 자동 재시도하지 않는다.
+- T3의 Project-scoped **Provider fitness · Read-only**에서 이 두 실제 record를 읽고 비교했다. `NOT COMPARABLE / fixtures differs`, false completion 0/1, tokens 15,771/6,391, latency 34,191/8,594 ms, cost/transport UNKNOWN을 실제 화면에서 확인했다. 연결을 닫고 다시 열어도 평가를 실행하지 않으며 수동 Read history로 같은 record를 다시 조회했다. T3에는 list/compare만 있고 full detail은 CLI show를 사용한다.
+
+현재 로컬 검증·게시 SHA·exact CI 결과는 WORK_LOG의 후속 기록과 최종 전달을 따른다. 위 actual record의 harness SHA는 후속 문서/UI commit과 구분하여 보존한다.
