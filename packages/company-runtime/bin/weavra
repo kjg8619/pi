@@ -19,6 +19,10 @@ if [[ "${1-}" = setup || "${1-}" = doctor ]]; then
   (( $# == 1 )) || fail "setup/doctor cannot be combined with Pi arguments or worktree options."
   exec node "$DIRECTORY/../src/launcher-home.ts" "$1"
 fi
+if [[ "${1-}" = fitness ]]; then
+  shift
+  exec node "$DIRECTORY/../src/launcher-fitness.ts" "$@"
+fi
 if [[ "${1-}" = bridge ]]; then
   if [[ $# == 4 && "$2" = --stdio && "$3" = --project-trusted && "$4" = --control ]]; then
     exec node "$DIRECTORY/../src/launcher-control.ts" --stdio --project-trusted --control
@@ -44,8 +48,8 @@ while (( $# )); do
       WORKTREE_MODE="$1"
       shift
       ;;
-    setup|doctor|bridge)
-      fail "setup/doctor/bridge must be standalone launcher commands. Use -- for a literal Pi prompt."
+    setup|doctor|bridge|fitness)
+      fail "setup/doctor/bridge/fitness must be standalone launcher commands. Use -- for a literal Pi prompt."
       ;;
     --)
       PI_ARGS+=("$@")

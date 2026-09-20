@@ -119,7 +119,7 @@ V0.3B 시점 자동 targeted regression은 `47 files / 1,565 PASS`이며, 실제
 | **V0.5C — Bounded Verification Repair** | 허용된 검증 실패에 한해 최대 1회 새 attempt로 복구 | C02 | **CLOSED**(LOG-081~085). opt-in STANDARD/EDIT/R1·SELF_CHECK 1회, durable failed parent·fresh session/context/receipt·독립 review/test·누적 budget. `codex-lb/gpt-6-astra` actual **COMPLETED / oraclePass true / falseCompletion false**, strict mutation/trust·macOS required sandbox·현재 full local PASS. 초기 defect 통제 실험이며 Linux actual·모든 모델/OS 보장이 아님 |
 | **V0.5D — Impact Review & Versioned Docs** | 변경 영향 문맥과 버전 고정 문서를 Reviewer 입력으로 보강 | C04, C05 | **CLOSED, bounded 범위**(LOG-086~093). fresh impact·exact-declaration reviewed docs·summary-only projection·negative/A-B/full local PASS. Astra actual 1회 **COMPLETED / oracle PASS / fresh impact/docs / strict trust·macOS sandbox**. 구현 `0d4e91936` 및 별도 closure `9331b3ed9`의 exact CI 모두 PASS |
 | **V0.6A — T3 Code Host Bridge** | 구조화 명령·이벤트·승인·취소·재연결 Host 계약 | C07 | **CLOSED, bounded 범위**(LOG-101~105). legacy read-only 유지 + 별도 opt-in control. actual COMPLETE·cancel/reconnect·R3 approve/consume·reject·adversarial proof, 양쪽 전체 로컬 gate, Pi `fd0f93d58` exact CI PASS. T3 `09de732fe`는 devlop CI 미실행을 명시; 새 network Host 없음 |
-| **V0.6B — Provider Fitness Matrix** | Provider/model/endpoint별 Weavra 계약 적합성의 재현 가능한 평가 | C06 | C07 closure 후 **[조사·평가 계획 완료](WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md), 구현·새 paid eval 미착수**. endpoint/harness별 10축·독립 oracle·UNKNOWN·반복/paired 비교 설계; 자동 fallback 없음 |
+| **V0.6B — Provider Fitness Matrix** | Provider/model/endpoint별 Weavra 계약 적합성의 재현 가능한 평가 | C06 | [bounded CLI/corpus/immutable raw results 구현](WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md#9-c06-bounded-구현-계약)·faux proof 진행. actual F01/F02 calibration·동일 corpus matrix·최종 CI 전이므로 OPEN. 자동 fallback/종합 점수 없음 |
 | **V0.6C — Jev Browser Evidence** | 격리된 브라우저 탐색을 regression evidence 후보로 연결 | C08 | V0.4C + action policy 선행 |
 | **Later** | Facts / Capability Broker / COMPLEX / Parallel | FEAT-06, 09, Team Mode | 수요·측정 기반 |
 
@@ -816,7 +816,7 @@ CI 단계 도입 이후에는 non-mutating `check:ci`를 기본 자동 gate로 �
 
 Pi full test/check/check:ci와 T3 typecheck/fmt/knip/build/lint exit 0을 확인했다(기존 무관한 warning 있음). 첫 T3 full test는 localhost `ETIMEDOUT` 1건으로 실패했고 package 동시 실행을 끈 전체 재실행은 **1,269 files / 17,262 PASS / 58 skipped**였다. 실패 이력은 보존한다. Pi 구현 `fd0f93d58`의 [exact CI 35491863295](https://github.com/kjg8619/pi/actions/runs/35491863295)는 PASS, T3 `09de732fe`는 main/PR-only trigger에 따른 exact SHA runs/checks 0건으로 미실행이다. 두 devlop의 local/tracking/actual remote 일치·clean tree와 immutable tag 유지까지 확인한 뒤 bounded closure로 판정했다. 과거 read-only 결과를 현재 control 검증으로 승계하지 않았다.
 
-**V0.6B는 C07 closure 이후 [Provider/harness 조사와 10축 평가 계획](WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md)만 작성했다.** matrix 구현·새 paid eval·자동 fallback은 시작하지 않았다. Browser 확장도 별도 범위이며 자동 착수하지 않는다. control 상세는 [Runtime 계약](../packages/company-runtime/README.md#c07-별도-control-계약)을 따른다.
+**V0.6B는 C07 closure 이후 조사 계획을 바탕으로 bounded Fitness CLI를 구현 중이다.** actual은 clean committed harness와 exact-target F01/F02 calibration을 통과한 cell만 동일 corpus로 확대한다. 결과/closure는 WORK_LOG에 기록하며 자동 fallback은 없다. C06 CLOSED 이후에만 V0.6C 조사·계획을 진행하고 Browser 구현은 자동 착수하지 않는다. control 상세는 [Runtime 계약](../packages/company-runtime/README.md#c07-별도-control-계약)을 따른다.
 
 V0.4C가 닫힌 뒤에는 [Agent Landscape 조사](WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md)를 반영한 다음 순서를 따른다.
 

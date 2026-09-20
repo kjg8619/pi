@@ -228,8 +228,9 @@ export class HostControlBridge {
 			if (signal?.aborted || this.disposed) abort();
 		});
 	}
-	private async snapshot(request: HostControlRequest): Promise<HostControlResponse> {
+	private async snapshot(request: HostControlRequest, attempt = 0): Promise<HostControlResponse> {
 		await this.assertRoot();
+		const execution = this.execution;
 		const observation = await readHostObservation(this.root.path);
 		if (observation.status.state === "unavailable") throw new ControlError("STATE_UNAVAILABLE");
 		let graph: HostSnapshotSummary["graph"] = null;
@@ -284,6 +285,12 @@ export class HostControlBridge {
 			} catch {
 				preview = null;
 			}
+		}
+		// File reads yield while the owner may finish/release its writer. Never combine
+		// an earlier durable snapshot with a later idle owner and advertise it as coherent.
+		if (this.execution !== execution) {
+			if (attempt >= 2) throw new ControlError("STATE_UNAVAILABLE");
+			return this.snapshot(request, attempt + 1);
 		}
 		return this.success(
 			request,

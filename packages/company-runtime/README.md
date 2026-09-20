@@ -610,7 +610,7 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 - 브라우저 disconnect·Project panel 이탈은 **server-owned 실행을 종료하지 않는다.** reconnect는 fresh canonical state를 읽고 mutation을 자동 재전송하지 않는다. 이전 UI snapshot·receipt로 approval/실행을 복원하지 않는다. backend/Runtime 종료 뒤 resume/recovery를 제공한다는 뜻도 아니다.
 - cancel은 **기존 owned Run**이 있어야 한다. canonical Run 생성 전 model/Git/LSP preflight에는 wire cancellation ID가 없으므로 존재하지 않는 runId로 cancel을 보낼 수 없다. 취소 ACK 뒤 worker/check 정리·terminal state와 writer 해제를 확인한다. 비협조 I/O의 즉시 종료나 rollback을 보장하지 않으며 부분 변경은 보존한다.
 - R3는 기존 S5C의 **허용된 Git 추적 텍스트 파일 한 개 삭제**뿐이다. 일반 preview 확인은 삭제 승인이 아니며 현재 exact action·revision·digest·expiry에 대한 인간 응답만 전달한다. grant·검사·1회 소비·독립 review/checks·완료는 기존 Runtime 경로를 따른다. stale/다른 요청이나 재연결만으로 승인하지 않는다.
-- 임의 write/edit/tool/shell, 범용 R3, COMPLEX, resume/recovery/rollback/fallback, 새 network Host, 자동 setup·Policy 완화·UI의 완료 판정은 범위 밖이다. C07 closure 후 V0.6B는 [조사·계획](../../docs/WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md)까지만 진행했으며 matrix 구현·새 paid eval은 하지 않았다.
+- 임의 write/edit/tool/shell, 범용 R3, COMPLEX, resume/recovery/rollback/fallback, 새 network Host, 자동 setup·Policy 완화·UI의 완료 판정은 범위 밖이다. C07 closure 후 C06은 별도 [Fitness CLI](../../docs/WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md#9-c06-bounded-구현-계약)로 구현한다. `fitness list/show/compare`는 read-only이고 실제 평가는 paid opt-in·exact corpus·F01/F02 calibration·명시적 예산을 요구한다. C07 execution/control RPC에서 평가를 실행하지 않는다.
 
 ### C07 actual proof와 closure 한계
 
@@ -798,6 +798,7 @@ Kernel → AgentExecutor.execute(request) → PiAgentExecutor → 새 SDK AgentS
 - `execute`마다 새 세션·ResourceLoader·메모리 Settings·도구를 생성한다. 세션 재사용·부모 대화 복사·자동 모델 fallback은 없다. Adapter당 동시 호출을 거부한다.
 - Port에 `onSessionCreated` 비동기 콜백만 추가했다. Pi Adapter는 이 콜백을 요구하며 Kernel이 제공한다. 역할·중복·schema 검사 후 `roleSessionRefs`를 저장하고, 실패하면 prompt를 시작하지 않는다. 콜백은 한 번만 유효하며 늦은 호출은 거부한다.
 - Pi SessionManager가 `<agentDir>/sessions/company-runtime/` 아래 JSONL을 소유한다. 정규 세션 경로가 workspace로 들어가는 symlink도 거부한다. `.ai`에는 세션 ID/파일 참조만 저장한다. Pi는 첫 assistant 메시지까지 파일 생성을 늦추므로 조기 실패한 참조의 파일은 없을 수 있다.
+- C06 Fitness 실행은 명시적 `sessionPersistence: "memory"`로만 원문 JSONL을 저장하지 않는다. `.ai`의 역할 참조는 `memory:<sessionId>`이고 기존 Kernel의 session uniqueness를 유지한다. 일반 Runtime의 기본 durable 경로는 바꾸지 않는다. Fitness observer는 payload 없는 숫자/boolean만 전달하며 observer 오류가 worker 결과를 바꾸지 못한다.
 - 공개 SDK만 사용한다. Kernel/Ports/Policy에는 SDK·UI·Provider 구체 타입을 추가하지 않았다. StateStore/Policy 저장 형식과 실행 gate도 변경하지 않았다.
 
 ### 역할별 도구와 결과

@@ -572,7 +572,7 @@ DeepSeek 공식 API와 다른 Provider, Linux/다른 OS·Node 조합, 전체 ups
 
 ## Roadmap
 
-V0.2A의 순수 DTO/ASCII 조회 위에 V0.2B 정적 TUI Viewer를 연결했고 V0.6A/C07은 snapshots-only 관찰과 별도 opt-in control의 bounded 범위로 CLOSED다. 이후 V0.6B는 [Provider Fitness 조사·평가 계획](docs/WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md)만 작성했으며 **matrix 구현·새 paid eval·자동 fallback은 하지 않았다.** Pi TUI live update, scheduler/COMPLEX/Planner/Lead/병렬화·Browser product는 별도 범위다.
+V0.2A의 순수 DTO/ASCII 조회 위에 V0.2B 정적 TUI Viewer를 연결했고 V0.6A/C07은 snapshots-only 관찰과 별도 opt-in control의 bounded 범위로 CLOSED다. V0.6B/C06은 [평가 전용 `weavra fitness` CLI](docs/WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md#9-c06-bounded-구현-계약)로 versioned corpus·private oracle·immutable raw results·read-only compare를 구현했다. actual calibration·closure 상태는 WORK_LOG를 따른다. 종합 점수·모델 자동 선택/fallback은 없다. Pi TUI live update, scheduler/COMPLEX/Planner/Lead/병렬화·Browser product는 별도 범위다.
 
 내부 `CompanyKernel`, `CompanyExtensionOptions`, `registerCompanyRuntime`, `packages/company-runtime`, 세션 경로와 package `0.85.1` 메타데이터는 유지한다. 이는 Weavra 제품 버전이 아니다. 안정된 worker prompt와 역사적 설계/validation 기록의 기존 명칭도 보존한다. 상세 구현은 [Runtime 문서](packages/company-runtime/README.md), 작업 기록은 [WORK_LOG](docs/WORK_LOG.md)를 참고한다.
 

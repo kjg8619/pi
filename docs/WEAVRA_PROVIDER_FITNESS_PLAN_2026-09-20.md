@@ -1,7 +1,7 @@
 # V0.6B — Provider Fitness Matrix 조사·평가 계획
 
 - 작성: 2026-09-20, Asia/Seoul.
-- 상태: **조사·계획 완료 / matrix 구현·새 유료 평가 미착수**.
+- 상태: **C06 구현·오프라인 검증 진행 / actual calibration 및 closure 대기**. 아래 1~8절은 LOG-106의 조사 당시 계획이며 현재 구현 범위는 9절을 따른다.
 - 선행 조건: V0.6A/C07 bounded closure 후 시작했다. Pi 구현 `fd0f93d58e187d3c83f77424cb4cbf3f7ae8a2a3`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295) PASS, T3 `09de732fe8b02821ab150fe013f9acf9e93f99bc`의 로컬 전체 gate PASS·devlop CI 미실행은 [WORK_LOG LOG-105](WORK_LOG.md#log-105--2026-09-20-1440-asiaseoul--v06ac07-bounded-closure)에 기록했다.
 - 이번 조사에서는 source·기존 evidence·공식 문서를 읽고 secret-free model identity inventory만 실행했다. inference/model-list API, auth 파일/credential 값 조회, 설정 변경, 설치, 자동 모델 선택·fallback은 하지 않았다.
 
@@ -147,3 +147,32 @@ Astra의 public model 이름이 현재 공식 문서에 존재해도 역사적 c
 - [S11] [Google SDK GenerateContentConfig / abortSignal](https://googleapis.github.io/js-genai/release_docs/interfaces/types.GenerateContentConfig.html#abortsignal)
 
 로컬 근거는 [Pi AI 계약](../packages/ai/README.md), `packages/ai/src/api/{openai-responses,openai-responses-shared,openai-codex-responses,openai-completions,google-generative-ai,google-vertex,google-shared,constrained-sampling,transform-messages}.ts`, 기존 smoke와 WORK_LOG LOG-081~093, 위 eval/measurement source다. 하네스 README의 aborted-message continuation 설명과 실제 replay 처리의 차이는 계획의 제한으로 기록했고 이 조사에서 무관한 SDK 동작이나 문구를 수정하지 않았다.
+
+## 9. C06 bounded 구현 계약
+
+`weavra fitness`는 평가 전용 CLI다. interactive Runtime/control RPC에서 실행되지 않는다. corpus `weavra-fitness-1`은 Host-owned F01 조사, F02 strict 단일 수정, F03 bounded 다중 파일, F04 reviewed bugfix recipe, F05 경로 발견/context, F06 통제된 독립 리뷰, F07 통제된 1회 repair, F09 versioned docs, F10 untrusted authority, F08 active-stream cancel 순서다. 취소는 usage 미수신 가능성 때문에 마지막에 둔다. F06·F07은 자연 오류 복구율이 아니다.
+
+```sh
+weavra fitness list --json
+weavra fitness targets codex-lb
+weavra fitness targets commandcode
+weavra fitness faux GOOD --max-fixtures 10 --max-worker-calls 32 --max-tokens 1000000
+# list가 출력한 현재 corpusDigest를 직접 확인한 뒤 사용한다.
+weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --calibration --max-fixtures 2 --max-worker-calls 4 --max-tokens 100000
+weavra fitness run codex-lb/gpt-6-astra --allow-paid --confirm-corpus <digest> --calibration-id <id> --max-fixtures 10 --max-worker-calls 32 --max-tokens 500000
+weavra fitness show <id> --json
+weavra fitness compare <left-id> <right-id> --json
+```
+
+- 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. full run은 동일 target/harness/corpus의 F01/F02 calibration이 oracle PASS·usage KNOWN이어야 한다. auth/route/schema 실패 시 다른 모델이나 route로 대체하지 않는다.
+- 별도 `StandardWorkflow`가 아니라 기존 Workflow/Kernel/Task Contract/Policy/strict receipts/Verifier Trust/Sandbox/독립 SDK session을 사용한다. protected 등록 check는 고정 결과만 출력하며 외부 Host oracle은 실제 source bytes·canonical terminal·review/repair/cancel 사실을 검사한다. Reviewer PASS나 모델 완료 선언은 oracle PASS가 아니다.
+- source edits는 exact byte replacement corpus이며 일반 코드 품질 benchmark가 아니다. F05에는 bounded context/discovery가 있고 LSP 호출 횟수는 관측하지만 LSP 사용을 강제하지 않는다. F09는 frozen reviewed-local label 1.2.3 문서이며 인터넷 문서 검색이 아니다.
+- 전체 call budget은 fixture와 role/repair 경계에서 사전 차단한다. tokens는 provider-reported 정산 후 다음 invocation을 막는 한도이지 진행 중 응답의 hard billing cap이 아니다. usage 누락·0 초기값은 UNKNOWN이며 후속 호출을 막는다. 비용은 UNKNOWN이다. `--max-cost-usd`를 주면 안전한 사전 비용을 증명할 수 없어 호출을 전혀 허용하지 않는다.
+- raw dimension은 oracle/falseCompletion, AC/check, scope·forbidden mutation·receipt/submission rejection, tool/correction, provider/auth/timeout, repair/review, cancellation/cleanup, usage/calls/context bytes/latency다. HTTP attempts·transport 세부 오류·cost는 관측 불가 시 null(UNKNOWN)이다. `invalidCalls`는 schema 전용 비율이 아니라 도구 실행 오류 수다. TTFT·provider constrained text·effective thinking·context on/off 효과·cancel 단계별 시간은 이 corpus에서 측정하지 않는다. 지표 생략을 0점으로 바꾸거나 종합 점수·winner를 만들지 않는다.
+- usage input/output과 total은 cache 등을 포함하는 서로 다른 provider 필드다. 둘을 다시 합산해 total을 만들거나 reasoning을 이중 가산하지 않는다. faux usage는 scripted SDK estimate이며 실제 model efficiency로 해석하지 않는다.
+- result의 COMPLETED는 계획된 fixture 수집 완료이고 각 Runtime/oracle의 성공은 별도다. Provider/preflight 실패의 oracle는 INVALID다. Runtime COMPLETED + oracle FAIL만 falseCompletion=true다. max-fixtures/call/token/cost stop·signal·실패도 별도 run ID와 partial 결과를 보존한다.
+- 저장은 `$WEAVRA_HOME/fitness/<canonical-project-root hash>/<UUID>.json`이다. `.ai`와 분리된 private directory/0600 file, strict schema·digest·bounded size·atomic publication을 사용한다. settled fixture prefix·terminal record는 재평가로 덮어쓰지 않는다. list/show/compare는 auth/inference/Runtime resume를 수행하지 않는다. 최근 32개·최대 4,096 entry만 열거한다. `--store-dir`은 CLI의 명시적 private 절대 경로 override다.
+- Fitness Worker만 `SessionManager.inMemory`를 사용한다. 일반 Runtime JSONL 정책은 그대로다. 결과에는 원문 prompt/tool payload/reasoning/error/credential/endpoint URL을 넣지 않는다. endpoint identity는 userinfo/query/fragment를 제거한 origin+route의 hash이며 실제 upstream weights 증명이 아니다.
+- 프로세스 강제 종료로 RUNNING record가 남아도 read가 resume/recover하지 않는다. resource release가 불확실하면 workspace를 지우지 않고 cleanup UNCONFIRMED를 남긴다. 외부 TOCTOU·전원 장애·provider-side billing 취소는 보장하지 않는다.
+
+현재 구현과 실제 실행 결과는 후속 WORK_LOG 기록에 구분해 남긴다. calibration 전에는 candidate metadata가 실제 가용성이나 fitness proof가 아니다.

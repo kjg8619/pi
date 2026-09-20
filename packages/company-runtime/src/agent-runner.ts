@@ -61,6 +61,20 @@ const INSTRUCTION_PROTECTION_GUIDANCE =
 	"Do not attempt to read, search, list, navigate with LSP, edit, write or delete that file; the file itself is intentionally unavailable to worker tools. " +
 	"Use the frozen project context already supplied to this worker.";
 
+/** Bounded observations for opt-in evaluation; callbacks never receive model text or tool payloads. */
+export interface FitnessWorkerObserver {
+	providerActivity?(): void;
+	context?(bytes: number): void;
+	toolResult?(event: {
+		name: string;
+		isError: boolean;
+		submissionRejected: boolean;
+		staleReceipt: boolean;
+		policyDenied: boolean;
+	}): void;
+	providerError?(kind: "AUTH" | "TRANSPORT" | "TIMEOUT" | "PROVIDER"): void;
+}
+
 export interface PiAgentExecutorOptions {
 	executionContract: ExecutionContract;
 	cwd: string;
@@ -83,6 +97,9 @@ export interface PiAgentExecutorOptions {
 	r3Scope?: R3Scope;
 	/** Observation-only telemetry; exporter failures never change execution results. */
 	telemetry?: TelemetryContext;
+	/** Evaluation only: keep the SDK transcript in memory; ordinary workers retain durable sessions. */
+	sessionPersistence?: "memory";
+	fitnessObserver?: FitnessWorkerObserver;
 }
 
 function inside(root: string, path: string): boolean {
@@ -224,6 +241,14 @@ export class PiAgentExecutor implements AgentExecutor {
 		this.maxTurns = options.maxTurns ?? 32;
 	}
 
+	private observe(callback: (observer: FitnessWorkerObserver) => void): void {
+		try {
+			if (this.options.fitnessObserver) callback(this.options.fitnessObserver);
+		} catch {
+			// Observation is not execution authority.
+		}
+	}
+
 	static async create(options: PiAgentExecutorOptions): Promise<PiAgentExecutor> {
 		if (!options.executionContract) throw new Error("Explicit execution contract is required");
 		options = {
@@ -357,6 +382,7 @@ export class PiAgentExecutor implements AgentExecutor {
 			if (!(await runtime.checkAuth(mapping.provider, { signal })) || !(await runtime.getAuth(model, { signal })))
 				throw new Error("Unconfigured auth");
 		} catch {
+			this.observe((observer) => observer.providerError?.("AUTH"));
 			throw new Error("Worker authentication unavailable");
 		}
 		signal.throwIfAborted();
@@ -472,6 +498,7 @@ export class PiAgentExecutor implements AgentExecutor {
 			// A prior user/lifecycle cancellation must not become a timeout while a Provider is still settling.
 			if (signal.aborted) return;
 			failure = "Worker timed out";
+			this.observe((observer) => observer.providerError?.("TIMEOUT"));
 			cancellation.abort();
 		}, this.timeoutMs);
 		try {
@@ -571,13 +598,18 @@ export class PiAgentExecutor implements AgentExecutor {
 				].join("\n"),
 			);
 			stage = "session creation";
-			const sessionPath = join(this.options.agentDir, "sessions", "company-runtime");
-			await mkdir(sessionPath, { recursive: true, mode: 0o700 });
-			const sessionDirectory = await realpath(sessionPath);
-			if (inside(this.options.cwd, sessionDirectory))
-				throw new Error("Worker transcript must remain outside workspace");
+			let sessionManager: SessionManager;
+			if (this.options.sessionPersistence === "memory") {
+				sessionManager = SessionManager.inMemory(this.options.cwd);
+			} else {
+				const sessionPath = join(this.options.agentDir, "sessions", "company-runtime");
+				await mkdir(sessionPath, { recursive: true, mode: 0o700 });
+				const sessionDirectory = await realpath(sessionPath);
+				if (inside(this.options.cwd, sessionDirectory))
+					throw new Error("Worker transcript must remain outside workspace");
+				sessionManager = SessionManager.create(this.options.cwd, sessionDirectory);
+			}
 			assertActive();
-			const sessionManager = SessionManager.create(this.options.cwd, sessionDirectory);
 			creationAttempted = true;
 			this.cleanupConfirmed = false;
 			const created = await createAgentSession({
@@ -615,15 +647,33 @@ export class PiAgentExecutor implements AgentExecutor {
 			)
 				throw new Error("Unexpected worker model fallback");
 			let turns = 0;
+			let providerActive = false;
 			unsubscribe = session.subscribe((event) => {
 				if (event.type === "turn_start" && ++turns > this.maxTurns) failure ??= "Worker turn limit exceeded";
-				if (
-					event.type === "tool_execution_end" &&
-					event.isError &&
-					!worker.consumeSubmissionValidationError(event.toolName, event.toolCallId) &&
-					!worker.consumeStaleAnchorError(event.toolName, event.toolCallId)
-				)
-					failure ??= worker.policyDenial() ?? "Worker tool failed or was denied";
+				if (event.type === "message_update" && !providerActive) {
+					providerActive = true;
+					this.observe((observer) => observer.providerActivity?.());
+				}
+				if (event.type === "tool_execution_end") {
+					const submissionRejected =
+						event.isError && worker.consumeSubmissionValidationError(event.toolName, event.toolCallId);
+					const staleReceipt =
+						event.isError &&
+						!submissionRejected &&
+						worker.consumeStaleAnchorError(event.toolName, event.toolCallId);
+					const policyDenied = event.isError && !!worker.policyDenial();
+					this.observe((observer) =>
+						observer.toolResult?.({
+							name: event.toolName,
+							isError: event.isError,
+							submissionRejected,
+							staleReceipt,
+							policyDenied,
+						}),
+					);
+					if (event.isError && !submissionRejected && !staleReceipt)
+						failure ??= worker.policyDenial() ?? "Worker tool failed or was denied";
+				}
 				if (event.type === "message_end" && event.message.role === "assistant") {
 					measurement?.observeAssistant(event.message);
 					const calls = event.message.content.filter((part) => part.type === "toolCall");
@@ -632,12 +682,19 @@ export class PiAgentExecutor implements AgentExecutor {
 						calls.length !== 1
 					)
 						failure ??= "Structured submission must be the only tool call";
-					if (event.message.stopReason === "error" || (event.message.stopReason === "aborted" && !signal.aborted))
+					if (
+						event.message.stopReason === "error" ||
+						(event.message.stopReason === "aborted" && !signal.aborted)
+					) {
+						this.observe((observer) => observer.providerError?.("PROVIDER"));
 						failure ??= "Worker provider failed";
+					}
 				}
 				if (failure) cancellation.abort();
 			});
-			if (!session.sessionFile) throw new Error("Worker session reference unavailable");
+			const sessionReference =
+				this.options.sessionPersistence === "memory" ? `memory:${session.sessionId}` : session.sessionFile;
+			if (!sessionReference) throw new Error("Worker session reference unavailable");
 			measurement = new WorkerMeasurementAccumulator(
 				{
 					role: request.role,
@@ -656,7 +713,7 @@ export class PiAgentExecutor implements AgentExecutor {
 			await onSessionCreated!({
 				role: request.role,
 				sessionId: session.sessionId,
-				sessionFile: session.sessionFile,
+				sessionFile: sessionReference,
 			});
 			assertActive();
 			// Select fields explicitly: never copy a parent transcript, SDK object or callback into the prompt.
@@ -692,6 +749,7 @@ export class PiAgentExecutor implements AgentExecutor {
 			};
 			const prompt = JSON.stringify(context);
 			if (Buffer.byteLength(prompt) > 524288) throw new Error("Worker context exceeds size limit");
+			this.observe((observer) => observer.context?.(Buffer.byteLength(prompt)));
 			stage = "prompt/result";
 			await session.prompt(prompt, { expandPromptTemplates: false });
 			assertActive();
