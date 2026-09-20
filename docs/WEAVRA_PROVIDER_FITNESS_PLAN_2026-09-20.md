@@ -297,3 +297,104 @@ input/output/total은 provider 필드를 그대로 집계한 값이며 cache 포
 Cache/reasoning detail은 이미 SDK에서 normalize되므로 실제 raw zero의 provenance를 추정하지 않는다. 새 nullable optional 필드는 과거 v1/v2 result bytes를 바꾸지 않으며 T3의 list/compare summary에는 추가 필드를 내보내지 않는다. Source 변경 후 targeted records/measurement 50개·SDK 14개, check/hydrate/offline build/check:ci, launcher syntax/diff whitespace, 전체 `bash ./test.sh`(209.30초; coding-agent 2,766 PASS·50 skipped, Runtime 1,429 PASS, evals 35 PASS)가 통과했다.
 
 Fixture goal/AC/body/oracle와 corpus `weavra-fitness-2` digest는 그대로다. 변경되는 harness와 prompt/runtime revision은 새 actual cohort에 고정한다. 두 target은 같은 F01→F02, 각각 fixtures 2 / worker calls 4 / reported tokens 100,000, required sandbox로 1회만 실행한다. 두 target 모두 gate를 통과하기 전에는 F03–F10을 호출하지 않는다. C06 CLOSED 이전에는 V0.6C를 시작하지 않는다.
+
+## 14. 새 허가에 따른 v2 actual calibration — C06 OPEN
+
+2026-09-20 21:04–21:05 Asia/Seoul에 두 target의 F01→F02 calibration을 각각 **한 번** 실행했다. Actual harness는 clean committed `97ce0a2c69cbd6605011fbe34a54b07c9ec11d29`이고 [exact CI 35509228483](https://github.com/kjg8619/pi/actions/runs/35509228483)의 head SHA 일치·completed/success를 먼저 확인했다. 이 보강 commit과 actual evidence 문서 commit을 분리한다. v1 actual 기록은 이번 판정에 재사용하지 않는다.
+
+### 14.1 고정 identity·정책·예산
+
+- Corpus: `weavra-fitness-2` / `sha256:352795e95dc5175247eefaff89c73ca3b7768c6acf8f27e4dd2623f2bf0763b1`. Fixture 10개 digest는 §11의 inventory와 동일하며 goal/AC/body/oracle를 actual 실패에 맞춰 바꾸지 않았다.
+- Harness: `97ce0a2c69cbd6605011fbe34a54b07c9ec11d29`.
+- Tool schema: `sha256:0375b1881ee51c6ee700b0c7fd0e57d33bb1d55b74644f8b38ccd521695776e9`.
+- Prompt/runtime: `sha256:b00f8769eab4d21056b8ed2b7484688183a7f79f3f26a48d25568d95321091aa`.
+- Shared configuration: `sha256:c4b7c18bfd2a8725893732010ad8ef80900b6bdc49044303bf96d1db5972c1bf`.
+- 두 target 모두 SDK default/clamped/mapped thinking=`medium`, reasoning capability=true, sampling override 없음. reasoning/map/compat/sampling policy digest는 `sha256:3a619424382d31b2a999ce9fd1d20e6629e60635afe281f70b1dd61f160a8939`다. 매 actual 실행 전에 같은 ModelRuntime instance의 public identity와 정책 digest를 frozen descriptor와 대조했다. 실제 upstream effective reasoning은 **UNKNOWN**이며 SDK 설정과 혼동하지 않는다.
+- Session retry=false, provider maxRetries=0, compaction disabled, 일반 revision cycle=0. Gateway 내부 retry와 HTTP attempts는 UNKNOWN이다. F07의 명시적인 한 번 repair는 이번 actual에서는 실행되지 않았다.
+- 각 calibration의 동일 budget: fixtures 2 / worker invocations 4 / reported tokens 100,000. 각 fixture는 corpus의 workers 4 / tokens 100,000 / timeout 180,000ms와 required sandbox를 유지했다. Cost는 UNKNOWN이며 token admission은 진행 중 응답의 hard billing cap이 아니다.
+- 실제 환경: darwin/arm64, Pi Node `v26.7.0`. T3 read-only 화면 검증은 Node `24.19.0`과 별도 빈 T3 home/DB를 사용했다. 기존 auth/models/사용자 DB와 raw endpoint는 바꾸거나 공개하지 않았다.
+
+| Target | Provider / model | Adapter | Endpoint identity |
+|---|---|---|---|
+| Astra | `codex-lb/gpt-6-astra` | `openai-responses` | `sha256:5ed82577e56de9393ae4e36bdafbb1af3a13dd2a1ebcb2933b79aa8251e70e65` |
+| CommandCode | `commandcode/deepseek/deepseek-v4.1-flash` | `openai-completions` | `sha256:54098f3495c573bb3398e9d9c3f11e3493dbbdb631366891b5b113b3b2b7b2d2` |
+
+### 14.2 실제 실행 범위와 중단
+
+| Fixture | Astra actual | CommandCode actual |
+|---|---|---|
+| F01 | COMPLETED / oracle PASS | COMPLETED / oracle FAIL / falseCompletion=true |
+| F02 | BLOCKED / oracle FAIL / Task Contract adherence=false | NOT RUN — F01 calibration gate |
+| F03 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F04 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F05 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F06 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F07 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F08 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F09 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+| F10 | NOT RUN — calibration gate | NOT RUN — calibration gate |
+
+두 collection 모두 `CALIBRATION_FAILED`다. 총 actual fixture 3개, worker invocation 3회, model turn 8회이고 HTTP call 수로 바꿔 표현하지 않는다. Diagnostic/retry/fallback은 **0회**다. F03–F10이나 F01/F02 재실행으로 결과를 구제하지 않았다.
+
+- Astra record: `1bbf3173-66da-47e3-9574-c8b58a5efcaa`; result digest `sha256:88e21081d1c6bcfd411763826ddea2fca667e061ab4fbd0b98c5dacc0860f4a6`.
+- CommandCode record: `3da1a33c-e8b7-41fa-b82d-f202059286ac`; result digest `sha256:4875e55e24e3c5ed345c45e4ca03df3cf1fce9f957c3f44818b20ba8cd7242d5`.
+- 두 기록은 기존 project-private Fitness store에 0600으로 보존했다. Astra file SHA-256 `8e05e58f197917f41f96bafeb322aded0a17c069b653da4c4685d3765fb38ea1`, CommandCode `f3e863fc18bdd8aab845a52fbbd7e056a17e7333b394a452979e92fbd2a7e89d`. 이는 schema의 canonical result digest와 다른 원본 파일 byte hash다.
+- CLI list/show/compare와 T3 조회 뒤 새 v2 2개 및 기존 v1 2개의 byte hash·0600 permissions가 유지됐다. 기존 v1의 byte hash는 LOG-112 그대로다.
+
+### 14.3 원시 관측값과 실패 분류
+
+각 열의 관측 수는 **n=1**이다. 평균·백분위·winner·종합 점수나 일반 모델 능력으로 확대하지 않는다.
+
+| Dimension | Astra F01 | Astra F02 | CommandCode F01 |
+|---|---:|---:|---:|
+| Runtime terminal | COMPLETED | BLOCKED | COMPLETED |
+| Oracle | PASS | FAIL | FAIL |
+| False completion | false | false | true |
+| AC met / notMet | 1 / 0 | UNKNOWN / UNKNOWN | 1 / 0 |
+| Checks passed / failed / notRun | 2 / 0 / 0 | 2 / 0 / 0 | 2 / 0 / 0 |
+| Task Contract adherence | true | false | true |
+| Scope / forbidden mutations | 0 / 0 | 0 / 0 | 0 / 0 |
+| Strict receipt / handoff / review rejections | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Tools / invalid / retries | 2 / 0 / 0 | 4 / 0 / 0 | 3 / 0 / 0 |
+| runtimeRead / runtimeEdit / runtimeWrite / LSP | 1 / 0 / 0 / 0 | 1 / 1 / 0 / 0 | 1 / 0 / 0 / 0 |
+| Workers / model turns | 1 / 2 | 1 / 4 | 1 / 2 |
+| Provider / auth errors / timeouts | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Transport errors / HTTP attempts | UNKNOWN / UNKNOWN | UNKNOWN / UNKNOWN | UNKNOWN / UNKNOWN |
+| Repair / reviewer revision | 0 / 0 | 0 / 0 | 0 / 0 |
+| Cancellation | NOT_REQUESTED | NOT_REQUESTED | NOT_REQUESTED |
+| Cleanup | CONFIRMED | CONFIRMED | CONFIRMED |
+| Usage state | KNOWN | KNOWN | KNOWN |
+| Input | 2,146 | 3,340 | 2,313 |
+| Output | 230 | 381 | 1,275 |
+| Total / knownTotal | 4,168 / 4,168 | 11,657 / 11,657 | 6,916 / 6,916 |
+| Cache read | 1,792 | 7,936 | 3,328 |
+| Cache write | UNKNOWN | UNKNOWN | UNKNOWN |
+| Reasoning | UNKNOWN | UNKNOWN | 332 |
+| Context bytes | 1,289 | 1,173 | 1,289 |
+| Fixture latency ms | 13,486 | 20,134 | 10,667 |
+| Cost USD | UNKNOWN | UNKNOWN | UNKNOWN |
+
+Usage detail source는 모두 `SDK_NORMALIZED`다. 양수 cache/reasoning은 관측값이고 raw upstream detail completeness의 증명이 아니다. Reasoning을 output/total에 재가산하지 않는다. 전체 reported total은 Astra 15,825 / CommandCode 6,916 / 합계 22,741이며 서로 다른 실행 prefix의 비용·속도 비교로 해석하지 않는다.
+
+- **Astra F02: CONTRACT_ADHERENCE.** 관측된 근거는 BLOCKED, Task Contract adherence=false, AC completion evidence UNKNOWN이다. Source 수정·checks PASS·tool 오류 0만으로 frozen Task Contract 충족을 대신하지 않는다. 실패의 정확한 모델 문구/내부 원인은 미보관이므로 UNKNOWN이며 모델 능력 문제로 단정하지 않는다.
+- **CommandCode F01: UNKNOWN (frozen oracle mismatch).** Runtime COMPLETED와 AC/checks PASS 뒤에도 외부 oracle FAIL·falseCompletion=true다. F01의 고정 summary fact predicate를 충족하지 못한 판정은 유지한다. 원문 summary를 보존하지 않았으므로 잘못된 의미인지, 누락인지, 표현 차이인지 구분할 수 없고 MODEL_SEMANTIC으로 확정하지 않는다.
+- AUTH/PROVIDER 오류·timeout은 관측되지 않았고 invalid tool calls=0이다. 별도 TOOL_SCHEMA/TOOL_SEMANTICS 원인을 추정하지 않는다. Oracle 결과는 INVALID가 아니며 usage/cleanup도 UNKNOWN이 아니다. 실제 실패를 HARNESS_DEFECT로 분류할 결정적 재현 근거는 없으므로 oracle/contract를 완화하거나 추가 actual 진단을 하지 않았다.
+
+### 14.4 비교·실제 T3 surface
+
+CLI comparison은 `comparable=false`, compatibility는 corpus/budget/harness/configuration/kind=true, **fixtures=false**다. 동일 target별 calibration조차 전체 F01–F10을 실행하지 않았고 두 prefix도 다르다. `CALIBRATION_FAILED` 기록을 full matrix로 승격하지 않는다.
+
+T3 `d4a858cbb6fdd195173d593feb8fbb979bf2b998`는 무변경이다. 기존 Settings → Pi project scope → Project → Provider fitness에서 새 actual v2 2개와 과거 actual v1 2개를 함께 읽고 revision별로 구분했다. 두 새 ID를 선택하여 **NOT COMPARABLE / fixtures differs**, exact provider/model/adapter/endpoint hash/harness/tool/runtime/config identity, executed 2/1·oracle 1/1 대 0/1·false completion 0/1, tokens 15,825/6,916·raw latency 33,620/10,667ms·cost/transport UNKNOWN을 실제 Chromium 화면으로 확인했다.
+
+`T3_WEAVRA_CONTROL=0`, 새 임시 home/DB, 기존 private Weavra history만 사용했다. UI에는 평가 실행 경로가 없고 chat turn·workflow 실행·model 호출을 시작하지 않았다. Pairing token은 출력하지 않았고 owned browser/service는 종료했다. Cache/reasoning detail은 기존 summary UI의 필드가 아니므로 CLI show/위 표에서 확인하며 UI가 표시했다고 주장하지 않는다. 이번 T3 full/static/build는 source 무변경이라 재실행하지 않았고 LOG-109~110의 같은 SHA 결과는 과거 proof로 구분한다.
+
+**판정: C06 OPEN.** Full actual matrix 수집 자체의 실패가 아니라 그 선행 calibration gate가 실패했다. F03–F10, actual controlled rejection/repair/cancellation/docs/policy 판정은 미실행이다. V0.6C/Jev 조사·구현·browser authority 확장은 시작하지 않으며 root/Runtime README를 CLOSED로 갱신하지 않는다.
+
+### 14.5 이번 작업의 최종 검증과 제한
+
+- Actual 전 clean `97ce0a2c6`에서 records/measurement 50개와 SDK Fitness 14개를 재실행해 모두 PASS했다. CLI faux GOOD `4a989fbd-ba5e-4c2e-87e7-c57ea23cfe80`은 10 oracle PASS, CONTRACT_VIOLATOR `23772054-1134-487e-a0f5-35010ff8c75e`는 forbidden attempt 1·scope change 0·F02 FAIL, UNRELIABLE `9365574f-48fc-4306-b6fc-87a8808a6738`는 UNKNOWN 이후 F02 미호출이다. Invalid auth JSON을 둔 별도 HOME에서도 CLI list/show/compare 3개 PASS, 위험한 invocation 4개는 store 생성 전 거부, cost-bound `6d4a6f43-a2da-43c2-9f03-61cf20e6e0aa`는 fixture 0개에서 BUDGET_EXHAUSTED였다.
+- Actual 후 첫 검증은 여러 무거운 test process를 중복 실행했다. Runtime은 **1,429 PASS**였지만 SDK subset은 **4 FAIL / 524 PASS**(Fitness 30초 timeout, check-pause 관찰 3건), standalone evals는 **1 FAIL / 34 PASS**(context A/B 5초 timeout), 전체 Pi는 **2 FAIL**(agent taskkill fixture의 NaN pid, SDK Fitness timeout)였다. 이 실패를 숨기지 않는다. 중복 실행 부하의 영향은 [INFERENCE]이며 source 결함을 해결했다고 주장하지 않는다.
+- Owned T3 dev service/browser를 종료하고 test processes를 겹치지 않게 직렬화했다. **동일 source·같은 timeout·skip·assertion**으로 SDK Weavra **16 files / 528 PASS**(Fitness 14개 포함), evals **8 files / 35 PASS**, records/measurement **3 files / 50 PASS**, 전체 `bash ./test.sh` **exit 0**을 확인했다. 전체 실행에서 coding-agent **2,766 PASS / 50 skipped**, Runtime **1,429 PASS**, evals **35 PASS**이고 scripts/consumer smoke·나머지 workspace도 PASS다.
+- 같은 직렬 gate에서 hydrate:model-data, `npm run check`, `npm run check:ci`, shrinkwrap check, coding-agent install-lock check, launcher `bash -n`, diff whitespace가 모두 PASS였다. Biome 1,463 files·no fixes다. 직렬 validation 전체는 **287.36초**다. 테스트 삭제·timeout 증가·skip 추가·실제 Provider 재시도는 없었다.
+- Post-actual faux도 별도로 직렬 실행했다(**15.29초**, 실제 Provider 0회): GOOD `5e57c9cb-4c95-427e-a821-dde46b2b628f`는 10 oracle PASS·expected F06 BLOCKED/F08 CANCELLED, CONTRACT_VIOLATOR `da69157f-ad23-4618-9e06-fea0d7633573`는 F02 FAIL·forbidden attempt 1·scope change 0, UNRELIABLE `9ebf6413-bdde-4541-8d2a-8a33b61cc258`는 F01 UNKNOWN/INVALID 후 BUDGET_EXHAUSTED·F02 미호출이다. 모두 cleanup CONFIRMED다. 전후 faux와 cost-stop record는 `~/.weavra/fitness/c06-v2-preactual-20260920`에 보존한다.
+- Root/Runtime README, T3 source, dependency/lockfile, auth/models, main/tag는 의도적으로 무변경이다. Source 보강의 exact CI와 evidence 문서의 최종 exact HEAD CI를 구분하며, 문서 게시 뒤 후자의 SHA·conclusion은 최종 전달에서 확인한다.
