@@ -432,3 +432,39 @@ Weavra Kernel / Policy / State / Approval / Budget
 | 클라우드·환경 | [Devin Playbooks][A22], [OpenHands][A23], [Copilot cloud agent][A24] |
 | 리뷰·평가 | [CodeRabbit][A25], [Greptile][A26], [mini-SWE-agent][A27] |
 | 브라우저 | [Jev Ultrafast][A29] |
+
+## 10. C08 후속 연구와 첫 read-only slice (2026-09-21)
+
+이 절은 위 2026-09-18 조사/제안을 보존하는 후속 기록이다. **C06 CLOSED를 exact CI로 확인한 뒤에만** 조사·구현에 진입했다(LOG-116). C06 actual record를 재실행하거나 수정하지 않았으며 이 C08 slice의 Provider 호출은 0회다.
+
+### 고정한 upstream과 확인한 경계
+
+- Jev revision: [`1231850a0bf1a0c0341fe408ef1668dbbfdfac46`](https://github.com/browser-use/jev-ultrafast/commit/1231850a0bf1a0c0341fe408ef1668dbbfdfac46). [고정 snapshot.js](https://github.com/browser-use/jev-ultrafast/blob/1231850a0bf1a0c0341fe408ef1668dbbfdfac46/jev_ultrafast/snapshot.js)의 원문 6,490 UTF-8 bytes / SHA-256 `e50473501c8fb8e70f3b21866d987393e3f2315c639d638bd477d170e81ed78d`를 MIT notice와 함께 보존했다. 실행 전에 digest를 다시 검사한다.
+- [고정 dependency 선언](https://github.com/browser-use/jev-ultrafast/blob/1231850a0bf1a0c0341fe408ef1668dbbfdfac46/pyproject.toml)은 `browser-harness==0.1.13`이다. 조사한 release-tag source는 [`c24e5072ee66f8499bacd663f4f4bcb089bc4492`](https://github.com/browser-use/browser-harness/tree/c24e5072ee66f8499bacd663f4f4bcb089bc4492)다. Lock/PyPI wheel digest는 `2491459e4bfc0ee8aea22dc6c4680fc0f791b7ba553446323c50d2883449d769`, sdist는 `284dc547a042c309feafd9a9f4a74b2a8651b7963ea3ac6cb2f2d64889f6a8f3`다. [PyPI metadata](https://pypi.org/pypi/browser-harness/0.1.13/json)와 대조했으나 release-tag source와 배포물의 byte equivalence는 독립 검증하지 않았다. 설치/실행 의존성으로 추가하지 않았다.
+- [Browser API](https://github.com/browser-use/jev-ultrafast/blob/1231850a0bf1a0c0341fe408ef1668dbbfdfac46/jev_ultrafast/browser.py)는 constructor-level profile/browser/context injection을 제공하지 않으며 기본 browser의 default context에 target을 만든다. Low-level explicit-session observe는 모델 없이 가능하지만 같은 dispatcher에 act/임의 operation 경로가 있어 read-only enforcement가 아니다.
+- Dependency의 [daemon endpoint 선택](https://github.com/browser-use/browser-harness/blob/c24e5072ee66f8499bacd663f4f4bcb089bc4492/src/browser_harness/daemon.py#L247-L325)은 `BU_CDP_WS`를 지원한다. 반면 `BU_CDP_URL`의 HTTP 404는 personal-profile discovery로 fallback할 수 있고, [healthy daemon 재사용](https://github.com/browser-use/browser-harness/blob/c24e5072ee66f8499bacd663f4f4bcb089bc4492/src/browser_harness/admin.py#L492-L559)은 새 endpoint 확인보다 앞선다. 격리 연결이 전혀 불가능한 것은 아니지만 환경변수/namespace 이름만으로 격리를 입증할 수 없다. Import의 `.env` 로딩·디렉터리 생성도 그대로 가져오지 않는다.
+- Snapshot은 일반 page world의 `window.__jevFast`를 갱신하고, 숨겨진 일반 input의 value를 포함한 field state/guards를 만들 수 있다. Fingerprint는 권한/완전한 redaction/전체 UI 의미의 증명이 아니다. DOM과 screenshot도 별도 capture다. [Agent의 DONE 처리](https://github.com/browser-use/jev-ultrafast/blob/1231850a0bf1a0c0341fe408ef1668dbbfdfac46/jev_ultrafast/agent.py#L85-L99)와 cached `snapshot()`은 독립 성공 검증이나 fresh 수집이 아니다.
+
+### 채택한 첫 구현
+
+**Python Agent/daemon 전체가 아니라 고정 DOM reader만 채택했다.** `browser-observation.ts`가 Host 요청·bounded schema·provenance·cleanup을, `browser-driver.ts`가 새 private Chromium/profile과 fixed CDP transport를 소유한다. 기존 `runProcess`를 재사용하며 `weavra browser observe ... --local-test-app --json`으로 실행한다. 사용법/한도는 [Runtime README](../packages/company-runtime/README.md#v06c-c08--로컬-browser-observation-candidate)를 따른다.
+
+- 범위: Host-reviewed local static document, explicit executable, 최초 loopback document GET 하나. 개인 profile/account/production/proxy·앱 JavaScript·추가 요청·action·모델 호출·arbitrary JS/CDP·T3 직결은 제외한다. Profile 생성/navigation/정리는 관찰을 위한 명시적 owned lifecycle이며 모든 브라우저 효과가 0이라는 주장이 아니다.
+- Fixed reader는 isolated world에서 실행한다. 공개 candidate에는 bounded title/text/control labels와 marker hash만 남기고 raw values/guards/node handles/screenshot은 보내지 않는다. Private CDP 구조 조회로 page JS가 볼 수 없는 closed shadow root도 거부한다. Visible text/labels 안의 secret을 일반적으로 판별하는 기능은 없다.
+- `schemaVersion:1`, `BROWSER_OBSERVATION_CANDIDATE`, `CANDIDATE_ONLY`와 reader revision/digest, reported browser version, capture ID/시각, observation digest, cleanup을 반환한다. 두 capture 비교는 그 시점의 bounded projection에 한정하며 future freshness·서명·permission·CheckResult를 만들지 않는다.
+- Host-owned process group과 private profile을 정리한 뒤에만 candidate를 반환한다. Protocol/시간/output 한도와 request interception은 **browser 전체 OS network sandbox가 아니다**. 별도 group으로 탈출한 daemon/비협조 외부 process와 hard memory cap은 보장하지 않는다. 기존 required verifier sandbox는 network deny-all 그대로다.
+
+### Candidate에서 독립 regression evidence까지
+
+1. Candidate와 재현 가설은 untrusted advisory data다. DOM label/fingerprint/Jev DONE만으로 AC MET/check PASS/Run COMPLETE를 만들지 않는다.
+2. Host는 목표·관찰 가능한 AC·실제 assertion·oracle source·범위/부작용을 검토해야 한다. 기존 `config.verification.checks`와 새 Run의 frozen Task Contract가 등록 경계다. Candidate가 기존 config/check/Run/acceptance를 자동 수정하는 converter는 없다.
+3. 실제 판정에는 fresh 독립 수집 또는 authoritative local-app state, authorized run/attempt·fixture/build·origin·browser/target·시각 binding이 필요하다. Truncation·unsupported DOM·stale/missing evidence를 성공으로 취급하지 않는다. Workspace freshness와 browser/server freshness는 다르다.
+4. 독립 Verifier/필요한 Reviewer 뒤에도 최종 완료는 기존 Kernel의 trust/sandbox/check identity/Task Contract/revision/attempt/diff guards가 결정한다. 이 첫 slice에는 live browser verifier가 없으며 required network policy를 완화해 우회하지 않는다.
+
+### 실제 검증과 현재 상태
+
+macOS arm64의 HeadlessChrome `152.0.7977.42`, Node `24.19.0`에서 실제 CLI로 같은 URL의 Revision 1→2를 새 profile에서 관찰했다. Script·subresource·redirect·frame·closed shadow를 거부하고 실행 중 취소 뒤 process/profile 정리를 확인했다. 테스트 앱의 mutation endpoint 호출·예상 밖 server request·exported secret sentinel·Provider 호출은 모두 0이었다. 실제 candidate는 기존 `VerificationResultSchema`에 수락되지 않았다.
+
+Node `26.7.0`에서는 64 control/6,000 text-unit의 escaped projection(출력 138,545 bytes)도 확인했다. 초기 JSON output bound 오거부와 closed-shadow 미탐지를 실제 Chromium으로 재현 후 수정했고, canonical Unicode URL 길이 회귀는 FAIL→PASS로 남겼다. Chromium bundle을 일반 CI dependency로 추가하지 않았으므로 DOM/cleanup actual proof와 deterministic admission tests를 구분한다.
+
+**첫 read-only 수집은 구현·actual 검증했다. C08 전체는 OPEN이다.** Jev 모델/행동 loop, action policy/최종 입력 검사, live browser 독립 Verifier·자동 registration, T3 browser control, 다른 browser/OS 조합은 완료로 주장하지 않는다. 최신 전체 회귀·게시·exact CI는 WORK_LOG 후속 기록을 따른다.

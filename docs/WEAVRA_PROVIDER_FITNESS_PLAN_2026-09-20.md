@@ -1,7 +1,7 @@
 # V0.6B — Provider Fitness Matrix 조사·평가 계획
 
 - 작성: 2026-09-20, Asia/Seoul.
-- 상태: **C06 full actual·최종 로컬/UI proof 완료, closure evidence 게시·exact CI 대기**. 1~8절은 최초 조사, 9절은 현재 계약, 10~14절은 변경하지 않는 역사적 기록, 15절은 독립 audit와 새 정책, 16절은 새 actual 결과다. C06 closure 게시 gate가 끝난 뒤에만 V0.6C/Jev를 시작한다.
+- 상태: **C06 CLOSED — audited v3 full actual·read-only 비교/UI·최종 회귀·정상 게시·exact CI 완료**(2026-09-20 23:46 Asia/Seoul). 1~8절은 최초 조사, 9절은 현재 계약, 10~14절은 변경하지 않는 역사적 기록, 15절은 독립 audit와 새 정책, 16절은 새 actual 및 closure 근거다. 이제 V0.6C/Jev 연구와 첫 read-only slice에 진입할 수 있다.
 - 선행 조건: V0.6A/C07 bounded closure 후 시작했다. Pi 구현 `fd0f93d58e187d3c83f77424cb4cbf3f7ae8a2a3`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295) PASS, T3 `09de732fe8b02821ab150fe013f9acf9e93f99bc`의 로컬 전체 gate PASS·devlop CI 미실행은 [WORK_LOG LOG-105](WORK_LOG.md#log-105--2026-09-20-1440-asiaseoul--v06ac07-bounded-closure)에 기록했다.
 - 이번 조사에서는 source·기존 evidence·공식 문서를 읽고 secret-free model identity inventory만 실행했다. inference/model-list API, auth 파일/credential 값 조회, 설정 변경, 설치, 자동 모델 선택·fallback은 하지 않았다.
 
@@ -576,4 +576,4 @@ Reasoning은 output과 중복될 수 있어 total에 다시 더하지 않는다.
 
 ### 16.4 Closure publication gate
 
-Corpus/oracle audit, full actual 수집, 실패/UNKNOWN 보존 정책, read-only 비교/UI, 최종 로컬 회귀는 충족했다. **CLOSED를 전부 PASS와 동치로 정의하지 않는다.** 이 evidence를 정상 devlop에 게시하고 exact evidence-commit CI를 확인하는 마지막 gate가 남았다. 그 확인 전 C08/Jev 연구·구현은 시작하지 않는다. Actual 재시도는 하지 않는다.
+**C06 CLOSED — 2026-09-20 23:46 Asia/Seoul.** Evidence commit `d67ce3968d83df5961a9facd5211a8a4d59cfd3a`를 정상 devlop에 게시하고 [exact CI 35517110397](https://github.com/kjg8619/pi/actions/runs/35517110397)의 success를 확인했다. Corpus/oracle audit, full actual 수집, 실패/UNKNOWN 보존 정책, read-only 비교/UI, 최종 로컬 회귀와 게시 gate를 모두 충족했다. **전부 PASS와 closure를 동치로 정의하지 않는다.** Actual source는 앞서 CI를 통과한 `b2b938aa2b890ec482265638fe882ad1e3bebb32`로 고정돼 있다. Actual 재시도 없이 C08/Jev 연구·첫 read-only slice에 진입하며, C08의 완료는 별도 proof로 판단한다.

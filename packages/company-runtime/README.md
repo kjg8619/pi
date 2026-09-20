@@ -622,6 +622,33 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 - 실제 launcher에서 권한 위조·과대 goal·forged Run/preview·stale project·confirm replay·owner restart·canonical root 변경·invalid UTF-8/oversized frame을 공격했다. 중복 confirm은 같은 receipt와 Run 1개만 남기고, 새 ID의 소비된 preview는 `PLAN_CONSUMED`, 이전 owner는 `OWNER_CHANGED`, 변경 root는 `PROJECT_CHANGED`로 거부됐다. 네 프로젝트의 browser raw WebSocket 71 frames와 UI에서 credential/source sentinel 노출은 0이었다.
 - Pi full test/check/check:ci와 T3 typecheck/fmt/knip/build/lint exit 0을 확인했다(기존 무관한 warning 있음). 첫 T3 full test는 localhost `ETIMEDOUT` 1건으로 실패했고 package 동시 실행을 끈 전체 재실행은 **1,269 files / 17,262 PASS / 7 files·58 tests skipped**였다. 초기 실패와 재실행을 구분하며 OS-level 원인 해결로 과장하지 않는다. Pi 구현 `fd0f93d58`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295)는 PASS다. T3 `09de732fe` exact SHA는 main/PR-only trigger 때문에 runs/checks 0건으로 미실행이며 remote PASS가 아니다. 게시·clean tree·remote SHA·immutable tag와 보수적 closure 근거는 WORK_LOG LOG-105에 기록했다.
 
+## V0.6C C08 — 로컬 browser observation candidate
+
+첫 read-only slice는 Host가 검토한 **로컬 정적 테스트 문서**를 새 Chromium profile에서 읽는 standalone CLI다. Jev Agent/모델/행동 loop를 실행하지 않으며 Runtime Run·등록 check·T3 control을 만들지 않는다. **C08 전체는 OPEN**이다. 고정 source와 채택 판단은 [C08 후속 조사](../../docs/WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md#10-c08-후속-연구와-첫-read-only-slice-2026-09-21)를 따른다.
+
+```sh
+weavra browser observe \
+  --url http://127.0.0.1:3000/reviewed-static-fixture \
+  --executable /absolute/path/to/chromium \
+  --local-test-app --json
+```
+
+- Host가 직접 준비한 Chromium 절대경로와 `--local-test-app`, `--json`이 필수다. URL은 canonical 길이 2,048 이하의 `http://127.0.0.1:<1024 이상 port>/path`만 허용하고 userinfo/query/fragment·DNS hostname·다른 scheme은 거부한다. Chromium 자동 설치·PATH 탐색·기존 profile/CDP/daemon 연결은 없다. `browser`를 Pi의 literal prompt로 쓰려면 `weavra -- browser`를 사용한다.
+- `--local-test-app`는 **Host의 범위 확인**이지 안전성 증명이나 Kernel 승인 토큰이 아니다. 해당 GET이 side effect 없는 정적 테스트 문서를 반환하는지 검토해야 한다. 개인 계정·비밀·운영 서비스·운영 proxy를 연결하지 않는다. Loopback 주소만으로 서버의 내부 동작을 증명하지 않는다.
+- 매 호출마다 private profile/HOME과 CDP pipes를 만들고, owned target의 최초 정확한 document GET 하나만 허용한다. redirect·추가 요청은 차단하고 candidate를 반환하지 않는다. 페이지 JavaScript는 navigation 전에 끄며 click/type/select/submit/scroll·임의 JS/CDP·download 실행 옵션은 없다. Browser 생성·navigation·내부 cache·profile 정리는 명시적인 setup/teardown 효과다.
+- 고정된 Jev DOM reader를 isolated world에서 두 번 실행한다. Script/frame/canvas/object/embed 및 application shadow root(open/closed)는 미지원으로 거부한다. Native control의 user-agent shadow 내부는 허용한다. CDP 구조 조회는 private helper 안에서만 처리하고 raw DOM/field values/guards/screenshots를 candidate에 싣지 않는다.
+- 결과는 `schemaVersion: 1`, `kind: BROWSER_OBSERVATION_CANDIDATE`, `authority: CANDIDATE_ONLY`다. Reader revision/digest, 보고된 browser version, capture ID/시각, bounded observation과 digest를 포함한다. Title/label은 각각 최대 256 UTF-16 units, text는 6,000, control 후보는 64개이며 알려진 생략 수를 표시한다. `elements.kind`와 ID는 관찰 데이터이지 실행 요청/권한이 아니다. 출력의 text/label 자체에 비밀이 있을 수 있으므로 완전한 redaction을 주장하지 않는다.
+- 두 관찰의 일치는 **해당 capture의 제한된 projection에 대한 비교**다. 전체 DOM/시각적 의미·미래 상태·다른 session의 freshness를 증명하지 않는다. Timestamp와 digest는 서명·승인·독립 oracle이 아니며 저장된 candidate를 현재 상태로 재사용하지 않는다.
+- 기존 `runProcess`와 filtered environment를 재사용한다. 실행 timeout 15초, helper output 합계 512 KiB, CDP receive buffer 1 MiB이며 추가 cleanup 시간이 있을 수 있다. Cleanup 확인 전에는 candidate를 반환하지 않고, cleanup 미확인 시 profile을 보존하고 실패한다. 원래 POSIX process group을 벗어난 daemon, hard memory cap, browser 전체 OS/network sandbox는 보장하지 않는다. 기존 required verifier의 network deny-all 정책은 그대로다.
+
+### Host review와 독립 검증의 경계
+
+Candidate → Host의 목표/관찰 가능한 AC/실제 oracle 검토 → **새 Run**의 기존 `verification.checks` 등록과 Task Contract freeze → fresh 독립 Verifier/필요한 Reviewer → 기존 Kernel completion guard 순서가 필요하다. Candidate에서 executable check를 자동 생성·등록하거나 기존 Run/check/acceptance를 수정하지 않는다. Snapshot JSON이나 Jev `DONE`을 PASS로 감싸는 것은 독립 검증이 아니다.
+
+현재 slice는 **live browser verifier/등록 자동화/행동 정책을 제공하지 않는다**. 향후 browser evidence에는 authorized run/attempt·fixture/build·origin·browser/target·collection 시점의 binding과 fresh 독립 수집이 필요하다. Workspace digest만으로 browser/server 상태의 최신성을 대신할 수 없으며, 이 기능을 위해 required sandbox의 deny-all을 완화하지 않는다. R3 파일 삭제 승인도 browser 행동 승인으로 재사용하지 않는다.
+
+실제 macOS arm64 / HeadlessChrome `152.0.7977.42`에서 CLI의 새 문서 관찰, 숨은 값 비노출, 추가 요청/redirect/script/frame/closed shadow 거부, 실행 중 취소·private profile 정리와 `VerificationResultSchema` 비수락을 확인했다. Node `24.19.0`의 전체 browser smoke와 Node `26.7.0`의 64-control/6,000-unit escaped projection을 구분해 기록한다. Linux/Windows browser actual, Jev 모델/행동 loop와 독립 browser verifier는 미검증/미지원이다.
+
 ## 설정 schema 1
 
 최소 실행 예제는 [examples/config.yaml](examples/config.yaml)이다. 아래는 기본값을 명시한 **수동으로 작성할 예시**다. 모델 ID와 검증 script는 프로젝트에 맞게 교체하고 실행 내용을 검토한다. STANDARD는 coding/reasoning 모델·인증을 모두, QUICK은 coding만 사전 검사한다.
