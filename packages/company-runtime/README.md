@@ -496,7 +496,7 @@ UI preflight callback은 smoke driver이므로 실제 TUI rendering 검증이 �
 
 ## V0.6A Read-only Host Bridge
 
-첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 두 번째 slice는 `src/launcher-bridge.ts`의 standalone observer를 실제 T3 backend와 read-only Project Settings UI에 연결한다. **아래 legacy read-only argv/protocol v1은 그대로 유지하며, C07 control은 별도 opt-in endpoint로 구현했다.** 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다. 최종 acceptance/remote gates와 전체 C07은 OPEN이다.
+첫 vertical slice는 repository-level Host module API와 전용 로컬 JSONL transport다. `src/host-bridge-protocol.ts`가 versioned DTO, `src/host-bridge-projections.ts`가 explicit allowlist projection, `src/host-bridge.ts`가 connection/transport와 `RuntimeEventSink`를 제공한다. 두 번째 slice는 `src/launcher-bridge.ts`의 standalone observer를 실제 T3 backend와 read-only Project Settings UI에 연결한다. **아래 legacy read-only argv/protocol v1은 그대로 유지하며 C07 control은 별도 opt-in endpoint다.** 기존 Pi RPC dispatcher를 열거나 임의 Pi command를 전달하지 않는다. V0.6A/C07은 아래의 actual proof·gate·제한을 포함한 bounded 범위에서 CLOSED다.
 
 ### Host 연결과 wire
 
@@ -593,7 +593,7 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 
 ### C07 별도 control 계약
 
-**Control은 구현됐지만 전체 V0.6A/C07은 OPEN이다.** 실행 파일은 위와 같은 실제 launcher이며 opt-in endpoint의 argv만 `["bridge","--stdio","--project-trusted","--control"]`이다. read-only protocol v1의 command·4 KiB request bound를 넓히지 않는다. 별도 control 요청은 newline 포함 **32 KiB**, 응답은 **64 KiB**로 제한한다.
+**V0.6A/C07은 bounded 범위에서 CLOSED다.** 실행 파일은 위와 같은 실제 launcher이며 opt-in endpoint의 argv만 `["bridge","--stdio","--project-trusted","--control"]`이다. read-only protocol v1의 command·4 KiB request bound를 넓히지 않는다. 별도 control 요청은 newline 포함 **32 KiB**, 응답은 **64 KiB**로 제한한다.
 
 | 닫힌 command 집합 | 계약 |
 |---|---|
@@ -610,9 +610,9 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 - 브라우저 disconnect·Project panel 이탈은 **server-owned 실행을 종료하지 않는다.** reconnect는 fresh canonical state를 읽고 mutation을 자동 재전송하지 않는다. 이전 UI snapshot·receipt로 approval/실행을 복원하지 않는다. backend/Runtime 종료 뒤 resume/recovery를 제공한다는 뜻도 아니다.
 - cancel은 **기존 owned Run**이 있어야 한다. canonical Run 생성 전 model/Git/LSP preflight에는 wire cancellation ID가 없으므로 존재하지 않는 runId로 cancel을 보낼 수 없다. 취소 ACK 뒤 worker/check 정리·terminal state와 writer 해제를 확인한다. 비협조 I/O의 즉시 종료나 rollback을 보장하지 않으며 부분 변경은 보존한다.
 - R3는 기존 S5C의 **허용된 Git 추적 텍스트 파일 한 개 삭제**뿐이다. 일반 preview 확인은 삭제 승인이 아니며 현재 exact action·revision·digest·expiry에 대한 인간 응답만 전달한다. grant·검사·1회 소비·독립 review/checks·완료는 기존 Runtime 경로를 따른다. stale/다른 요청이나 재연결만으로 승인하지 않는다.
-- 임의 write/edit/tool/shell, 범용 R3, COMPLEX, resume/recovery/rollback/fallback, 새 network Host, 자동 setup·Policy 완화·UI의 완료 판정은 범위 밖이다. V0.6B Provider Fitness Matrix는 C07 closure 이후 조건부이며 아직 착수하지 않았다.
+- 임의 write/edit/tool/shell, 범용 R3, COMPLEX, resume/recovery/rollback/fallback, 새 network Host, 자동 setup·Policy 완화·UI의 완료 판정은 범위 밖이다. C07 closure 후 V0.6B는 [조사·계획](../../docs/WEAVRA_PROVIDER_FITNESS_PLAN_2026-09-20.md)까지만 진행했으며 matrix 구현·새 paid eval은 하지 않았다.
 
-### C07 현재 proof와 열린 gate
+### C07 actual proof와 closure 한계
 
 실제 T3 Project Settings → 실제 launcher/backend → 기존 Workflow를 로컬 faux Provider에 연결해 다음을 확인했다. 이는 브라우저/UI actual proof이지 paid-provider E2E나 모든 모델/OS의 검증이 아니다.
 
@@ -620,7 +620,7 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 - 응답을 대기시킨 Developer 실행 중 브라우저를 비운 뒤 reconnect해도 **같은 RUNNING Run과 writer**가 유지됐다. 명시적 cancel 후 `CANCELLED`, active agents 0, writer 해제, 로컬 faux SSE 종료와 partial changes 보존을 확인했다.
 - 실제 R3 카드의 Runtime-issued identity·revision·raw SHA-256 fingerprint와 별도 승인 dialog를 확인했다. 승인은 **CONSUMED → COMPLETED**, 삭제·독립 review PASS·실제 checks 2 PASS·active agents 0·writer false로 끝났다. Reject는 **DENIED → BLOCKED**, 원본 보존·checks/review/COMPLETE 미진입·active agents 0·writer false였다.
 - 실제 launcher에서 권한 위조·과대 goal·forged Run/preview·stale project·confirm replay·owner restart·canonical root 변경·invalid UTF-8/oversized frame을 공격했다. 중복 confirm은 같은 receipt와 Run 1개만 남기고, 새 ID의 소비된 preview는 `PLAN_CONSUMED`, 이전 owner는 `OWNER_CHANGED`, 변경 root는 `PROJECT_CHANGED`로 거부됐다. 네 프로젝트의 browser raw WebSocket 71 frames와 UI에서 credential/source sentinel 노출은 0이었다.
-- 현재 Pi full test/check/check:ci와 T3 typecheck/fmt/knip/build/lint exit 0을 확인했다(기존 무관한 warning 있음). 첫 T3 full test는 localhost `ETIMEDOUT` 1건으로 실패했고, package 동시 실행을 끈 전체 재실행은 **1,269 files / 17,262 PASS / 7 files·58 tests skipped**였다. 초기 실패와 재실행을 구분하며 OS-level 원인이 해결됐다고 주장하지 않는다. 최종 게시·remote gates와 C07 closure는 아직 OPEN이다.
+- Pi full test/check/check:ci와 T3 typecheck/fmt/knip/build/lint exit 0을 확인했다(기존 무관한 warning 있음). 첫 T3 full test는 localhost `ETIMEDOUT` 1건으로 실패했고 package 동시 실행을 끈 전체 재실행은 **1,269 files / 17,262 PASS / 7 files·58 tests skipped**였다. 초기 실패와 재실행을 구분하며 OS-level 원인 해결로 과장하지 않는다. Pi 구현 `fd0f93d58`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295)는 PASS다. T3 `09de732fe` exact SHA는 main/PR-only trigger 때문에 runs/checks 0건으로 미실행이며 remote PASS가 아니다. 게시·clean tree·remote SHA·immutable tag와 보수적 closure 근거는 WORK_LOG LOG-105에 기록했다.
 
 ## 설정 schema 1
 
