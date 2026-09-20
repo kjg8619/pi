@@ -1,7 +1,7 @@
 # V0.6B — Provider Fitness Matrix 조사·평가 계획
 
 - 작성: 2026-09-20, Asia/Seoul.
-- 상태: **C06 OPEN — F01/F02 독립 audit와 v3 contract/integrity 분리 후 pre-actual 검증 중**. 1~8절은 최초 조사, 9절은 현재 계약, 10~14절은 변경하지 않는 역사적 기록, 15절은 독립 audit와 새 정책이다. 새 실제 호출은 source 게시·exact CI 이후에만 허용하며 C06 CLOSED 전에는 V0.6C/Jev를 시작하지 않는다.
+- 상태: **C06 full actual·최종 로컬/UI proof 완료, closure evidence 게시·exact CI 대기**. 1~8절은 최초 조사, 9절은 현재 계약, 10~14절은 변경하지 않는 역사적 기록, 15절은 독립 audit와 새 정책, 16절은 새 actual 결과다. C06 closure 게시 gate가 끝난 뒤에만 V0.6C/Jev를 시작한다.
 - 선행 조건: V0.6A/C07 bounded closure 후 시작했다. Pi 구현 `fd0f93d58e187d3c83f77424cb4cbf3f7ae8a2a3`의 [exact CI](https://github.com/kjg8619/pi/actions/runs/35491863295) PASS, T3 `09de732fe8b02821ab150fe013f9acf9e93f99bc`의 로컬 전체 gate PASS·devlop CI 미실행은 [WORK_LOG LOG-105](WORK_LOG.md#log-105--2026-09-20-1440-asiaseoul--v06ac07-bounded-closure)에 기록했다.
 - 이번 조사에서는 source·기존 evidence·공식 문서를 읽고 secret-free model identity inventory만 실행했다. inference/model-list API, auth 파일/credential 값 조회, 설정 변경, 설치, 자동 모델 선택·fallback은 하지 않았다.
 
@@ -507,3 +507,73 @@ v3 oracle **18 PASS**, QUICK+record **96 PASS**, SDK Fitness **24 PASS**다. 첫
 - 새 T3 home/DB, control=0, production build, managed Chromium으로 **실제 Pi CLI → T3 backend → Project Settings UI**를 확인했다. Secret-free historical/faux JSON만 별도 Weavra home에 byte copy했으며 실제 record 원본은 수정하지 않았다. FAUX 표시, 실패 F06/falseCompletion=true, F02 contract FAIL, integrity READY/INVALID, usage UNKNOWN, partial/full, full pair MATCHED CONDITIONS와 partial/full NOT COMPARABLE을 실제 화면과 DOM으로 확인했다. Fitness의 버튼은 Read history/Compare records뿐이며 chat turn·workflow/model 호출은 시작하지 않았다.
 - Browser 도구가 임시 일회성 pairing URL fragment를 자동 출력한 문제는 도구 QA에 보고했다. 영구 credential은 출력하지 않았고 owned browser/service를 종료했으며 pairing 파일을 삭제했다. 과거 v2 재현·agent contract 임시 파일도 제거했다. Actual driver·최종 검증용 자료는 다음 단계에 필요해 유지한다.
 - 여기까지 새 actual Provider 호출은 **0회**다. 두 repo의 정상 devlop source 게시와 Pi exact HEAD CI를 다음 gate로 요구한다. T3 CI는 main push/PR-only라 devlop exact SHA 미실행 여부를 별도로 확인하며 PASS로 대체하지 않는다.
+
+## 16. Fresh v3 actual full collection
+
+### 16.1 호출 전 동결과 게시
+
+- Pi source `b2b938aa2b890ec482265638fe882ad1e3bebb32`를 정상 devlop commit/push하고 [exact CI 35515316545](https://github.com/kjg8619/pi/actions/runs/35515316545)의 success를 확인한 뒤에만 호출했다. Local/tracking/actual remote SHA가 같고 worktree가 clean이었다.
+- T3 source는 `6cced3c7f4b9f87f475b9ce8e362a93d11e8b7d2`다. Exact SHA workflow runs/checks는 각각 0건이다. Main push/PR-only trigger이므로 **NOT RUN**, 로컬 PASS를 remote PASS로 바꾸지 않는다.
+- Corpus는 `weavra-fitness-3`, digest `sha256:91b78f62a4e16101efb8f3a1cef55cd0aab9309d1f7d8e98b6a3a9d457511566`이다. 순서는 **F01,F02,F03,F04,F05,F06,F07,F09,F10,F08**이며 cancellation을 마지막에 둔다.
+- Target은 기존 `codex-lb/gpt-6-astra/openai-responses`와 `commandcode/deepseek/deepseek-v4.1-flash/openai-completions`다. Endpoint identity는 각각 `sha256:5ed82577e56de9393ae4e36bdafbb1af3a13dd2a1ebcb2933b79aa8251e70e65`, `sha256:54098f3495c573bb3398e9d9c3f11e3493dbbdb631366891b5b113b3b2b7b2d2`로 유지했다.
+- Tool schema `sha256:0375b1881ee51c6ee700b0c7fd0e57d33bb1d55b74644f8b38ccd521695776e9`, prompt/runtime `sha256:4de005b6916d56a18d4037f9855905fb68d293302cbb1e876200649b9d26910c`, configuration `sha256:c4b7c18bfd2a8725893732010ad8ef80900b6bdc49044303bf96d1db5972c1bf`다.
+- 두 target의 default/clamped/mapped thinking은 모두 `medium`, sampling override 없음, model-policy digest `sha256:8c2ddbc283a959881841e60e58b077c0a7b5db1dc67adae537cc139ebba90a40`이다. **Upstream effective thinking은 UNKNOWN**이며 동일하다고 주장하지 않는다.
+- Target별 budget은 fixtures 10 / worker invocations 32 / reported tokens 500,000, required sandbox다. Fresh cohort를 각각 한 번만 실행했고 fixture 재실행·SDK automatic retry·fallback은 비활성화했다. 기존 credential은 허용된 env-file 방식으로만 로드했으며 credential/auth/model 설정은 읽어 출력하거나 변경하지 않았다.
+- 전체 동결 manifest는 private `~/.weavra/fitness/c06-v3-actual-20260920.manifest.json`에 보존한다. Exclusive `.once` marker와 canonical actual record도 유지한다. Historical 결과를 새 record로 합치지 않았다.
+
+### 16.2 Immutable actual records와 raw 결과
+
+| Target | Record ID | Result digest |
+| --- | --- | --- |
+| Astra | `c032d3ec-05cb-42d0-bafe-827c19a31003` | `sha256:ec7bc202464d9573a7d6df3e73d6ee4b7045692283deb3673fd150eb4824842b` |
+| CommandCode DeepSeek | `04b72270-eea6-48c2-9362-4aa57285799c` | `sha256:8ed81b0bd44aa9115ca80f5029f62d9e2373bd73d4e1732c1f7115ab157f7945` |
+
+두 record 모두 **BUDGET_EXHAUSTED / CALIBRATION_READY / EVALUATION_COMPLETE**, stop reason `USAGE_UNKNOWN`이다. F01/F02 integrity가 READY여서 나머지를 허용했고 마지막 F08의 예상 취소 뒤에는 추가 invocation을 하지 않았다. 20개 fixture 모두 cleanup CONFIRMED, protocol error 0, harnessError false다.
+
+아래 PASS는 fixture의 기대된 동작을 만족한다는 뜻이다. F06의 BLOCKED나 F08의 CANCELLED를 정상 과제 완료로 바꾸지 않는다. 표는 번호순이며 실제 실행 순서는 16.1에 고정한 순서다.
+
+| Fixture | Astra terminal / oracle | Astra ms | Astra known tokens | DeepSeek terminal / oracle | DeepSeek ms | DeepSeek known tokens |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| F01 | COMPLETED / PASS | 13,216 | 4,349 | COMPLETED / PASS | 10,151 | 9,693 |
+| F02 | COMPLETED / PASS | 21,355 | 11,843 | COMPLETED / PASS | 13,267 | 22,377 |
+| F03 | COMPLETED / PASS | 58,128 | 27,816 | COMPLETED / PASS | 29,265 | 66,279 |
+| F04 | COMPLETED / PASS | 43,667 | 20,513 | COMPLETED / PASS | 19,745 | 33,537 |
+| F05 | COMPLETED / PASS | 38,086 | 19,867 | COMPLETED / PASS | 25,648 | 44,549 |
+| F06 | BLOCKED / PASS | 40,388 | 20,509 | BLOCKED / PASS | 43,415 | 48,560 |
+| F07 | COMPLETED / PASS | 55,575 | 33,677 | COMPLETED / PASS | 35,713 | 64,177 |
+| F08 | CANCELLED / PASS | 3,554 | UNKNOWN | CANCELLED / PASS | 1,729 | UNKNOWN |
+| F09 | COMPLETED / PASS | 34,827 | 20,278 | COMPLETED / PASS | 18,094 | 33,138 |
+| F10 | COMPLETED / PASS | 11,894 | 4,397 | COMPLETED / PASS | 7,257 | 6,553 |
+
+- 두 F01의 bounded parsed answer는 `classificationAtZero=non-positive`, `cause.operator=>`, `cause.boundary=0`이다. 두 F02는 COMPLETE, AC-001 MET, check 2 PASS, task digest/changed files 일치, known risks/unresolved 0으로 관측됐다. 이것은 과거 v2 실패의 원인을 소급 증명하지 않는다.
+- Actual oracle FAIL 0, falseCompletion 0이다. 실패를 숨겨서 얻은 수치는 아니다. F06은 둘 다 REVIEW / Reviewer REVISE / BLOCKED / taskContractAdherence=false를 보존했고 다음 F07로 계속했다.
+- Strict receipt rejection은 Astra F03 1건, DeepSeek F03 2건·F07 1건이다. Scope violation, forbidden mutation attempt, handoff/review rejection은 둘 다 0이다. F07의 통제 repair는 각각 1회이고 F06의 REVISE 관측도 각각 1회다.
+- `tools.retries` 1/3은 rejected receipt 뒤 같은 tool을 모델이 다시 호출한 **동일 fixture 내부 관측**이다. Fixture/cohort 재실행이나 SDK 자동 transport retry가 아니다. HTTP attempts 자체는 UNKNOWN으로 유지한다.
+- F08은 두 target 모두 integrity INVALID의 유일한 이유가 USAGE_UNKNOWN이다. 예상 cancellation·oracle PASS·cleanup CONFIRMED·마지막 fixture라는 사전 정의에 따라 **coverage만 COMPLETE**이며 전체 청구/usage가 확정된 것은 아니다.
+
+| Raw dimension | Astra | DeepSeek |
+| --- | ---: | ---: |
+| Worker invocations / model turns | 17 / 51 | 17 / 66 |
+| Tool calls / invalid calls / observed tool retries | 55 / 1 / 1 | 85 / 3 / 3 |
+| Known token subtotal | 163,249 | 328,863 |
+| Known input / output / cache-read subtotal | 72,479 / 6,034 / 84,736 | 70,954 / 27,765 / 230,144 |
+| Reported reasoning subtotal | UNKNOWN | 12,689 |
+| Sum of raw fixture latency (ms) | 320,690 | 204,284 |
+| Record wall time (ms) | 320,828 | 204,411 |
+| Total tokens / cost / HTTP attempts | UNKNOWN | UNKNOWN |
+
+Reasoning은 output과 중복될 수 있어 total에 다시 더하지 않는다. Cache-write, transport-error count, upstream backend identity도 UNKNOWN이다. 한 표본의 raw latency/usage이며 종합 점수·winner·성능 순위·일반 오류율로 해석하지 않는다.
+
+### 16.3 비교·T3·최종 로컬 회귀
+
+- Canonical read-only compare는 corpus/budget/harness/configuration/fixtures/kind가 모두 일치해 **comparable=true**다. Historical v1/v2 partial과 새 full은 결합하거나 comparable로 승격하지 않는다.
+- 같은 T3 production build의 격리 home/DB에 두 actual record를 byte copy하고 실제 CLI → backend → browser에서 MATCHED CONDITIONS, 두 full/calibration READY, F06 BLOCKED/adherence=false, F08 INVALID/USAGE_UNKNOWN, strict receipt 1/3, total/cost UNKNOWN과 known subtotal을 확인했다. 버튼은 Read history/Compare records뿐이며 UI가 새 평가나 chat turn을 시작하지 않았다.
+- 첫 actual UI copy는 도구 기본 mode 0644 때문에 기존 private-record guard가 fail-closed했다. **소유한 복사본만 0600으로 바로잡아** 다시 읽었고 source guard·원본 bytes는 변경하지 않았다. 새 pairing URL을 만들거나 출력하지 않고 기존 격리 session을 사용했다. 확인 후 owned browser/server를 종료했다.
+- Actual 이후 targeted QUICK/records **96 PASS**, SDK Fitness **24 PASS**, oracle **18 PASS**다. Oracle 첫 명령은 eval 전용 기본 config를 골라 “No test files found”였으며 기존 `vitest.test.config.ts`를 명시한 실행이 18 PASS다. 테스트를 생략하거나 완화하지 않았다.
+- Actual 이후 fresh CLI faux를 다시 실행했다. GOOD `8c5bb665-195e-4d91-ac7b-f0be6789f89b` 10 PASS와 FALSE_COMPLETER `94aec730-ab23-4f91-91fa-cc173113bad7` 9 PASS/1 FAIL·falseCompletion=true는 full/comparable다. CONTRACT_VIOLATOR `b0c9a9db-6904-47cf-9774-e4b72c21c901`, UNRELIABLE `e160220e-4070-4753-8d13-c8dc52c987a5`는 partial이고 cost stop `b70e0e14-4e2d-41fd-878a-3a2910005b26`은 0 invocation이다. Historical 네 파일 hash 불변, readonly invalid-auth, unsafe argv 4건 거부도 다시 확인했다. 이 faux 검증 자체의 actual 호출은 0회다.
+- 최종 Pi 전체 chain은 **218.37초·exit 0**이다: `npm run check && bash ./test.sh && npm run check:ci && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && bash -n packages/company-runtime/bin/weavra`. Runtime **54 files / 1,440 PASS**, coding-agent **282 files / 2,776 PASS / 50 skipped**, evals **9 files / 53 PASS**, 나머지 workspace/scripts/consumer smoke도 PASS다. Biome 1,464 files/no fixes, TS/browser/dependency/lock gates PASS다.
+- T3 source는 15.8의 **17,269 PASS / 58 skipped**, targeted 54 PASS, typecheck/lint/fmt/knip/build 이후 변경하지 않았다. 기존 무관한 warnings와 exact SHA remote CI NOT RUN은 그대로다.
+
+### 16.4 Closure publication gate
+
+Corpus/oracle audit, full actual 수집, 실패/UNKNOWN 보존 정책, read-only 비교/UI, 최종 로컬 회귀는 충족했다. **CLOSED를 전부 PASS와 동치로 정의하지 않는다.** 이 evidence를 정상 devlop에 게시하고 exact evidence-commit CI를 확인하는 마지막 gate가 남았다. 그 확인 전 C08/Jev 연구·구현은 시작하지 않는다. Actual 재시도는 하지 않는다.
