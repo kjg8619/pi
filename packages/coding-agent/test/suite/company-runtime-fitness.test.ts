@@ -52,6 +52,12 @@ describe("Fitness through actual SDK and Runtime boundaries", () => {
 		expect(result.fixtures.map((fixture) => [fixture.fixtureId, fixture.oracle])).toEqual(
 			FITNESS_CORPUS.map((fixture) => [fixture.id, "PASS"]),
 		);
+		expect(result.fixtures[0].efficiency.usage).toMatchObject({
+			state: "KNOWN",
+			reasoning: null,
+			detailSource: "SDK_NORMALIZED",
+		});
+		expect(result.fixtures[0].efficiency.usage.cacheRead).toBeGreaterThan(0);
 		const review = result.fixtures.find((fixture) => fixture.fixtureId === "F06")!;
 		expect(review.terminalStatus).toBe("BLOCKED");
 		expect(review.falseCompletion).toBe(false);
@@ -102,6 +108,9 @@ describe("Fitness through actual SDK and Runtime boundaries", () => {
 			input: null,
 			output: null,
 			total: null,
+			cacheRead: null,
+			cacheWrite: null,
+			reasoning: null,
 		});
 		expect(result.fixtures[0].efficiency.usage.knownTotal).toBeGreaterThan(0);
 		expect(sessions).toHaveLength(1);

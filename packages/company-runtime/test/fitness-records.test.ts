@@ -8,6 +8,7 @@ import {
 	FitnessRecordStore,
 	fitnessDigest,
 	freezeFitnessRecord,
+	passesFitnessCalibrationFixture,
 	safeEndpointIdentity,
 	validateFitnessRecord,
 } from "../src/fitness-records.ts";
@@ -92,6 +93,40 @@ function record(overrides: Partial<ProviderFitnessRun> = {}): ProviderFitnessRun
 		...overrides,
 	});
 }
+
+describe("Fitness calibration admission", () => {
+	it("requires adherence, clean scope, both checks, cleanup and known usage beyond oracle PASS", () => {
+		const good = fixture();
+		expect(passesFitnessCalibrationFixture(good)).toBe(true);
+		const rejected: FitnessFixtureResult[] = [
+			{ ...good, terminalStatus: "BLOCKED" },
+			{ ...good, contract: { ...good.contract, taskContractAdherence: false } },
+			{ ...good, contract: { ...good.contract, scopeViolations: 1 } },
+			{ ...good, contract: { ...good.contract, forbiddenMutationAttempts: 1 } },
+			{ ...good, checks: { passed: 1, failed: 1, notRun: 0 } },
+			{ ...good, checks: { passed: 1, failed: 0, notRun: 1 } },
+			{ ...good, reliability: { ...good.reliability, cleanup: "UNCONFIRMED" } },
+			{
+				...good,
+				efficiency: {
+					...good.efficiency,
+					usage: { state: "UNKNOWN", input: null, output: null, total: null, knownTotal: 10 },
+				},
+			},
+		];
+		for (const result of rejected) expect(passesFitnessCalibrationFixture(result)).toBe(false);
+	});
+	it("refuses observed provider failures without fabricating an unobserved transport count", () => {
+		const good = fixture();
+		good.reliability.transportErrors = null;
+		expect(passesFitnessCalibrationFixture(good)).toBe(true);
+		for (const field of ["providerErrors", "authErrors", "transportErrors", "timeouts"] as const)
+			expect(passesFitnessCalibrationFixture({ ...good, reliability: { ...good.reliability, [field]: 1 } })).toBe(
+				false,
+			);
+		expect(good.reliability.transportErrors).toBeNull();
+	});
+});
 
 describe("Fitness immutable records", () => {
 	it("excludes endpoint userinfo/query/fragment from identity while distinguishing routes", () => {
@@ -209,14 +244,32 @@ describe("Fitness immutable records", () => {
 		expect(() => record({ status: "COMPLETED", completedAt: 2, fixtures: [fixture()] })).toThrow();
 	});
 	it("compares raw dimensions and marks mismatched corpus noncomparable", () => {
-		const left = record({ fixtures: [fixture()] });
-		const right = record({ fixtures: [fixture()] });
+		const plannedFixtures = ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F09", "F10", "F08"];
+		const left = record({
+			status: "COMPLETED",
+			completedAt: 2,
+			budget: { maxFixtures: 10, maxWorkerCalls: 32, maxTotalTokens: 100000 },
+			plannedFixtures,
+			fixtures: plannedFixtures.map((fixtureId) => ({ ...fixture(), fixtureId })),
+		});
+		const right = record({ ...left, id: randomUUID() });
 		const comparison = compareFitnessRuns(left, right);
 		expect(comparison.comparable).toBe(true);
-		expect(comparison.left.correctness).toMatchObject({ executed: 1, oraclePass: 1, falseCompletion: 0 });
+		expect(comparison.left.correctness).toMatchObject({ executed: 10, oraclePass: 10, falseCompletion: 0 });
 		expect(compareFitnessRuns(left, record({ ...right, corpusDigest: fitnessDigest("different") })).comparable).toBe(
 			false,
 		);
+	});
+	it("keeps identical completed calibration subsets noncomparable as a full matrix", () => {
+		const calibration = record({
+			status: "COMPLETED",
+			completedAt: 2,
+			fixtures: [fixture(), { ...fixture(), fixtureId: "F02" }],
+		});
+		const comparison = compareFitnessRuns(calibration, record({ ...calibration, id: randomUUID() }));
+		expect(comparison.comparable).toBe(false);
+		expect(comparison.compatibility.fixtures).toBe(false);
+		expect(comparison.left.correctness.executed).toBe(2);
 	});
 	it("does not compare unequal executed prefixes even when both planned the same corpus and budget", () => {
 		const first = fixture();

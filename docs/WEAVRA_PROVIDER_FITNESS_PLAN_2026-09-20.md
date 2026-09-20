@@ -164,12 +164,14 @@ weavra fitness show <id> --json
 weavra fitness compare <left-id> <right-id> --json
 ```
 
-- 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. full run은 동일 target/harness/corpus의 F01/F02 calibration이 oracle PASS·usage KNOWN이어야 한다. auth/route/schema 실패 시 다른 모델이나 route로 대체하지 않는다.
+- 실제 평가는 clean committed harness·explicit paid opt-in·현재 corpus 확인·required sandbox를 요구한다. full run은 동일 target/harness/corpus의 F01/F02가 COMPLETED·oracle PASS·falseCompletion=false·Task Contract adherence=true·AC 충족·scope/forbidden mutation 0·두 checks PASS·cleanup CONFIRMED·usage KNOWN이고 관측된 provider/auth/transport/timeout failure가 없어야 한다. 관측되지 않은 transport count를 측정된 0으로 바꾸지 않는다. auth/route/schema 실패 시 다른 모델이나 route로 대체하지 않는다.
 - 별도 `StandardWorkflow`가 아니라 기존 Workflow/Kernel/Task Contract/Policy/strict receipts/Verifier Trust/Sandbox/독립 SDK session을 사용한다. protected 등록 check는 고정 결과만 출력하며 외부 Host oracle은 실제 source bytes·canonical terminal·review/repair/cancel 사실을 검사한다. Reviewer PASS나 모델 완료 선언은 oracle PASS가 아니다.
 - source edits는 exact byte replacement corpus이며 일반 코드 품질 benchmark가 아니다. F05에는 bounded context/discovery가 있고 LSP 호출 횟수는 관측하지만 LSP 사용을 강제하지 않는다. F09는 frozen reviewed-local label 1.2.3 문서이며 인터넷 문서 검색이 아니다.
 - F04는 bugfix recipe를 실제 compile한 뒤 fixture의 명시적 `statements`를 사용자 검토된 AC 수정본으로 고정한다. production `finalizeHostWorkflowPlan(draft, statements)`와 같은 reviewed override 의미이며 recipe 기본 문구의 무수정 전달을 검증하는 사례는 아니다.
 - 전체 call budget은 fixture와 role/repair 경계에서 사전 차단한다. tokens는 provider-reported 정산 후 다음 invocation을 막는 한도이지 진행 중 응답의 hard billing cap이 아니다. usage 누락·0 초기값은 UNKNOWN이며 후속 호출을 막는다. 비용은 UNKNOWN이다. `--max-cost-usd`를 주면 안전한 사전 비용을 증명할 수 없어 호출을 전혀 허용하지 않는다.
 - raw dimension은 oracle/falseCompletion, AC/check, scope·forbidden mutation·receipt/submission rejection, tool/correction, provider/auth/timeout, repair/review, cancellation/cleanup, usage/calls/context bytes/latency다. HTTP attempts·transport 세부 오류·cost는 관측 불가 시 null(UNKNOWN)이다. `invalidCalls`는 schema 전용 비율이 아니라 도구 실행 오류 수다. TTFT·provider constrained text·effective thinking·context on/off 효과·cancel 단계별 시간은 이 corpus에서 측정하지 않는다. 지표 생략을 0점으로 바꾸거나 종합 점수·winner를 만들지 않는다.
+- 새 fixture record는 optional cacheRead/cacheWrite/reasoning breakdown과 `detailSource: SDK_NORMALIZED`를 보존한다. SDK가 absent detail을 0으로 초기화하므로 양수의 관측값만 보존하고, 0·누락·불완전 invocation은 null(UNKNOWN)로 둔다. 이는 raw upstream field completeness의 증명이 아니다. 기존 record에 필드를 삽입하거나 digest를 다시 만들지 않는다.
+- `comparable=true`는 양쪽 collection이 COMPLETED이고 같은 F01–F10 전체 실행 집합·순서와 나머지 비교 조건을 충족할 때만 가능하다. 동일한 F01/F02 calibration끼리도 전체 matrix로는 NOT COMPARABLE이며 `compatibility.fixtures=false`다. T3 wire shape는 바뀌지 않는다.
 - usage input/output과 total은 cache 등을 포함하는 서로 다른 provider 필드다. 둘을 다시 합산해 total을 만들거나 reasoning을 이중 가산하지 않는다. faux usage는 scripted SDK estimate이며 실제 model efficiency로 해석하지 않는다.
 - result의 COMPLETED는 계획된 fixture 수집 완료이고 각 Runtime/oracle의 성공은 별도다. Provider/preflight 실패의 oracle는 INVALID다. Runtime COMPLETED + oracle FAIL만 falseCompletion=true다. max-fixtures/call/token/cost stop·signal·실패도 별도 run ID와 partial 결과를 보존한다.
 - 저장은 `$WEAVRA_HOME/fitness/<canonical-project-root hash>/<UUID>.json`이다. `.ai`와 분리된 private directory/0600 file, strict schema·digest·bounded size·atomic publication을 사용한다. settled fixture prefix·terminal record는 재평가로 덮어쓰지 않는다. list/show/compare는 auth/inference/Runtime resume를 수행하지 않는다. 최근 32개·최대 4,096 entry만 열거한다. `--store-dir`은 CLI의 명시적 private 절대 경로 override다.
@@ -287,3 +289,11 @@ input/output/total은 provider 필드를 그대로 집계한 값이며 cache 포
 추가 검증은 populated v1 record의 고정 JSON을 현재 store가 읽고 실패 판정·UNKNOWN·원본 bytes를 보존하는 회귀, 동일 planned corpus라도 executed prefix가 다르면 비교 불가인 회귀, corpus의 잘못된 budget/out-of-scope expected mutation 거부다. SDK malformed submission·mutation 후 실패·취소 race는 기존 `company-runtime-hardening` 및 관련 Runtime 회귀가 담당한다. 모든 경계를 별도의 Fitness 전용 테스트로 새로 작성했다고 주장하지 않는다.
 
 격리 HOME의 잘못된 auth fixture를 둔 상태에서도 실제 CLI `list/show/compare` 3개가 통과했다. paid opt-in 누락, 과거 corpus digest 확인, read-only에 execution flag 전달, duplicate flag 4개는 평가 store 생성 없이 거부했다. `targets`는 이 auth-free 검증에 포함하지 않는다. 현재 v2 actual 호출은 **0회**다. 두 v1 actual calibration 실패에 따른 확대 중단은 유지하며 **C06 OPEN / V0.6C 착수 불가**다.
+
+## 13. v2 actual 재검증 전 gate 보강
+
+사용자의 새 actual 허가에 따라 `e5b38fce440d9f6906727f570419ef1baef76e67` clean devlop에서 다시 시작했다. 기존 SDK 14개와 records/measurement 47개 targeted regression은 통과했다. 이어 전체 corpus가 아닌 동일 calibration subset도 비교 가능하게 표시하던 조건을 재현(1 FAIL / 13 PASS)하고 전체 F01–F10 조건으로 보강했다. Calibration의 단일 oracle/usage 조건도 위 §9의 전체 admission 조건과 일치시켰다.
+
+Cache/reasoning detail은 이미 SDK에서 normalize되므로 실제 raw zero의 provenance를 추정하지 않는다. 새 nullable optional 필드는 과거 v1/v2 result bytes를 바꾸지 않으며 T3의 list/compare summary에는 추가 필드를 내보내지 않는다. Source 변경 후 targeted records/measurement 50개·SDK 14개, check/hydrate/offline build/check:ci, launcher syntax/diff whitespace, 전체 `bash ./test.sh`(209.30초; coding-agent 2,766 PASS·50 skipped, Runtime 1,429 PASS, evals 35 PASS)가 통과했다.
+
+Fixture goal/AC/body/oracle와 corpus `weavra-fitness-2` digest는 그대로다. 변경되는 harness와 prompt/runtime revision은 새 actual cohort에 고정한다. 두 target은 같은 F01→F02, 각각 fixtures 2 / worker calls 4 / reported tokens 100,000, required sandbox로 1회만 실행한다. 두 target 모두 gate를 통과하기 전에는 F03–F10을 호출하지 않는다. C06 CLOSED 이전에는 V0.6C를 시작하지 않는다.

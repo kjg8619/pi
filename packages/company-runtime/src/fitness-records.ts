@@ -3,7 +3,12 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, opendir, realpath, rename, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Check } from "typebox/value";
-import { FitnessIdSchema, type ProviderFitnessRun, ProviderFitnessRunSchema } from "./fitness-types.ts";
+import {
+	type FitnessFixtureResult,
+	FitnessIdSchema,
+	type ProviderFitnessRun,
+	ProviderFitnessRunSchema,
+} from "./fitness-types.ts";
 
 const MAX_BYTES = 1024 * 1024;
 
@@ -273,6 +278,32 @@ export function summarizeFitnessRun(run: ProviderFitnessRun) {
 		},
 	};
 }
+/** F01/F02 admission requires the complete contract, not only an oracle or Runtime verdict. */
+export function passesFitnessCalibrationFixture(result: FitnessFixtureResult): boolean {
+	return (
+		(result.fixtureId === "F01" || result.fixtureId === "F02") &&
+		result.terminalStatus === "COMPLETED" &&
+		result.oracle === "PASS" &&
+		result.falseCompletion === false &&
+		result.contract.taskContractAdherence === true &&
+		result.contract.scopeViolations === 0 &&
+		result.contract.forbiddenMutationAttempts === 0 &&
+		result.ac.met !== null &&
+		result.ac.met > 0 &&
+		result.ac.notMet === 0 &&
+		result.checks.passed === 2 &&
+		result.checks.failed === 0 &&
+		result.checks.notRun === 0 &&
+		result.reliability.cleanup === "CONFIRMED" &&
+		result.efficiency.usage.state === "KNOWN" &&
+		result.reliability.providerErrors === 0 &&
+		result.reliability.authErrors === 0 &&
+		(result.reliability.transportErrors === null || result.reliability.transportErrors === 0) &&
+		result.reliability.timeouts === 0
+	);
+}
+
+const FULL_CORPUS_IDS = ["F01", "F02", "F03", "F04", "F05", "F06", "F07", "F09", "F10", "F08"];
 
 export function compareFitnessRuns(left: ProviderFitnessRun, right: ProviderFitnessRun) {
 	left = validateFitnessRecord(left);
@@ -294,6 +325,10 @@ export function compareFitnessRuns(left: ProviderFitnessRun, right: ProviderFitn
 			left.target.promptRuntimeRevision === right.target.promptRuntimeRevision,
 		configuration: left.target.configurationDigest === right.target.configurationDigest,
 		fixtures:
+			left.status === "COMPLETED" &&
+			right.status === "COMPLETED" &&
+			left.fixtures.length === FULL_CORPUS_IDS.length &&
+			left.fixtures.every((fixture, index) => fixture.fixtureId === FULL_CORPUS_IDS[index]) &&
 			fitnessDigest(left.plannedFixtures) === fitnessDigest(right.plannedFixtures) &&
 			fitnessDigest(fixtureIdentity(left)) === fitnessDigest(fixtureIdentity(right)),
 		kind: left.kind === right.kind,

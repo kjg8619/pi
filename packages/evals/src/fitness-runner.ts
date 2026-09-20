@@ -15,6 +15,7 @@ import {
 	type FitnessRecordStore,
 	fitnessDigest,
 	freezeFitnessRecord,
+	passesFitnessCalibrationFixture,
 	safeEndpointIdentity,
 	validateFitnessRecord,
 } from "../../company-runtime/src/fitness-records.ts";
@@ -329,6 +330,11 @@ async function executeFixture(
 			measurements.length === invocations &&
 			invocations > 0 &&
 			measurements.every((item) => item.usage.source === "provider");
+		const cacheRead = measurements.reduce((sum, item) => sum + item.usage.cacheRead, 0);
+		const cacheWrite = measurements.reduce((sum, item) => sum + item.usage.cacheWrite, 0);
+		const reasoning = measurements.every((item) => item.usage.reasoning !== undefined)
+			? measurements.reduce((sum, item) => sum + (item.usage.reasoning ?? 0), 0)
+			: null;
 		const total = measurements.reduce((sum, item) => sum + item.usage.totalTokens, 0);
 		result.efficiency.usage = {
 			state: known ? "KNOWN" : "UNKNOWN",
@@ -336,6 +342,12 @@ async function executeFixture(
 			output: known ? measurements.reduce((sum, item) => sum + item.usage.output, 0) : null,
 			total: known ? total : null,
 			knownTotal: total,
+			// SDK normalization loses absent-versus-zero detail provenance. Preserve positive
+			// observations, but do not promote initialized zeros to measured upstream zeros.
+			cacheRead: known && cacheRead > 0 ? cacheRead : null,
+			cacheWrite: known && cacheWrite > 0 ? cacheWrite : null,
+			reasoning: known && reasoning !== null && reasoning > 0 ? reasoning : null,
+			detailSource: "SDK_NORMALIZED",
 		};
 		result.efficiency.modelTurns = measurements.reduce((sum, item) => sum + item.modelTurns, 0);
 		return result;
@@ -554,17 +566,7 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 				fitnessDigest(prior.target) !== fitnessDigest(options.target) ||
 				prior.plannedFixtures.join(",") !== "F01,F02" ||
 				prior.fixtures.length !== 2 ||
-				prior.fixtures.some(
-					(item) =>
-						item.oracle !== "PASS" ||
-						item.falseCompletion !== false ||
-						item.efficiency.usage.state !== "KNOWN" ||
-						item.reliability.providerErrors +
-							item.reliability.authErrors +
-							(item.reliability.transportErrors ?? 0) +
-							item.reliability.timeouts >
-							0,
-				)
+				prior.fixtures.some((item) => !passesFitnessCalibrationFixture(item))
 			)
 				throw new Error("Successful exact-target calibration required; no full matrix started");
 		}
@@ -615,7 +617,7 @@ export async function runFitnessMatrix(options: FitnessRunnerOptions): Promise<P
 				status = "FAILED";
 				break;
 			}
-			if (options.calibration && (result.oracle !== "PASS" || result.efficiency.usage.state !== "KNOWN")) {
+			if (options.calibration && !passesFitnessCalibrationFixture(result)) {
 				status = "CALIBRATION_FAILED";
 				break;
 			}
