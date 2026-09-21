@@ -597,6 +597,7 @@ describe("S6 lifecycle cleanup ordering", () => {
 					},
 					on: (name: string, handler: unknown) => {
 						hooks.set(name, handler as () => Promise<unknown>);
+						return () => {};
 					},
 				},
 				{ agentDir, createModels: async () => harness.session.modelRuntime },
