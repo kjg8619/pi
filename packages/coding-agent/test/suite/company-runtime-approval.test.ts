@@ -663,6 +663,7 @@ describe("S5C human-approved single-file deletion", () => {
 				},
 				on: (name: string, handler: unknown) => {
 					hooks.set(name, handler as () => Promise<unknown>);
+					return () => {};
 				},
 			},
 			{ agentDir, createModels: async () => harness.session.modelRuntime },
@@ -710,7 +711,7 @@ describe("S5C human-approved single-file deletion", () => {
 				registerCommand: (name, command) => {
 					commands.set(name, command);
 				},
-				on: (_name: string, _handler: unknown) => {},
+				on: (_name: string, _handler: unknown) => () => {},
 			},
 			{ agentDir, createModels: async () => harness.session.modelRuntime },
 		);
