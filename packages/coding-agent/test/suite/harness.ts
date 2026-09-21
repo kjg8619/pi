@@ -9,12 +9,22 @@ import { join } from "node:path";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type {
+	AssistantMessage,
+	Context,
 	FauxModelDefinition,
 	FauxProviderRegistration,
+	FauxProviderState,
 	FauxResponseStep,
 	Model,
+	SimpleStreamOptions,
+	TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
-import { registerFauxProvider, streamSimple } from "@earendil-works/pi-ai/compat";
+import {
+	getCurrentSystemPrompt,
+	getCurrentTools,
+	registerFauxProvider,
+	streamSimple,
+} from "@earendil-works/pi-ai/compat";
 import { AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
@@ -30,6 +40,28 @@ import {
 } from "../utilities.ts";
 
 type MessageTextPart = { type: "text"; text: string };
+
+type HarnessResponseFactory = (
+	context: Context,
+	options: SimpleStreamOptions | undefined,
+	state: FauxProviderState,
+	model: Model<string>,
+) => AssistantMessage | Promise<AssistantMessage>;
+
+export type HarnessResponseStep = AssistantMessage | HarnessResponseFactory;
+
+function toHarnessContext(context: TranscriptContext): Context {
+	return {
+		systemPrompt: getCurrentSystemPrompt(context.messages),
+		tools: getCurrentTools(context.messages),
+		messages: context.messages.filter((message) => message.role !== "system"),
+	};
+}
+
+function adaptHarnessResponse(step: HarnessResponseStep): FauxResponseStep {
+	if (typeof step !== "function") return step;
+	return (context, options, state, model) => step(toHarnessContext(context), options, state, model);
+}
 
 export function getMessageText(message: unknown): string {
 	if (!message || typeof message !== "object" || !("content" in message)) {
@@ -82,8 +114,8 @@ export interface Harness {
 	models: [Model<string>, ...Model<string>[]];
 	getModel(): Model<string>;
 	getModel(modelId: string): Model<string> | undefined;
-	setResponses: (responses: FauxResponseStep[]) => void;
-	appendResponses: (responses: FauxResponseStep[]) => void;
+	setResponses: (responses: HarnessResponseStep[]) => void;
+	appendResponses: (responses: HarnessResponseStep[]) => void;
 	getPendingResponseCount: () => number;
 	events: AgentSessionEvent[];
 	eventsOfType<T extends AgentSessionEvent["type"]>(type: T): Extract<AgentSessionEvent, { type: T }>[];
@@ -206,8 +238,12 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		faux: fauxProvider,
 		models: fauxProvider.models,
 		getModel: fauxProvider.getModel,
-		setResponses: fauxProvider.setResponses,
-		appendResponses: fauxProvider.appendResponses,
+		setResponses(responses) {
+			fauxProvider.setResponses(responses.map(adaptHarnessResponse));
+		},
+		appendResponses(responses) {
+			fauxProvider.appendResponses(responses.map(adaptHarnessResponse));
+		},
 		getPendingResponseCount: fauxProvider.getPendingResponseCount,
 		events,
 		eventsOfType<T extends AgentSessionEvent["type"]>(type: T) {
