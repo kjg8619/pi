@@ -836,3 +836,30 @@ Later  Facts / Capability Broker / COMPLEX / Parallel
 이 순서는 기능 개수보다 **문맥 품질 → 반복 절차 → 제한 복구 → 리뷰 품질 → Host UI → Provider 측정 → 브라우저 evidence**를 우선한다. T3는 Host/UI이고 Kernel authority가 아니며, Provider Matrix는 자동 fallback이 아닌 지속 평가 track이다. 현재 C08은 owned local static capture와 기존 verifier trust/Kernel 경계에 한정한다. 별도 Browser action policy·최종 입력 검사·OS/network 경계 설계는 향후 action 확장의 전제이며 현재 read-only 범위에 행동 권한을 부여하지 않는다.
 
 과거 V0.3C/V0.3D의 실제 결과와 제한은 기존 LOG의 판정을 그대로 유지하며 소급 수정하지 않는다. 미실행 remote CI, 다른 OS/Node/Provider, R2/R3 actual smoke를 PASS로 확대하지 않는다.
+
+## 15. 최종 split-repository migration baseline
+
+**This is the final split-repository baseline before the planned Weavra repository consolidation.**
+
+현재 C08 구현을 유지한 채 `pi/devlop`과 `t3code/devlop`을 향후 단일 `kjg8619/Weavra` repository 통합의 고정 비교 원본으로 남긴다. Immutable 기준은 branch 이름이 아니라 최종 게시 보고의 **Pi/T3 full commit SHA 쌍**이다. 새 tag나 branch-protection 설정, history rewrite를 수행한다는 뜻이 아니다.
+
+- T3 baseline source는 `f6ff0ae0f1ae0f54aee055c64b82dd8e2b9eebdf` 그대로다. Visual wrapping fix 이후 closure 요청에 따라 full/focused contracts·server·client-runtime·web tests를 새로 실행했고 전체 **17,284 PASS / 58 skipped**, focused **17/26/28/23 PASS**였다. Typecheck/lint/fmt/knip/build는 모두 exit 0이다. Lint **722 warnings / 0 errors**와 기존 typecheck/build 진단은 보존한다. T3 remote CI는 **NOT RUN**이다.
+- Pi implementation `de66efe2a5f6bdae4c7cf573ce89414d4b6cbcd2`와 기존 closure `784644382b90c6f01319aa9ccefb1b108e03169a`는 역사적 anchor다. 최종 Pi baseline은 이 closure-only 문서를 포함한 새 게시 commit이며 그 exact CI·full SHA·양쪽 clean/local/tracking/remote 일치를 최종 보고에서 확정한다. 현재 작업의 상세 명령과 실제 결과는 WORK_LOG LOG-122에 기록한다.
+- XXVIII의 wrapping-fix 후 전체 재검증은 새 실행으로 완료했다. XXIX Publication과 XXX Bounded closure는 기존 증거를 재작성하지 않고 마지막 문서 exact CI와 게시 identity 확인으로 종료한다. 과거 actual Chromium/SDK proof를 이번 실행 결과로 재표기하지 않는다.
+
+유지하는 C08 경계:
+
+| 대상 | 고정된 책임/제한 |
+|---|---|
+| Browser/Jev | observation producer only |
+| Candidate | CANDIDATE_ONLY |
+| Registration authority | Runtime/Host |
+| Verification authority | RegisteredVerifier |
+| Completion authority | Kernel |
+| Freshness | 매 검증마다 fresh browser capture, candidate evidence 재사용 금지 |
+| Repair | browser automatic repair 없음 |
+| Action | action loop 없음 |
+| Authentication | login/authenticated personal browser 없음 |
+| Navigation | 임의 remote navigation/crawling 없음 |
+
+**여기서 기능 개발을 멈춘다.** C09/V0.6D, architecture refactor, repository 구조 변경을 시작하지 않는다. 저장소 생성·이관·merge·subtree도 수행하지 않는다. `kjg8619/Weavra` consolidation 실행은 이 baseline 확정과 별개의 향후 작업이다.

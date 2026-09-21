@@ -68,7 +68,8 @@ S0~S6와 제한된 GPT RC-01~08 Closure 이후 Branding, Status Projection, fork
 - V0.5A Task Context Pack / Repo Map(LOG-071)는 opt-in `agents.context_pack.mode`(기본 disabled), 48 KiB absolute cap, real LspPort symbols/references, TaskContextAgentExecutor, measurement/evidence/plan projection, leakage·freshness·deterministic A/B 회귀를 구현·검증했고 DeepSeek strict-trust+sandbox actual이 bounded context로 **COMPLETED**했다. V0.5A는 CLOSED다.
 - **V0.5A·V0.5B·V0.5C·V0.5D는 현재 bounded 범위에서 CLOSED**다. D의 전체 로컬 회귀·Astra actual 1회·구현 및 별도 closure exact HEAD CI PASS는 LOG-086~093에 보존한다. V0.6A 첫 read-only module은 LOG-094~096, 실제 CLI → T3 backend → read-only frontend와 재연결은 LOG-097~100에서 검증했다. LOG-100 시점에는 두 read-only slice만 완료했고 전체 C07/control은 OPEN이었다.
 - **V0.6A/C07과 V0.6B/C06은 bounded 범위에서 CLOSED**다(LOG-101~116). C06은 독립 audit·v3 source `b2b938aa2` exact CI 뒤 두 target의 fresh full을 각각 한 번 수집하고, actual T3·최종 Pi 전체 회귀 뒤 evidence `d67ce3968` exact CI까지 통과했다. 두 record는 각각 10 fixture·CALIBRATION_READY/EVALUATION_COMPLETE·oracle PASS 10·falseCompletion 0이다. F06 BLOCKED·strict receipt 1/3·F08 UNKNOWN usage와 historical v1/v2 bytes/원인 UNKNOWN을 보존한다. Closure는 전부 PASS가 아닌 신뢰 가능한 full collection 기준이다. 이제 C08/Jev 연구와 첫 read-only slice에 진입하며 C08 자체 완료는 별도 검증한다.
-- **V0.6C/C08은 local-static browser check의 bounded 범위에서 CLOSED**다(LOG-119~121). Candidate v2 → Host preview/confirm → 기존 registry/RegisteredVerifier → fresh SELF_CHECK/TEST → Evidence Pack/Kernel을 실제 Chromium·SDK faux whole workflow·production T3 UI로 검증했다. Pi 전체 gate·최종 T3 17,284 PASS 뒤 Pi source `de66efe2a` [exact CI 35552773990](https://github.com/kjg8619/pi/actions/runs/35552773990)도 PASS했다. T3 source는 `f6ff0ae0f`, devlop remote CI는 NOT RUN이다. 별도 closure docs의 exact CI는 최종 게시 확인 대상이며 action/auth/session 재사용/remote crawling·다른 OS/browser actual을 포함하지 않는다. C06 CLOSED와 원본은 유지한다.
+- **V0.6C/C08은 local-static browser check의 bounded 범위에서 CLOSED**다(LOG-119~122). 기존 actual Chromium·SDK faux whole workflow·production T3 proof와 Pi source `de66efe2a` [exact CI 35552773990](https://github.com/kjg8619/pi/actions/runs/35552773990)를 보존한다. 기존 closure docs `784644382`의 [exact CI 35553422237](https://github.com/kjg8619/pi/actions/runs/35553422237)도 completed/success다. T3 source `f6ff0ae0f`를 변경하지 않고 최종 closure 요청에 따라 전체/focused tests·typecheck/lint/fmt/knip/build를 새로 실행했다(LOG-122). T3 remote CI는 **NOT RUN**이다. C06 CLOSED와 원본은 유지한다.
+- **최종 split-repository migration baseline:** `This is the final split-repository baseline before the planned Weavra repository consolidation.` 향후 `kjg8619/Weavra` 통합을 위한 비교 원본이며 이번 작업은 closure 문서 게시까지만 한다. 기준은 움직일 수 있는 branch 이름이 아니라 최종 보고의 Pi/T3 full commit SHA 쌍이다. 새 C09/V0.6D·architecture refactor·구조 변경·저장소 생성/이관/merge/subtree는 수행하지 않는다.
 - 안정 기준: `weavra-v0.1-rc1`은 immutable historical RC baseline이며 이동하지 않는다.
 - 아직 NOT VERIFIED: **Linux verifier sandbox actual**(runner 외부 blocker 2건 — V0.4C는 macOS actual PASS로 CLOSED), TUI overlay rendering, V0.4A strict의 R2/R3·QUICK actual smoke, Plain Pi vs Weavra 실제 반복 비교, 20 fixture corpus 확대, R2/R3 measurement/evidence actual Provider smoke, 추가 모델/OS/Node matrix, COMPLEX/parallel, live browser action/MCP/memory, external TOCTOU의 완전 해소(주장하지 않음). 독립 browser Verifier는 LOG-119~120의 bounded local-static/macOS 범위에서 검증했으며 개인 session·다른 OS/browser까지 확대하지 않는다. V0.5C actual은 통제 defect 1회이며 R2/R3 repair·expected-failure TDD·일반 retry/resume는 미지원이다. V0.5D 착수 HEAD는 `1d2a4af96`, 구현 `0d4e91936`의 [CI 35454385916](https://github.com/kjg8619/pi/actions/runs/35454385916) 및 closure `9331b3ed9`의 [CI 35454820292](https://github.com/kjg8619/pi/actions/runs/35454820292)는 success다. V0.6A의 T3 read-only UI는 LOG-097에서 실제 관찰했으나 Host owner liveness/cleanup, 실행 control, 별도 network service/replay는 제공하지 않는다.
 
@@ -3982,3 +3983,63 @@ heuristic relation discovery(complete dependency graph 아님) · persistent sem
 - 게시 identity: closure docs 편집 전 두 repo는 clean이고 각 local HEAD/tracking/actual remote devlop이 위 source SHA와 같았다. Pi local main은 `f9bcd351dc3cedf989bc5fc0f8aa012db5737df2`, 실제 remote main은 `890f920884f6d21fc7617d236ef9e1cc5d7a0ef8`로 서로 다른 기존 refs이며 동기화하지 않았다. T3에는 local main이 없고 remote main은 `411da2a7356dd795b720228e9c834ea9bad0415f`다. Stable tag local/remote object는 `7deb58be5b2da7b4f8e2cf42c1b1fd5d912a107c` 그대로다.
 - 남은 지원 범위: click/type/submit/login/upload/download/drag-drop, 개인 인증/profile/daemon attach, remote/multistep navigation/crawling/payments, arbitrary JS, browser 전체 OS sandbox/hard pre-render memory ceiling, 다른 OS/browser actual, browser automatic repair는 제공하지 않는다. Same-user filesystem 외부 race와 group을 탈출한 process의 완전 통제를 주장하지 않는다. 기존 T3 unrelated warnings도 숨기지 않는다.
 - 다음/commit 상태: 이 세 문서를 별도 정상 docs commit/push하고 **그 exact docs HEAD의 CI**와 최종 양쪽 clean/local/tracking/remote identity를 확인한다. 아직 만들어지지 않은 자신의 docs SHA/CI를 성공으로 기록하지 않으며 최종 응답에 관측한 결과를 명시한다.
+
+## LOG-122 — 2026-09-21 11:58 (Asia/Seoul) — 최종 split-repository migration baseline closure
+
+**목적/상태:** C08 구현을 변경하지 않고 남은 XXVIII/T3 validation, XXIX/Publication, XXX/Bounded closure를 실제 검증·게시 상태에 맞게 정리한다. **This is the final split-repository baseline before the planned Weavra repository consolidation.** 이 문구는 향후 `kjg8619/Weavra` 통합의 고정 비교 원본을 뜻하며 이번 작업이 저장소 생성·이관을 수행했다는 뜻이 아니다.
+
+### 시작 identity와 보존
+
+- Pi `devlop`의 local HEAD/tracking/실제 remote는 모두 `784644382b90c6f01319aa9ccefb1b108e03169a`, T3는 모두 `f6ff0ae0f1ae0f54aee055c64b82dd8e2b9eebdf`였고 두 worktree는 clean이었다.
+- 기존 Pi closure exact run **35553422237 / headSha `784644382b90c6f01319aa9ccefb1b108e03169a` / completed / success**를 새로 조회했다. 이것은 이전 closure commit의 CI이며 아래 새 문서 commit의 CI로 재사용하지 않는다.
+- Pi/T3 implementation·tests·dependency/lock/auth/model 설정·C06 actual/historical/faux records는 변경하지 않는다. 기존 Chromium/SDK actual proof는 LOG-119~121의 역사적 결과이며 이번 작업에서 재실행했다고 주장하지 않는다.
+
+### XXVIII. T3 validation — 완료
+
+Visual wrapping fix를 포함한 동일 T3 SHA에서 **이번 요청에 따라 새로 실행**했다. Node **24.19.0**, pnpm **11.10.0**, canonical private HOME/TMPDIR와 빈 환경(`env -i`, 필요한 PATH/HOME/TMPDIR/CI만 지정)을 사용했다. 아래 순서 전체는 **442.74초 / exit 0**이며 시간은 full tests만의 시간이 아니라 focused tests와 나머지 gates까지 포함한다.
+
+| 범위 | 이번 전체 suite 결과 | 별도 focused 재실행 |
+|---|---|---|
+| contracts | 26 files / **463 PASS** | `src/weavraControl.test.ts`, `src/weavra.test.ts` — **17 PASS** |
+| server | 340 passed files / **5,232 PASS / 10 skipped** | `src/weavra/RuntimeController.test.ts`, `src/weavra/ControlTransport.test.ts` — **26 PASS** |
+| client-runtime | 79 files / **1,560 PASS** | `src/state/weavraControl.test.ts`, `src/state/weavra.test.ts` — **28 PASS** |
+| web | 394 files / **5,322 PASS** | `src/components/settings/WeavraControls.test.tsx`, `src/confirmDialog.test.ts` — **23 PASS** |
+| 전체 workspace | **14 workspaces / 1,270 passed files / 7 skipped files / 17,284 PASS / 58 skipped** | focused 94 PASS는 전체 수에 중복 합산하지 않음 |
+
+실행 명령은 T3 root 기준이다.
+
+```sh
+pnpm exec vp run -r --concurrency-limit 1 test
+pnpm --filter @t3tools/contracts exec vp test run src/weavraControl.test.ts src/weavra.test.ts
+pnpm --filter t3 exec vp test run src/weavra/RuntimeController.test.ts src/weavra/ControlTransport.test.ts
+pnpm --filter @t3tools/client-runtime exec vp test run src/state/weavraControl.test.ts src/state/weavra.test.ts
+pnpm --filter @t3tools/web exec vp test run src/components/settings/WeavraControls.test.tsx src/confirmDialog.test.ts
+pnpm typecheck
+pnpm lint
+pnpm fmt:check
+pnpm knip:check
+pnpm build
+```
+
+- Typecheck: **exit 0**, 15 workspace tasks, 기존 Effect suggestions가 있다. 진단 없음으로 과장하지 않는다.
+- Lint: **exit 0 / 722 warnings / 0 errors**, 3,794 files. 기존 source를 유지했으며 warning을 수정·억제하지 않았다.
+- Fmt: **exit 0**, 3,969 files 모두 format 일치. Formatting write를 실행하지 않았다.
+- Knip: files/dependencies와 지정 workspace exports 두 검사가 모두 **exit 0**이었다.
+- Build: **exit 0**, 7 tasks. 기존 `x11` unresolved external, CJS `import.meta`, dependency bundling/plugin timing 경고·안내를 보존한다. 이 결과는 zero-warning 보장이 아니다.
+- 전체 test/typecheck/build task cache hit는 각각 **0/14, 0/15, 0/7**이었다. 완료 후 T3는 여전히 동일 HEAD/tracking과 clean worktree였으며 `git diff --check`도 exit 0이었다.
+- 따라서 `XXVIII. T3 validation · Recheck full T3 regression after visual wrapping fix`를 이번 실행 근거로 완료한다. 이전 351.35초/390.72초 결과는 덮어쓰지 않는다.
+
+### XXIX. Publication — 기존 게시 확인 및 최종 문서 게시
+
+- 기존 Pi implementation `de66efe2a5f6bdae4c7cf573ce89414d4b6cbcd2`, closure `784644382b90c6f01319aa9ccefb1b108e03169a`, T3 implementation `f6ff0ae0f1ae0f54aee055c64b82dd8e2b9eebdf`의 정상 게시 이력을 보존한다. T3는 변경이 없으므로 새 empty/source commit을 만들지 않는다.
+- T3 exact SHA runs/check-runs는 이번 조회에서도 0건이다. Remote CI는 **NOT RUN**이며 로컬 regression PASS와 구분한다.
+- 변경 파일은 `docs/WORK_LOG.md`와 `docs/WEAVRA_ROADMAP_2026-09-17.md` 두 문서뿐이다. 이 closure-only 문서를 정상 commit/push하고 **그 새 Pi exact HEAD의 CI**와 최종 local/tracking/remote·clean 상태를 최종 보고에서 확인한다. 아직 만들어지지 않은 자기 commit SHA/CI를 이 entry에서 PASS로 기입하지 않는다.
+- Immutable baseline은 최종 보고에서 확정한 **full commit SHA 쌍**이다. 이동 가능한 `devlop` 이름 자체를 immutable이라고 부르거나 새 tag/branch-protection 정책을 만들지 않는다. Main, 기존 stable tag, Git history를 이동/재작성하지 않는다.
+
+### XXX. Bounded closure — 기존 C08 범위 유지
+
+README의 기존 계약과 이번 시작 source identity를 대조했다. Browser/Jev는 **observation producer only**, candidate는 **CANDIDATE_ONLY**, registration authority는 **Runtime/Host**, verification authority는 **RegisteredVerifier**, completion authority는 **Kernel**이다. 매 검증의 fresh browser capture를 요구하고 candidate evidence 재사용·browser automatic repair를 허용하지 않는다. Action loop, login/authenticated personal browser, 임의 remote navigation/crawling은 지원하지 않는다. Browser 전체 OS sandbox·다른 OS/browser actual 지원으로 확대하지 않는다.
+
+- 새 C09/V0.6D 기능, architecture refactor, repository 구조 변경, `kjg8619/Weavra` 생성·이관·merge·subtree는 수행하지 않았다. 추가 paid Provider 추론은 실행하지 않았다.
+- 새 테스트·수정한 소스는 없으며 소유 validation script와 private HOME/TMPDIR는 실행 완료 뒤 제거했다. 기존 warnings/unsupported 범위는 migration baseline의 알려진 제한으로 남긴다.
+- 최종 문서 exact CI와 양쪽 clean/동일 HEAD 확인 후 Publication/Bounded closure를 완료 처리하고 보고 후 종료한다. 향후 통합 실행은 별도 승인된 작업이다.
