@@ -471,7 +471,7 @@ Node `26.7.0`에서는 64 control/6,000 text-unit의 escaped projection(출력 1
 
 ## 11. C08 Host 등록과 fresh 독립 검증 (2026-09-21)
 
-§10은 첫 read-only slice 당시의 조사·한계 기록으로 보존한다. 이 후속 작업은 **관찰 후보 → 사람이 검토한 기대값 → 기존 Runtime check → 매번 새 browser evidence**를 연결한다. 현재 bounded 구현·전체 로컬 proof를 완료했고 정상 source/docs 게시·exact CI 전이므로 전체 closure는 OPEN이다(LOG-119~120).
+§10은 첫 read-only slice 당시의 조사·한계 기록으로 보존한다. 이 후속 작업은 **관찰 후보 → 사람이 검토한 기대값 → 기존 Runtime check → 매번 새 browser evidence**를 연결했다. 실제 Chromium·SDK faux whole workflow·production T3 UI, 최종 전체 로컬 regression과 Pi source exact CI를 통과해 **현재 local-static bounded 범위에서 C08 CLOSED**로 판정했다(LOG-119~121). Actions/auth/session 재사용/remote navigation까지의 완료는 아니다.
 
 ### 채택한 계약과 권한 경계
 
@@ -490,6 +490,6 @@ Node `26.7.0`에서는 64 control/6,000 text-unit의 escaped projection(출력 1
 
 ### 현재 검증과 한계
 
-Pi 전체 isolated `test.sh`와 check/check:ci/lock/shell/diff gates를 통과했다. Runtime은 56 files/1,487 PASS, coding-agent는 282 files/2,776 PASS/50 skipped, evals는 9 files/53 PASS다. T3 전체 직렬 14 workspace는 1,270 files/17,284 PASS/58 skipped, typecheck/lint/fmt/knip/build는 exit 0이다. T3의 기존 무관한 suggestions/warnings는 보존했다. Actual UI에서 발견한 긴 digest overflow는 기존 dialog의 `wrap-anywhere` convention을 description에도 적용한 뒤 재빌드·실제 화면/width로 수정 확인했다. 게시 SHA/정확한 CI 판정은 WORK_LOG 후속 기록을 따른다.
+Pi 전체 isolated `test.sh`와 check/check:ci/lock/shell/diff gates를 통과했다. Runtime은 56 files/1,487 PASS, coding-agent는 282 files/2,776 PASS/50 skipped, evals는 9 files/53 PASS다. 마지막 UI 수정 후 T3 전체 직렬 14 workspace는 351.35초/1,270 files/17,284 PASS/58 skipped였고 typecheck/lint/fmt/knip/build도 exit 0이다. 기존 무관한 suggestions/warnings는 보존했다. Actual UI의 긴 digest overflow는 기존 `wrap-anywhere` convention을 description에도 적용하고 재빌드 화면/width로 수정 확인했다. Pi source `de66efe2a5f6bdae4c7cf573ce89414d4b6cbcd2`의 [exact CI 35552773990](https://github.com/kjg8619/pi/actions/runs/35552773990)는 completed/success다. T3 source `f6ff0ae0f1ae0f54aee055c64b82dd8e2b9eebdf`의 exact runs/checks/statuses는 0건이며 main/PR-only trigger의 **NOT RUN**이다. 별도 closure docs 게시/exact CI는 WORK_LOG와 최종 게시 확인을 따른다.
 
 범위는 명시적으로 승인한 `http://127.0.0.1:<port>/...` 정적 문서 하나다. Redirect·subresource·frame·download·page script·unsupported DOM을 fail-closed 처리하며 15초/256 KiB document/512 KiB output/CDP frame bound를 둔다. 이것은 browser 전체 OS sandbox·hard pre-render memory cap·동일-user 외부 filesystem race의 완전 해소가 아니다. Personal profile/account/session, forms/actions/final-input policy, 원격 navigation/crawling, 다른 OS/browser actual은 미지원/미검증이다. C06 CLOSED·원본 actual/historical/faux records·stable tag는 그대로 유지하며 추가 paid Provider 추론은 실행하지 않았다.
