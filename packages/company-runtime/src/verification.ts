@@ -2,8 +2,19 @@ import { randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { workerDigest } from "./agent-tools.ts";
+import { evaluateBrowserAssertion, invalidateBrowserCheck, validBrowserCheckEvidence } from "./browser-evidence.ts";
+import { observeLocalBrowser } from "./browser-observation.ts";
+import {
+	type BrowserObservationCandidate,
+	type BrowserVerificationEvidence,
+	browserDigest,
+	browserEvidenceDigestOf,
+	browserProjectId,
+	type RegisteredBrowserCheck,
+	validateRegisteredBrowserCheck,
+} from "./browser-types.ts";
 import type { RuntimeConfig } from "./config.ts";
-import type { CheckResult, VerificationResult } from "./contracts.ts";
+import type { CheckRequirement, CheckResult, VerificationResult } from "./contracts.ts";
 import { collectLspEvidence, markStaleLspEvidence } from "./lsp/evidence.ts";
 import type { LspEvidence, LspPort } from "./lsp/types.ts";
 import { type ActionAudit, evaluateRegisteredCheck, type PolicyContext, type RegisteredCheck } from "./policy.ts";
@@ -24,6 +35,7 @@ import {
 	executableIdentityDigest,
 	registrationDigestOf,
 	resolveVerifierTrustSources,
+	snapshotBrowserImplementation,
 	snapshotVerifierExecutable,
 	snapshotVerifierSources,
 	type VerifierTrustSnapshot,
@@ -78,10 +90,16 @@ export class RegisteredVerifier implements Verifier {
 		const env = verificationEnvironment();
 		const registrations = await Promise.all(
 			config.verification.checks.map(async (check) => {
+				if (check.kind === "browser") {
+					validateRegisteredBrowserCheck(check.browser);
+					if (check.browser.checkId !== check.id || check.browser.projectId !== browserProjectId(workspace.cwd))
+						throw new Error("Browser check belongs to another registration or project");
+				}
 				let executable: string;
 				try {
 					executable = await resolveExecutable(check.executable, env.PATH);
 				} catch {
+					if (check.kind === "browser") throw new Error("Registered browser executable unavailable");
 					return undefined;
 				}
 				return {
@@ -100,32 +118,36 @@ export class RegisteredVerifier implements Verifier {
 		const trustSnapshots = registrations.map((registration, index) => {
 			if (!registration) return undefined;
 			const check = config.verification.checks[index];
+			const mode = check.kind === "browser" ? "strict" : trustMode;
 			try {
 				const sources = snapshotVerifierSources(workspace.cwd, resolveVerifierTrustSources(workspace.cwd, check));
 				const executable = snapshotVerifierExecutable(registration.executable);
+				const runtimeSources = check.kind === "browser" ? snapshotBrowserImplementation() : undefined;
 				return {
-					mode: trustMode,
+					mode,
 					registrationDigest: registrationDigestOf({
 						check,
 						executable,
 						sources,
 						configDigest: policy.configDigest,
-						trustMode,
+						trustMode: mode,
 						environment: registration.env,
+						...(runtimeSources ? { runtimeSources } : {}),
 					}),
 					executableDigest: executableIdentityDigest(executable),
 					executable,
 					sources,
+					...(runtimeSources ? { runtimeSources } : {}),
 				};
 			} catch (error) {
-				if (trustMode === "strict") throw error;
+				if (mode === "strict") throw error;
 				return undefined;
 			}
 		});
 		// Sandbox preflight runs before any worker model interaction; required mode never falls back unsandboxed.
 		const sandboxMode = config.verification.sandbox?.mode ?? "disabled";
 		let sandbox: SandboxPolicySnapshot | undefined;
-		if (sandboxMode === "required") {
+		if (sandboxMode === "required" && config.verification.checks.some((check) => check.kind !== "browser")) {
 			const trustedSources = [
 				...new Set(
 					config.verification.checks.flatMap((check) => resolveVerifierTrustSources(workspace.cwd, check)),
@@ -179,13 +201,14 @@ export class RegisteredVerifier implements Verifier {
 	 */
 	get trustRequirements(): Array<{
 		id: string;
-		kind: "build" | "custom" | "format" | "lint" | "test" | "typecheck";
+		kind: CheckRequirement["kind"];
 		required: boolean;
 		trustRequired: boolean;
 		trustRegistrationDigest: string;
 		sandboxRequired: boolean;
 		sandboxPolicyDigest: string;
 		repairableExitCodes: number[];
+		browser?: RegisteredBrowserCheck;
 	}> {
 		return this.config.verification.checks.map((check, index) => ({
 			id: check.id,
@@ -193,9 +216,10 @@ export class RegisteredVerifier implements Verifier {
 			required: check.required,
 			trustRequired: this.trustSnapshots[index]?.mode === "strict",
 			trustRegistrationDigest: this.trustSnapshots[index]?.registrationDigest ?? "",
-			sandboxRequired: this.sandbox !== undefined,
-			sandboxPolicyDigest: this.sandbox?.policyDigest ?? "",
+			sandboxRequired: check.kind !== "browser" && this.sandbox !== undefined,
+			sandboxPolicyDigest: check.kind !== "browser" ? (this.sandbox?.policyDigest ?? "") : "",
 			repairableExitCodes: [...(check.repairable_exit_codes ?? [])],
+			...(check.kind === "browser" ? { browser: structuredClone(check.browser) } : {}),
 		}));
 	}
 
@@ -212,6 +236,98 @@ export class RegisteredVerifier implements Verifier {
 	async inspect(signal?: AbortSignal) {
 		const { diff: _diff, ...snapshot } = await this.workspace.inspect(signal);
 		return snapshot;
+	}
+
+	private async verifyBrowserCheck(
+		base: CheckResult,
+		check: Extract<RuntimeConfig["verification"]["checks"][number], { kind: "browser" }>,
+		executable: string,
+		snapshot: VerifierTrustSnapshot,
+		signal?: AbortSignal,
+	): Promise<CheckResult> {
+		if (!base.step || !snapshot.runtimeSources) throw new Error("Missing frozen browser verifier identity");
+		this.processCleanupConfirmed = false;
+		let capture: BrowserObservationCandidate;
+		try {
+			capture = await observeLocalBrowser({
+				url: check.browser.documentIdentity,
+				executable,
+				localTestApp: true,
+				projectRoot: this.workspace.cwd,
+				target: structuredClone(check.browser.target),
+				signal,
+			});
+			this.processCleanupConfirmed = true;
+		} catch (error) {
+			if (error instanceof ProcessCleanupError) throw error;
+			this.processCleanupConfirmed = true;
+			return {
+				...base,
+				finishedAt: Date.now(),
+				status: signal?.aborted ? "SKIPPED" : "UNAVAILABLE",
+				reason: signal?.aborted ? "Browser capture cancelled" : "Browser capture unavailable or denied",
+				trust: verifierTrustEvidence(snapshot, validateVerifierTrust(this.workspace.cwd, snapshot).status),
+			};
+		}
+		const current = await this.workspace.inspect();
+		const trust = validateVerifierTrust(this.workspace.cwd, snapshot);
+		const target = capture.observation.target;
+		const identityMatches =
+			capture.projectId === check.browser.projectId &&
+			capture.documentIdentity === check.browser.documentIdentity &&
+			capture.source.implementationRevision === browserDigest(snapshot.runtimeSources.sources) &&
+			capture.source.executableIdentityDigest === snapshot.executableDigest &&
+			browserDigest(target?.target) === browserDigest(check.browser.target);
+		const fresh =
+			Date.now() >= capture.capturedAt && Date.now() - capture.capturedAt <= check.browser.freshness.maxAgeMs;
+		const passed =
+			!signal?.aborted &&
+			current.safe &&
+			current.diffDigest === base.diffDigest &&
+			trust.ok &&
+			identityMatches &&
+			fresh &&
+			target !== undefined &&
+			evaluateBrowserAssertion(check.browser.assertion, target);
+		const evidence: Omit<BrowserVerificationEvidence, "browserEvidenceDigest"> = {
+			version: 1,
+			registrationDigest: check.browser.registrationDigest,
+			projectId: check.browser.projectId,
+			origin: check.browser.origin,
+			documentIdentity: check.browser.documentIdentity,
+			documentDigest: capture.pageRevision,
+			observationType: "target",
+			target: structuredClone(check.browser.target),
+			assertion: structuredClone(check.browser.assertion),
+			freshness: structuredClone(check.browser.freshness),
+			captureId: capture.candidateId,
+			capturedAt: capture.capturedAt,
+			implementationRevision: capture.source.implementationRevision,
+			executableIdentityDigest: capture.source.executableIdentityDigest,
+			browserVersion: capture.source.browserVersion,
+			observationDigest: capture.observationDigest,
+			isolation: "PRIVATE_HOME_PROFILE_CDP_PIPE",
+			cleanup: "CONFIRMED",
+			result: passed ? "PASS" : "FAIL",
+		};
+		return {
+			...base,
+			status: passed ? "PASS" : "FAIL",
+			finishedAt: Date.now(),
+			exitCode: null,
+			reason: passed ? "Fresh browser assertion passed" : "Browser assertion failed or capture integrity changed",
+			trust: verifierTrustEvidence(snapshot, trust.status),
+			browser: {
+				...evidence,
+				browserEvidenceDigest: browserEvidenceDigestOf(evidence, {
+					checkId: base.id,
+					runId: base.runId,
+					revision: base.revision,
+					step: base.step,
+					diffDigest: base.diffDigest,
+				}),
+			},
+		};
 	}
 	async verify(request: VerificationRequest): Promise<VerificationResult> {
 		if (!this.safeToRelease) throw new ProcessCleanupError();
@@ -230,6 +346,7 @@ export class RegisteredVerifier implements Verifier {
 			sandboxRequired?: boolean;
 			sandboxPolicyDigest?: string;
 			repairableExitCodes?: number[];
+			browser?: RegisteredBrowserCheck;
 		}) => ({
 			id: check.id,
 			kind: check.kind,
@@ -239,27 +356,16 @@ export class RegisteredVerifier implements Verifier {
 			...(check.sandboxRequired === true ? { sandboxRequired: true } : {}),
 			...(check.sandboxPolicyDigest ? { sandboxPolicyDigest: check.sandboxPolicyDigest } : {}),
 			...(check.repairableExitCodes?.length ? { repairableExitCodes: check.repairableExitCodes } : {}),
+			...(check.browser ? { browser: browserDigest(check.browser) } : {}),
 		});
-		const strictTrust = (this.config.verification.trust?.mode ?? "compatible") === "strict";
+		const frozenRequirements = this.trustRequirements;
 		if (
 			JSON.stringify(request.checks.map(requirementOf)) !==
 			JSON.stringify(
-				configured.map(({ id, kind, required, repairable_exit_codes }, index) =>
+				frozenRequirements.map((check) =>
 					requirementOf({
-						id,
-						kind,
-						required,
-						repairableExitCodes: repairable_exit_codes,
-						...(strictTrust ? { trustRequired: true } : {}),
-						...((strictTrust || repairEnabled) && this.trustSnapshots[index]?.registrationDigest
-							? { trustRegistrationDigest: this.trustSnapshots[index]!.registrationDigest }
-							: {}),
-						...(this.sandbox
-							? {
-									sandboxRequired: true,
-									sandboxPolicyDigest: this.sandbox.policyDigest,
-								}
-							: {}),
+						...check,
+						trustRegistrationDigest: check.trustRequired || repairEnabled ? check.trustRegistrationDigest : "",
 					}),
 				),
 			)
@@ -309,6 +415,7 @@ export class RegisteredVerifier implements Verifier {
 						request: action,
 						step: request.step,
 						revision: request.revision,
+						...(check.kind === "browser" ? { browser: check.browser } : {}),
 					}),
 				},
 				action,
@@ -362,6 +469,25 @@ export class RegisteredVerifier implements Verifier {
 						});
 						continue;
 					}
+				}
+				if (check.kind === "browser") {
+					if (!trustSnapshot) throw new Error("Browser verifier trust unavailable");
+					const result = await this.verifyBrowserCheck(
+						base,
+						check,
+						action.executable,
+						trustSnapshot,
+						request.signal,
+					);
+					await this.audit.assertWritable();
+					intentOpen = false;
+					await this.audit.finish(
+						decision.runId,
+						decision.actionId,
+						request.signal?.aborted ? "INTERRUPTED" : result.status === "PASS" ? "SUCCEEDED" : "FAILED",
+					);
+					checks.push(result);
+					continue;
 				}
 				request.signal?.throwIfAborted();
 				this.processCleanupConfirmed = false;
@@ -528,7 +654,8 @@ export class RegisteredVerifier implements Verifier {
 						delete check.failureKind;
 					}
 			}
-			if (checks.some((check) => check.sandbox?.status !== "ENFORCED")) integrity = false;
+			if (checks.some((check) => check.kind !== "browser" && check.sandbox?.status !== "ENFORCED"))
+				integrity = false;
 		}
 		for (const [index, check] of checks.entries()) {
 			const snapshot = this.trustSnapshots[index];
@@ -553,6 +680,19 @@ export class RegisteredVerifier implements Verifier {
 					? "Verification cancelled before result settlement"
 					: "Workspace changed or evidence unavailable; check evidence is stale";
 			}
+		for (const [index, check] of checks.entries()) {
+			if (check.kind !== "browser") continue;
+			const definition = configured[index];
+			if (
+				check.status === "PASS" &&
+				(definition.kind !== "browser" || !validBrowserCheckEvidence(check, definition.browser, Date.now()))
+			) {
+				check.status = "FAIL";
+				check.reason = "Browser evidence expired or changed before result settlement";
+				integrity = false;
+			}
+			if (check.status !== "PASS") invalidateBrowserCheck(check);
+		}
 		return {
 			runId: request.runId,
 			revision: request.revision,

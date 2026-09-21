@@ -1,4 +1,6 @@
 import { awaitApproval, selectR3Scope } from "./approval.ts";
+import { validBrowserCheckEvidence } from "./browser-evidence.ts";
+import { validateRegisteredBrowserCheck } from "./browser-types.ts";
 import { BudgetController, BudgetDenied, type BudgetLimits } from "./budget.ts";
 import { selectWorkflow } from "./classification.ts";
 import {
@@ -88,6 +90,7 @@ function assertVerification(
 	revision: number,
 	checks: CheckRequirement[],
 	allowCommandFailures = false,
+	evaluatedAt?: number,
 ): void {
 	validateContract(VerificationResultSchema, result);
 	assertIdentity(result, runId, revision);
@@ -112,8 +115,28 @@ function assertVerification(
 			"Verification changed the check contract",
 		);
 		requireEvidence(check.diffDigest === result.diffDigest, "Verification evidence is stale");
+		if (check.kind === "browser") {
+			requireEvidence(
+				expected?.browser !== undefined &&
+					expected.browser.checkId === check.id &&
+					expected.trustRequired === true &&
+					!!expected.trustRegistrationDigest &&
+					expected.sandboxRequired !== true &&
+					!expected.sandboxPolicyDigest &&
+					!expected.repairableExitCodes?.length &&
+					check.exitCode === null &&
+					check.failureKind === undefined &&
+					check.sandbox === undefined,
+				"Browser checks require frozen typed registration and cannot be command or repair evidence",
+			);
+		} else
+			requireEvidence(
+				expected?.browser === undefined && check.browser === undefined,
+				"Command checks cannot contain browser evidence",
+			);
 		const repairFailure =
 			allowCommandFailures &&
+			check.kind !== "browser" &&
 			check.status === "FAIL" &&
 			check.failureKind === "COMMAND_NONZERO" &&
 			check.exitCode !== null &&
@@ -128,7 +151,7 @@ function assertVerification(
 				"Repair requires the original fresh verifier registration",
 			);
 		// Independent Host guard: a strict verifier-trust requirement is never satisfied by exit 0 alone.
-		if (expected?.trustRequired === true && (check.required || allowCommandFailures)) {
+		if (expected?.trustRequired === true && (check.required || allowCommandFailures || check.kind === "browser")) {
 			const trust = check.trust;
 			requireEvidence(
 				(check.status === "PASS" || repairFailure) && trust?.mode === "strict" && trust.status === "VERIFIED",
@@ -157,10 +180,16 @@ function assertVerification(
 			"A required verification check was not performed",
 		);
 		if (check.status === "PASS") {
-			requireEvidence(
-				check.exitCode === 0 && check.evidenceRefs.length > 0,
-				"PASS requires exit code zero and evidence",
-			);
+			if (check.kind === "browser")
+				requireEvidence(
+					validBrowserCheckEvidence(check, expected?.browser, evaluatedAt),
+					"Browser PASS requires fresh independently captured evidence bound to the frozen check",
+				);
+			else
+				requireEvidence(
+					check.exitCode === 0 && check.evidenceRefs.length > 0,
+					"PASS requires exit code zero and evidence",
+				);
 		} else if (!repairFailure) {
 			requireEvidence(check.exitCode === null, "Unexecuted checks cannot have an exit code");
 		}
@@ -255,7 +284,7 @@ export interface CompletionEvidence {
 }
 
 /** Independent guard: a phase label, natural-language success or schema-valid PASS is not sufficient. */
-export function assertCanComplete(evidence: CompletionEvidence): void {
+export function assertCanComplete(evidence: CompletionEvidence, evaluatedAt = Date.now()): void {
 	const { runId, revision, task, checks, handoff, review, selfCheck, finalCheck } = evidence;
 	requireEvidence(isExecutionMode(evidence.executionMode), "Completion requires an explicit execution contract");
 	if (evidence.executionMode === "READ_ONLY")
@@ -320,7 +349,18 @@ export function assertCanComplete(evidence: CompletionEvidence): void {
 		"Handoff has the wrong task or unresolved work",
 	);
 	assertVerification(selfCheck, runId, revision, checks);
-	assertVerification(finalCheck, runId, revision, checks);
+	assertVerification(finalCheck, runId, revision, checks, false, evaluatedAt);
+	for (const check of checks.filter((check) => check.kind === "browser")) {
+		const first = selfCheck.checks.find((result) => result.id === check.id)?.browser;
+		const final = finalCheck.checks.find((result) => result.id === check.id)?.browser;
+		requireEvidence(
+			first !== undefined &&
+				final !== undefined &&
+				first.captureId !== final.captureId &&
+				final.capturedAt >= first.capturedAt,
+			"Final browser verification cannot reuse SELF_CHECK capture",
+		);
+	}
 	requireEvidence(
 		selfCheck.step.stepId === "self-check" &&
 			finalCheck.step.stepId === "test" &&
@@ -437,6 +477,19 @@ export class CompanyKernel {
 		const ids = new Set<string>();
 		for (const check of request.checks ?? []) {
 			validateContract(CheckRequirementSchema, check);
+			if (check.kind === "browser") {
+				if (
+					!check.browser ||
+					check.browser.checkId !== check.id ||
+					check.trustRequired !== true ||
+					!check.trustRegistrationDigest ||
+					check.sandboxRequired === true ||
+					check.sandboxPolicyDigest ||
+					check.repairableExitCodes?.length
+				)
+					throw new Error("Invalid frozen browser check requirement");
+				validateRegisteredBrowserCheck(check.browser);
+			} else if (check.browser) throw new Error("Command requirements cannot contain browser registration");
 			if (ids.has(check.id)) throw new Error("Duplicate check ID");
 			ids.add(check.id);
 		}
@@ -985,6 +1038,7 @@ export class CompanyKernel {
 						failed.every(
 							(check) =>
 								check.status === "FAIL" &&
+								check.kind !== "browser" &&
 								check.failureKind === "COMMAND_NONZERO" &&
 								check.exitCode !== null &&
 								this.checks
@@ -992,7 +1046,7 @@ export class CompanyKernel {
 									?.repairableExitCodes?.includes(check.exitCode),
 						)
 					) {
-						assertVerification(result, this.state.runId, revision, this.checks, true);
+						assertVerification(result, this.state.runId, revision, this.checks, true, this.now());
 						requireEvidence(
 							this.ports.agents.safeToRelease !== false &&
 								this.ports.verifier.safeToRelease !== false &&
@@ -1046,7 +1100,7 @@ export class CompanyKernel {
 						);
 						return this.snapshot;
 					}
-					assertVerification(result, this.state.runId, revision, this.checks);
+					assertVerification(result, this.state.runId, revision, this.checks, false, this.now());
 					if (expectedStep === "self-check") this.selfCheck = result;
 					else this.finalCheck = result;
 					endEvents.push({
@@ -1152,24 +1206,27 @@ export class CompanyKernel {
 							"Workspace changed after final checks; review is stale",
 						);
 					}
-					assertCanComplete({
-						...request,
-						checks: this.checks,
-						workflow: this.state.workflow,
-						risk: this.state.risk,
-						r3Scope: this.state.r3Scope,
-						approvals: this.state.approvals,
-						developerSession: this.developerSession,
-						reviewerSession: this.reviewerSession,
-						quickScope: this.state.quickScope,
-						executorDigest: this.state.executorDigest,
-						taskContractDigest: this.state.taskContractDigest,
-						workspace: this.state.workspace,
-						handoff: this.handoff,
-						review: this.review,
-						selfCheck: this.selfCheck,
-						finalCheck: this.finalCheck,
-					});
+					assertCanComplete(
+						{
+							...request,
+							checks: this.checks,
+							workflow: this.state.workflow,
+							risk: this.state.risk,
+							r3Scope: this.state.r3Scope,
+							approvals: this.state.approvals,
+							developerSession: this.developerSession,
+							reviewerSession: this.reviewerSession,
+							quickScope: this.state.quickScope,
+							executorDigest: this.state.executorDigest,
+							taskContractDigest: this.state.taskContractDigest,
+							workspace: this.state.workspace,
+							handoff: this.handoff,
+							review: this.review,
+							selfCheck: this.selfCheck,
+							finalCheck: this.finalCheck,
+						},
+						this.now(),
+					);
 					if (!this.selfCheck) throw new BlockedError("Completion requires verification evidence");
 					// Projection only: criterion results come from trusted submissions and verifier evidence.
 					const acceptance =

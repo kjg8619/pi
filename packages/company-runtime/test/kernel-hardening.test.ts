@@ -26,7 +26,9 @@ function fixture(quick = false) {
 		changedFiles: ["src/app.ts"],
 		evidenceRefs: ["diff"],
 		checks: request.checks.map((check) => ({
-			...check,
+			id: check.id,
+			kind: check.kind,
+			required: check.required,
 			runId: request.runId,
 			revision: request.revision,
 			step: request.step,

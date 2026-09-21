@@ -10,6 +10,8 @@ import {
 	realpathSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { RegisteredBrowserCheck } from "./browser-types.ts";
 import { isPolicyPath, isProtectedPath } from "./policy.ts";
 
 /**
@@ -53,6 +55,7 @@ export interface VerifierTrustSnapshot {
 	executableDigest: string;
 	executable: VerifierExecutableSnapshot;
 	sources: VerifierSourceSnapshot[];
+	runtimeSources?: { root: string; sources: VerifierSourceSnapshot[] };
 }
 
 /** Bounded public projection stored in CheckResult/Evidence; never raw contents, env or credentials. */
@@ -73,6 +76,7 @@ export interface RegisteredCheckLike {
 	cwd: string;
 	timeout_ms: number;
 	trust?: { files?: readonly string[] };
+	browser?: RegisteredBrowserCheck;
 }
 
 /** Deterministic canonical form: sorted [key, value] pairs, independent of object insertion order. */
@@ -184,6 +188,12 @@ export function resolveDirectVerifierSources(
  */
 export function resolveVerifierTrustSources(cwd: string, check: RegisteredCheckLike): string[] {
 	const paths = resolveDirectVerifierSources(cwd, check.cwd, check.executable, check.args);
+	if (check.browser) {
+		for (const file of BROWSER_IMPLEMENTATION_FILES) {
+			const path = relative(cwd, fileURLToPath(new URL(file, import.meta.url)));
+			if (path && !path.startsWith("..") && !paths.includes(path)) paths.push(path);
+		}
+	}
 	for (const declared of check.trust?.files ?? []) {
 		assertTrustPath(cwd, declared, "declared");
 		if (!paths.includes(declared)) paths.push(declared);
@@ -207,6 +217,23 @@ export function snapshotVerifierSources(cwd: string, paths: readonly string[]): 
 		});
 	}
 	return snapshots;
+}
+
+export const BROWSER_IMPLEMENTATION_FILES = [
+	"browser-driver.ts",
+	"browser-observation.ts",
+	"browser-snapshot.ts",
+	"browser-types.ts",
+	"browser-evidence.ts",
+	"verification.ts",
+	"process-runner.ts",
+	"verifier-trust.ts",
+] as const;
+
+/** Host-owned direct implementation sources, separate from the mutable document under test. */
+export function snapshotBrowserImplementation() {
+	const root = fileURLToPath(new URL("./", import.meta.url));
+	return { root, sources: snapshotVerifierSources(root, BROWSER_IMPLEMENTATION_FILES) };
 }
 
 /** Frozen resolved executable identity; the Run never re-resolves PATH before execution. */
@@ -241,6 +268,7 @@ export function registrationDigestOf(input: {
 	trustMode: VerifierTrustMode;
 	/** The exact filtered environment handed to the check process; hashed canonically, never printed. */
 	environment: Readonly<Record<string, string>>;
+	runtimeSources?: { root: string; sources: readonly VerifierSourceSnapshot[] };
 }): string {
 	return `sha256:${sha256Of(
 		{
@@ -256,6 +284,8 @@ export function registrationDigestOf(input: {
 			configDigest: input.configDigest,
 			trustMode: input.trustMode,
 			sources: input.sources.map((source) => ({ path: source.path, sha256: source.sha256 })),
+			...(input.check.browser ? { browser: input.check.browser } : {}),
+			...(input.runtimeSources ? { runtimeSources: input.runtimeSources } : {}),
 		},
 		VERIFIER_TRUST_DOMAIN,
 	)}`;
@@ -270,6 +300,16 @@ export function validateVerifierTrust(
 		const currentExecutable = snapshotVerifierExecutable(snapshot.executable.path);
 		if (JSON.stringify(currentExecutable) !== JSON.stringify(snapshot.executable))
 			return { ok: false, reason: "Verifier executable changed", status: "STALE" };
+		if (
+			snapshot.runtimeSources &&
+			JSON.stringify(
+				snapshotVerifierSources(
+					snapshot.runtimeSources.root,
+					snapshot.runtimeSources.sources.map((source) => source.path),
+				),
+			) !== JSON.stringify(snapshot.runtimeSources.sources)
+		)
+			return { ok: false, reason: "Browser verifier implementation changed", status: "STALE" };
 		const current = snapshotVerifierSources(
 			cwd,
 			snapshot.sources.map((source) => source.path),

@@ -87,7 +87,7 @@ function requestOf(
 	config: RuntimeConfig,
 	requirements: Array<{
 		id: string;
-		kind: "build" | "custom" | "format" | "lint" | "test" | "typecheck";
+		kind: VerificationRequest["checks"][number]["kind"];
 		required: boolean;
 		trustRequired: boolean;
 		trustRegistrationDigest: string;

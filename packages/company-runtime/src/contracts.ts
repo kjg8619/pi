@@ -1,5 +1,6 @@
 import { type Static, type TSchema, Type } from "typebox";
 import { Check } from "typebox/value";
+import { BrowserVerificationEvidenceSchema, RegisteredBrowserCheckSchema } from "./browser-types.ts";
 import { ExecutionModeSchema } from "./execution-contract.ts";
 import { LspEvidenceSchema } from "./lsp/types.ts";
 import { WorkerMeasurementSchema } from "./measurement-types.ts";
@@ -28,7 +29,8 @@ export type StepId = StepReference["stepId"];
 export const WorkflowSchema = Type.Enum(["QUICK", "STANDARD", "COMPLEX"]);
 export const RiskSchema = Type.Enum(["R0", "R1", "R2", "R3"]);
 export const RoleSchema = Type.Enum(["Executor", "Developer", "Reviewer", "Lead"]);
-export const CheckKindSchema = Type.Enum(["build", "lint", "test", "typecheck", "format", "custom"]);
+export const CommandCheckKindSchema = Type.Enum(["build", "lint", "test", "typecheck", "format", "custom"]);
+export const CheckKindSchema = Type.Union([CommandCheckKindSchema, Type.Literal("browser")]);
 export const ClassificationSchema = Type.Object(
 	{
 		intent: Type.Enum([
@@ -172,6 +174,8 @@ export const CheckResultSchema = Type.Object(
 		trust: Type.Optional(VerifierTrustEvidenceSchema),
 		// Bounded sandbox metadata only: no settings JSON, env, HOME or absolute protected paths.
 		sandbox: Type.Optional(SandboxEvidenceSchema),
+		// Produced only by the independent registered browser executor, never an exploration candidate.
+		browser: Type.Optional(BrowserVerificationEvidenceSchema),
 		/** Positive attribution only; absence is never repair authority. */
 		failureKind: Type.Optional(Type.Literal("COMMAND_NONZERO")),
 	},
@@ -191,6 +195,7 @@ export const CheckRequirementSchema = Type.Object(
 		sandboxRequired: Type.Optional(Type.Boolean()),
 		sandboxPolicyDigest: Type.Optional(Type.String({ pattern: "^sha256:[0-9a-f]{64}$" })),
 		repairableExitCodes: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 255 }), { uniqueItems: true })),
+		browser: Type.Optional(RegisteredBrowserCheckSchema),
 	},
 	strict,
 );

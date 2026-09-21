@@ -145,7 +145,7 @@ export function decisionEntries(run: Run, actions: readonly ObservationAction[])
 	];
 }
 function checkLine(check: CheckResult, index: number): string {
-	return `${index + 1}. ${displayText(check.id)} | ${check.step ? `${check.step.stepId}@${check.step.attempt}` : "step not recorded"} | code revision ${check.revision} | ${check.kind}/${check.required ? "required" : "optional"} | ${check.status} | exit ${check.exitCode ?? "not available"}`;
+	return `${index + 1}. ${displayText(check.id)} | ${check.step ? `${check.step.stepId}@${check.step.attempt}` : "step not recorded"} | code revision ${check.revision} | ${check.kind}/${check.required ? "required" : "optional"} | ${check.status} | ${check.kind === "browser" ? "fresh browser assertion; no command exit status" : `exit ${check.exitCode ?? "not available"}`}`;
 }
 export function formatHistory(state: ObservationState, number = 1): string {
 	const selected = page([...state.runs].reverse(), number);
@@ -171,9 +171,10 @@ export function formatConfiguration(config: RuntimeConfig): string {
 				`${profile}: ${displayText(model.provider)}/${displayText(model.model)}${["fast", "creative"].includes(profile) ? " (not auto-selected)" : ""}`,
 		),
 		`Allowed paths: ${config.files.allowed_paths.map((path) => displayText(path)).join(", ") || "none"}`,
-		...config.verification.checks.map(
-			(check) =>
-				`${displayText(check.id)}: ${check.kind}/${check.required ? "required" : "optional"}; ${displayText(check.executable)} (${check.args.length} args); cwd=${displayText(check.cwd)}; timeout=${check.timeout_ms}ms; repairable normal exits=${check.repairable_exit_codes?.join(", ") || "none"}`,
+		...config.verification.checks.map((check) =>
+			check.kind === "browser"
+				? `${displayText(check.id)}: browser/${check.required ? "required" : "optional"}; ${displayText(check.browser.documentIdentity)}; target=${displayText(check.browser.target.selector)}; assertion=${displayText(JSON.stringify(check.browser.assertion))}; fresh isolated capture; strict trust; no automatic repair; not an OS sandbox`
+				: `${displayText(check.id)}: ${check.kind}/${check.required ? "required" : "optional"}; ${displayText(check.executable)} (${check.args.length} args); cwd=${displayText(check.cwd)}; timeout=${check.timeout_ms}ms; repairable normal exits=${check.repairable_exit_codes?.join(", ") || "none"}`,
 		),
 		"Required checks, project trust and clean Git remain mandatory. No resume, fallback or approval bypass.",
 	].join("\n");
@@ -228,6 +229,15 @@ export function formatRunView(
 			`Reason: ${displayText(check.reason)}`,
 			`Diff: ${displayText(check.diffDigest)}`,
 			`Evidence: ${check.evidenceRefs.map((ref) => displayText(ref)).join(", ")}`,
+			...(check.browser
+				? [
+						`Browser registration: ${displayText(check.browser.registrationDigest)}`,
+						`Document: ${displayText(check.browser.documentIdentity)}; digest: ${displayText(check.browser.documentDigest)}`,
+						`Assertion: ${displayText(JSON.stringify(check.browser.assertion))}; target: ${displayText(JSON.stringify(check.browser.target))}`,
+						`Capture: ${displayText(check.browser.captureId)} at ${timestamp(check.browser.capturedAt)}; ${check.browser.isolation}; cleanup ${check.browser.cleanup}`,
+						"Recorded capture evidence only; not a live page status or an OS sandbox claim.",
+					]
+				: []),
 			`stdout:\n${displayText(check.stdout ?? "[not recorded]", 18000, true)}`,
 			`stderr:\n${displayText(check.stderr ?? "[not recorded]", 18000, true)}`,
 		);

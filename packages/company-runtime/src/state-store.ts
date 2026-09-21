@@ -486,6 +486,7 @@ export class FileStateStore implements StateStore, ActionAudit {
 									check.step?.stepId === "self-check" &&
 									check.step.attempt === attempt.fromStep.attempt &&
 									check.status === "FAIL" &&
+									check.kind !== "browser" &&
 									check.failureKind === "COMMAND_NONZERO" &&
 									check.diffDigest === attempt.diffDigest,
 							),

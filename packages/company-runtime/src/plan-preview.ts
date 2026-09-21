@@ -36,17 +36,23 @@ export function formatPlanPreview(plan: PlanPreview): string {
 				`  ${criterion.id} ${criterion.statement} [checks: ${criterion.verification.checkIds.join(", ") || "none"}; review: ${criterion.verification.reviewRequired ? "required" : "not required"}]`,
 		),
 		`Allowed paths: ${plan.allowedPaths.length ? plan.allowedPaths.join(", ") : "(none configured)"}`,
-		`Planned checks (trusted local programs; may mutate files; ${plan.verifierSandboxMode === "required" ? "verifier OS sandbox required" : "not sandboxed"}):`,
-		...plan.checks.map(
-			(check) =>
-				`  ${check.id} (${check.kind})${check.required ? " required" : " optional"}: ${check.executable} ${check.args.join(" ")}`,
+		`Planned checks (command checks are trusted local programs and may mutate files; ${plan.verifierSandboxMode === "required" ? "command OS sandbox required" : "commands not sandboxed"}):`,
+		...plan.checks.map((check) =>
+			check.kind === "browser"
+				? `  ${check.id} (browser)${check.required ? " required" : " optional"}: ${check.browser.documentIdentity} ${check.browser.target.selector} ${JSON.stringify(check.browser.assertion)}; fresh isolated capture, strict verifier trust, no automatic repair`
+				: `  ${check.id} (${check.kind})${check.required ? " required" : " optional"}: ${check.executable} ${check.args.join(" ")}`,
 		),
 		`Roles: ${plan.workflow === "QUICK" ? "Executor" : "Developer -> independent Reviewer"}`,
 		`Project instruction: ${plan.projectInstructionPath ? `${plan.projectInstructionPath} (configured; frozen prompt context, not readable by workers)` : "none"}`,
 		`LSP: ${plan.lspEnabled ? "enabled (trusted local program, not sandboxed)" : "disabled"}`,
 		`Mutation mode: ${plan.mutationMode}${plan.mutationMode === "strict" ? " (strict freshness/precondition enforcement for existing files; not a permission and not approval)" : ""}`,
-		`Verifier trust: ${plan.verifierTrustMode}${plan.verifierTrustMode === "strict" ? " (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)" : " (not strictly pinned)"}`,
-		`Verifier sandbox: ${plan.verifierSandboxMode === "required" ? "required (network denied; Host-owned fixed policy; not a sandbox for workers and not approval)" : "disabled"}`,
+		`Command verifier trust: ${plan.verifierTrustMode}${plan.verifierTrustMode === "strict" ? " (frozen registration + trusted source integrity pinning; sources are protected from workers; not a sandbox)" : " (not strictly pinned)"}`,
+		`Command verifier sandbox: ${plan.verifierSandboxMode === "required" ? "required (network denied; Host-owned fixed policy; not a sandbox for workers and not approval)" : "disabled"}`,
+		...(plan.checks.some((check) => check.kind === "browser")
+			? [
+					"Browser checks: private HOME/profile/CDP pipe and guarded local-static GET; not an OS sandbox. Historical observations are not verification.",
+				]
+			: []),
 		`Task context pack: ${plan.contextPackMode === "bounded" ? "bounded (Host-selected advisory context; policy-filtered; not permission, approval, evidence or mutation freshness)" : "disabled"}`,
 		`Verification repair: ${plan.verificationRepairMode} (maximum one fresh attempt; STANDARD/EDIT/R1 SELF_CHECK only; original policy and cumulative budget retained)`,
 		...(plan.verificationRepairMode === "self-check-once"

@@ -266,6 +266,7 @@ export class StandardWorkflow {
 						id: requirement.id,
 						kind: requirement.kind,
 						required: requirement.required,
+						...(requirement.browser ? { browser: structuredClone(requirement.browser) } : {}),
 						...(requirement.repairableExitCodes?.length
 							? { repairableExitCodes: requirement.repairableExitCodes }
 							: {}),

@@ -1,10 +1,11 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
-import { dirname, resolve, win32 } from "node:path";
+import { dirname, isAbsolute, resolve, win32 } from "node:path";
 import { type Static, Type } from "typebox";
 import { Check } from "typebox/value";
 import { parseDocument } from "yaml";
-import { CheckKindSchema, WorkflowSchema } from "./contracts.ts";
+import { RegisteredBrowserCheckSchema, validateRegisteredBrowserCheck } from "./browser-types.ts";
+import { CommandCheckKindSchema, WorkflowSchema } from "./contracts.ts";
 import { validateDocumentationConfig } from "./documentation-pack.ts";
 import { DocumentationConfigSchema } from "./documentation-pack-types.ts";
 import { LspConfigSchema, normalizeLspConfig } from "./lsp/config.ts";
@@ -143,25 +144,43 @@ export const RuntimeConfigSchema = Type.Object(
 					),
 					checks: Type.Optional(
 						Type.Array(
-							Type.Object(
-								{
-									id: text,
-									kind: CheckKindSchema,
-									executable: text,
-									args: Type.Array(Type.String()),
-									cwd: Type.Optional(text),
-									timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 3_600_000 })),
-									required: Type.Optional(Type.Boolean()),
-									// Host contract: these normal exits mean a deterministic check failure, not infrastructure.
-									repairable_exit_codes: Type.Optional(
-										Type.Array(Type.Integer({ minimum: 1, maximum: 255 }), { uniqueItems: true }),
-									),
-									trust: Type.Optional(
-										Type.Object({ files: Type.Array(text, { uniqueItems: true, maxItems: 64 }) }, strict),
-									),
-								},
-								strict,
-							),
+							Type.Union([
+								Type.Object(
+									{
+										id: text,
+										kind: CommandCheckKindSchema,
+										executable: text,
+										args: Type.Array(Type.String()),
+										cwd: Type.Optional(text),
+										timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 3_600_000 })),
+										required: Type.Optional(Type.Boolean()),
+										repairable_exit_codes: Type.Optional(
+											Type.Array(Type.Integer({ minimum: 1, maximum: 255 }), { uniqueItems: true }),
+										),
+										trust: Type.Optional(
+											Type.Object({ files: Type.Array(text, { uniqueItems: true, maxItems: 64 }) }, strict),
+										),
+									},
+									strict,
+								),
+								Type.Object(
+									{
+										id: text,
+										kind: Type.Literal("browser"),
+										executable: text,
+										required: Type.Optional(Type.Boolean()),
+										browser: RegisteredBrowserCheckSchema,
+										args: Type.Optional(Type.Array(Type.String(), { maxItems: 0 })),
+										cwd: Type.Optional(Type.Literal(".")),
+										timeout_ms: Type.Optional(Type.Literal(15000)),
+										repairable_exit_codes: Type.Optional(Type.Array(Type.Integer(), { maxItems: 0 })),
+										trust: Type.Optional(
+											Type.Object({ files: Type.Array(Type.String(), { maxItems: 0 }) }, strict),
+										),
+									},
+									strict,
+								),
+							]),
 						),
 					),
 				},
@@ -228,6 +247,20 @@ export function parseRuntimeConfig(source: string) {
 	const checks = (value.verification?.checks ?? []).map((check) => {
 		if (ids.has(check.id)) throw new Error("Duplicate verification check ID");
 		ids.add(check.id);
+		if (check.kind === "browser") {
+			validateRegisteredBrowserCheck(check.browser);
+			if (check.id !== check.browser.checkId || !isAbsolute(check.executable))
+				throw new Error("Browser check identity or executable is invalid");
+			return {
+				...check,
+				args: [] as string[],
+				cwd: ".",
+				timeout_ms: 15000,
+				required: check.required ?? true,
+				trust: { files: [] as string[] },
+				repairable_exit_codes: [] as number[],
+			};
+		}
 		validateRelativePath(check.cwd ?? ".");
 		const trustFiles = check.trust?.files ?? [];
 		for (const file of trustFiles) {

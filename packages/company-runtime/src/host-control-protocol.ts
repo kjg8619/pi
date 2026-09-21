@@ -1,4 +1,11 @@
 import { type Static, Type } from "typebox";
+import type { BrowserCandidateSummary } from "./browser-registry.ts";
+import {
+	BrowserRegistrationRequestSchema,
+	type BrowserVerificationEvidence,
+	type RegisteredBrowserCheck,
+} from "./browser-types.ts";
+import type { CheckResult, StepReference } from "./contracts.ts";
 import type { HostBridgeIdentity, HostSnapshotSummary } from "./host-bridge-protocol.ts";
 
 /** Opt-in control transport. The existing read-only v1 endpoint and its capabilities are unchanged. */
@@ -14,6 +21,9 @@ export const HOST_CONTROL_COMMANDS = [
 	"workflow.confirm",
 	"workflow.cancel",
 	"approval.resolve",
+	"browser.inspect",
+	"browser.prepare",
+	"browser.confirm",
 ] as const;
 const strict = { additionalProperties: false } as const;
 const identifier = Type.String({ minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9._:-]+$" });
@@ -24,6 +34,15 @@ const mutation = { ...envelope, ownerId: identifier, expectedProjectRevision: co
 export const HostControlRequestSchema = Type.Union([
 	Type.Object({ ...envelope, type: Type.Literal("control.hello") }, strict),
 	Type.Object({ ...envelope, type: Type.Literal("control.snapshot") }, strict),
+	Type.Object({ ...mutation, type: Type.Literal("browser.inspect") }, strict),
+	Type.Object(
+		{ ...mutation, type: Type.Literal("browser.prepare"), registration: BrowserRegistrationRequestSchema },
+		strict,
+	),
+	Type.Object(
+		{ ...mutation, type: Type.Literal("browser.confirm"), previewId: identifier, previewDigest: digest },
+		strict,
+	),
 	Type.Object(
 		{
 			...mutation,
@@ -103,6 +122,10 @@ export const HOST_CONTROL_ERROR_CODES = [
 	"RESPONSE_TOO_LARGE",
 	"BUSY",
 	"START_FAILED",
+	"BROWSER_UNAVAILABLE",
+	"CANDIDATE_CHANGED",
+	"INVALID_BROWSER_CHECK",
+	"CHECK_EXISTS",
 ] as const;
 export type HostControlErrorCode = (typeof HOST_CONTROL_ERROR_CODES)[number];
 
@@ -146,6 +169,34 @@ export interface HostControlApproval {
 	/** Fixed Host explanation, never worker text or raw Policy diagnostics. */
 	explanation: string;
 }
+export interface HostBrowserPreview {
+	previewId: string;
+	previewDigest: string;
+	ownerId: string;
+	projectRevision: number;
+	expiresAt: number;
+	candidate: BrowserCandidateSummary;
+	check: RegisteredBrowserCheck;
+	isolation: "PRIVATE_HOME_PROFILE_CDP_PIPE_NOT_OS_SANDBOX";
+}
+export interface HostBrowserState {
+	projectId: string;
+	candidates: BrowserCandidateSummary[];
+	omittedCandidates: number;
+	checks: Array<{ check: RegisteredBrowserCheck; required: boolean }>;
+	omittedChecks: number;
+	/** Only the latest durable Run; absent evidence never falls back to an older passing Run. */
+	evidence: Array<{
+		runId: string;
+		checkId: string;
+		revision: number;
+		step: StepReference | null;
+		status: CheckResult["status"];
+		diffDigest: string;
+		browser: BrowserVerificationEvidence | null;
+	}>;
+	omittedEvidence: number;
+}
 export interface HostControlState {
 	ownerId: string;
 	/** Host-issued monotonic command ID; old IDs never execute again after cache eviction. */
@@ -157,6 +208,7 @@ export interface HostControlState {
 	cancelling: boolean;
 	startFailure: "START_FAILED" | null;
 	preview: HostControlPreview | null;
+	browserPreview: HostBrowserPreview | null;
 	pendingApproval: HostControlApproval | null;
 	snapshot: HostSnapshotSummary;
 }
@@ -177,6 +229,9 @@ export type HostControlData =
 	| { kind: "capabilities"; capabilities: HostControlCapabilities }
 	| { kind: "snapshot"; state: HostControlState }
 	| { kind: "prepared"; preview: HostControlPreview }
+	| { kind: "browser-state"; state: HostBrowserState }
+	| { kind: "browser-prepared"; preview: HostBrowserPreview }
+	| { kind: "browser-registered"; check: RegisteredBrowserCheck }
 	| {
 			kind: "accepted";
 			requestId: string;

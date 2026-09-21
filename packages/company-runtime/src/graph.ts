@@ -1,3 +1,4 @@
+import { validBrowserCheckEvidence } from "./browser-evidence.ts";
 import {
 	type CheckResult,
 	QUICK_STEP_IDS,
@@ -35,7 +36,7 @@ export interface GraphNode {
 	parentId?: string;
 	verdict?: Review["result"];
 	approvalStatus?: NonNullable<Run["approvals"]>[number]["status"];
-	checks?: Array<Pick<CheckResult, "id" | "status" | "required" | "exitCode">>;
+	checks?: Array<Pick<CheckResult, "id" | "kind" | "status" | "required" | "exitCode">>;
 	detail?: string;
 }
 export interface GraphEdge {
@@ -194,8 +195,20 @@ export function projectRunGraph(value: unknown): GraphProjection {
 			"final TEST recorded before another attempt",
 		);
 		requireGraph(
-			check.status !== "PASS" || (check.exitCode === 0 && check.evidenceRefs.length > 0),
-			"PASS check lacks exit/evidence",
+			check.kind === "browser"
+				? check.exitCode === null &&
+						check.failureKind === undefined &&
+						check.sandbox === undefined &&
+						(check.browser === undefined || validBrowserCheckEvidence(check))
+				: check.browser === undefined,
+			"mixed browser and command evidence",
+		);
+		requireGraph(
+			check.status !== "PASS" ||
+				(check.kind === "browser"
+					? validBrowserCheckEvidence(check)
+					: check.exitCode === 0 && check.evidenceRefs.length > 0),
+			"PASS check lacks typed verifier evidence",
 		);
 		const key = `${check.step.stepId}:${check.step.attempt}`;
 		const group = checks.get(key) ?? [];
@@ -222,6 +235,7 @@ export function projectRunGraph(value: unknown): GraphProjection {
 					(check) =>
 						repair.failedCheckIds.includes(check.id) &&
 						check.status === "FAIL" &&
+						check.kind !== "browser" &&
 						check.failureKind === "COMMAND_NONZERO" &&
 						check.diffDigest === repair.diffDigest &&
 						check.evidenceRefs.length > 0 &&
@@ -320,7 +334,15 @@ export function projectRunGraph(value: unknown): GraphProjection {
 				...(role ? { role } : {}),
 				...(step === "review" && review ? { verdict: review.result } : {}),
 				...(results.length
-					? { checks: results.map(({ id, status, required, exitCode }) => ({ id, status, required, exitCode })) }
+					? {
+							checks: results.map(({ id, kind, status, required, exitCode }) => ({
+								id,
+								kind,
+								status,
+								required,
+								exitCode,
+							})),
+						}
 					: {}),
 				...(isCurrent && run.lastError ? { detail: run.lastError } : {}),
 			};
@@ -472,7 +494,7 @@ export function renderGraphText(graph: GraphProjection): string {
 		if (node.detail) lines.push(`  ${text(node.detail)}`);
 		for (const check of node.checks ?? [])
 			lines.push(
-				`  Check ${text(check.id, 200)}: ${check.status}, ${check.required ? "required" : "optional"}, exit ${check.exitCode ?? "none"}`,
+				`  Check ${text(check.id, 200)}: ${check.status}, ${check.required ? "required" : "optional"}, ${check.kind === "browser" ? "browser assertion" : `exit ${check.exitCode ?? "none"}`}`,
 			);
 		for (const edge of graph.edges.filter((edge) => edge.from === node.id))
 			lines.push(

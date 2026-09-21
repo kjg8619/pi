@@ -61,7 +61,9 @@ function verificationResult(request: VerificationRequest): VerificationResult {
 		diffDigest: `diff-${request.revision}`,
 		evidenceRefs: ["diff-proof"],
 		checks: request.checks.map((check) => ({
-			...check,
+			id: check.id,
+			kind: check.kind,
+			required: check.required,
 			runId: request.runId,
 			revision: request.revision,
 			status: "PASS",

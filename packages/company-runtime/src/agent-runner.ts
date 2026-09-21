@@ -461,6 +461,8 @@ export class PiAgentExecutor implements AgentExecutor {
 				request.verificationRepair.failures.some(
 					(failure) =>
 						failure.exitCode === null ||
+						this.options.config.verification.checks.find((check) => check.id === failure.id)?.kind ===
+							"browser" ||
 						!this.options.config.verification.checks
 							.find((check) => check.id === failure.id)
 							?.repairable_exit_codes?.includes(failure.exitCode),

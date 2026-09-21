@@ -1,3 +1,4 @@
+import type { BrowserVerificationEvidence } from "./browser-types.ts";
 import { isCriteriaReview, isTaskContract, type Run } from "./contracts.ts";
 import type { WorkerMeasurement } from "./measurement-types.ts";
 import { displayText } from "./observations.ts";
@@ -76,6 +77,8 @@ export interface EvidencePack {
 	workspace: { diffDigest: string | null; changedFiles: string[]; changedLines: number | null };
 	checks: Array<{
 		id: string;
+		kind: string;
+		browser?: BrowserVerificationEvidence;
 		revision: number;
 		attempt: number | null;
 		diffDigest: string;
@@ -187,6 +190,10 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 		limitations.push("Resource cleanup unconfirmed; do not treat this as a clean completion");
 	if (run.workspace?.changedLines === undefined) limitations.push("Changed line count unknown");
 	if (run.executionMode === undefined) limitations.push("Execution contract not recorded (legacy run)");
+	if (run.verification.some((check) => check.kind === "browser"))
+		limitations.push(
+			"Browser checks cover one local static document at capture time, not visual correctness, a live session, or an OS network sandbox",
+		);
 	const lspChecks = run.verification.flatMap((check) => check.evidenceRefs.filter((ref) => ref.startsWith("lsp:")));
 	return {
 		version: EVIDENCE_PACK_VERSION,
@@ -215,6 +222,8 @@ export function projectEvidencePack(input: EvidencePackInput): EvidencePack {
 		},
 		checks: run.verification.map((check) => ({
 			id: check.id,
+			kind: check.kind,
+			...(check.browser ? { browser: structuredClone(check.browser) } : {}),
 			revision: check.revision,
 			attempt: check.step?.attempt ?? null,
 			diffDigest: check.diffDigest,
@@ -388,18 +397,26 @@ export function formatEvidencePack(pack: EvidencePack): string {
 		);
 	for (const check of pack.checks) {
 		lines.push(
-			`Check ${displayText(check.id)} (${check.step} #${check.attempt ?? "unknown"}, revision ${check.revision}${check.required ? ", required" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
+			`Check ${displayText(check.id)} (${check.step} #${check.attempt ?? "unknown"}, revision ${check.revision}${check.required ? ", required" : ""}${check.kind === "browser" ? ", browser" : ""}): ${check.status}${check.exitCode === null ? "" : ` exit ${check.exitCode}`}`,
 		);
 		lines.push(
 			check.sandbox
 				? `  Verifier sandbox: ${check.sandbox.status} (${check.sandbox.backend} ${check.sandbox.backendVersion}); policy ${check.sandbox.policyDigest.slice(0, 20)}…; network denied`
-				: "  Verifier sandbox: UNKNOWN (disabled or legacy)",
+				: check.kind === "browser"
+					? "  Browser isolation: private HOME/profile/CDP pipe; not an OS sandbox"
+					: "  Verifier sandbox: UNKNOWN (disabled or legacy)",
 		);
 		lines.push(
 			check.trust
 				? `  Verifier trust: ${check.trust.status} (${check.trust.mode}); registration ${check.trust.registrationDigest.slice(0, 20)}…; trusted sources ${check.trust.sources.length}`
 				: "  Verifier trust: UNKNOWN (legacy)",
 		);
+		if (check.browser)
+			lines.push(
+				`  Browser document: ${displayText(check.browser.documentIdentity)}; source ${check.browser.documentDigest}`,
+				`  Assertion: ${check.browser.assertion.type} on ${displayText(check.browser.target.selector)}; registration ${check.browser.registrationDigest}`,
+				`  Fresh capture: ${check.browser.captureId} at ${new Date(check.browser.capturedAt).toISOString()}; evidence ${check.browser.browserEvidenceDigest}; cleanup ${check.browser.cleanup}`,
+			);
 	}
 	lines.push(
 		`LSP advisory evidence: ${pack.lsp ? (pack.lsp.stale ? "present (stale)" : "present") : "none recorded"}`,

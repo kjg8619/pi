@@ -1,18 +1,20 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { lstat, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { Check } from "typebox/value";
-import { BrowserObservationSchema, parseBrowserObservationArguments } from "./browser-observation.ts";
+import { parseBrowserObservationArguments } from "./browser-observation.ts";
 import { JEV_SNAPSHOT_SOURCE } from "./browser-snapshot.ts";
+import { BrowserObservationSchema, BrowserTargetObservationSchema, BrowserTargetSchema } from "./browser-types.ts";
 import { verificationEnvironment } from "./process-runner.ts";
 
 function object(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// Fixed expression only. No candidate/model string becomes JS, CDP, a selector, or an action.
-// This expression exports no raw field values, guards, node handles, or screenshots.
+// Fixed expressions only. Target data is passed as a CDP value, never interpolated into JavaScript.
+// No raw field values, guards, node handles, cookies, storage, or screenshots leave this helper.
 const observationExpression = `(async () => {
 	if (document.readyState !== "complete" ||
 		document.querySelector("script,iframe,frame,canvas,object,embed") ||
@@ -34,8 +36,27 @@ const observationExpression = `(async () => {
 	};
 })()`;
 
+const targetExpression = `function(target) {
+	const matches = Array.from(document.querySelectorAll("[id]")).filter(element => element.id === target.selector.slice(1));
+	if (matches.length > 1) throw new Error("Ambiguous target");
+	if (!matches.length) return {target, exists:false, value:null};
+	const element = matches[0];
+	const forbidden = 'input,textarea,select,option,script,style,noscript,template,[contenteditable],[hidden],[aria-hidden="true"],[inert]';
+	if (element.closest(forbidden) || element.querySelector(forbidden) ||
+		!element.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))
+		throw new Error("Unsupported target");
+	const rect = element.getBoundingClientRect();
+	if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth)
+		throw new Error("Target outside observation viewport");
+	const value = target.attribute ? element.getAttribute(target.attribute) : element.innerText.trim();
+	if (value !== null && value.length > 1024) throw new Error("Target value exceeds bound");
+	return {target, exists:true, value};
+}`;
+
 async function capture(): Promise<void> {
-	if (process.argv.length !== 4) throw new Error("Invalid invocation");
+	if (process.argv.length !== 5) throw new Error("Invalid invocation");
+	const targetInput: unknown = JSON.parse(process.argv[4]);
+	if (targetInput !== null && !Check(BrowserTargetSchema, targetInput)) throw new Error("Invalid target");
 	const request = parseBrowserObservationArguments([
 		"observe",
 		"--executable",
@@ -44,6 +65,13 @@ async function capture(): Promise<void> {
 		process.argv[3],
 		"--local-test-app",
 		"--json",
+		...(targetInput
+			? [
+					"--selector",
+					targetInput.selector,
+					...(targetInput.attribute ? ["--attribute", targetInput.attribute] : []),
+				]
+			: []),
 	]);
 	const directory = process.cwd();
 	const info = await lstat(directory);
@@ -70,6 +98,8 @@ async function capture(): Promise<void> {
 			"--disable-component-update",
 			"--disable-sync",
 			"--disable-extensions",
+			"--dns-prefetch-disable",
+			"--disable-features=Prerender2,SpeculationRulesPrefetch,PreconnectToSearch",
 			"--password-store=basic",
 			"--use-mock-keychain",
 		],
@@ -107,6 +137,9 @@ async function capture(): Promise<void> {
 	let rootFrame: string | undefined;
 	let documentRequests = 0;
 	let deniedRequests = 0;
+	let documentResponseId: string | undefined;
+	let documentBytes = 0;
+	let documentEncodedBytes = 0;
 	let wakeLoad: (() => void) | undefined;
 	const loaded = new Set<string>();
 	const fail = () => {
@@ -180,6 +213,37 @@ async function capture(): Promise<void> {
 							},
 							session,
 						).catch(fail);
+					} else if (message.method === "Page.windowOpen") {
+						throw new Error("Popup denied");
+					} else if (message.method === "Page.frameNavigated" && object(params.frame)) {
+						if (params.frame.parentId || (params.frame.url !== request.url && params.frame.url !== "about:blank"))
+							throw new Error("Unexpected navigation");
+					} else if (message.method === "Network.responseReceived" && params.type === "Document") {
+						if (
+							params.frameId !== rootFrame ||
+							!object(params.response) ||
+							params.response.url !== request.url ||
+							params.response.status !== 200 ||
+							!["text/html", "text/plain"].includes(String(params.response.mimeType)) ||
+							typeof params.requestId !== "string" ||
+							documentResponseId !== undefined
+						)
+							throw new Error("Unsupported document response");
+						documentResponseId = params.requestId;
+					} else if (message.method === "Network.dataReceived") {
+						if (
+							params.requestId !== documentResponseId ||
+							typeof params.dataLength !== "number" ||
+							!Number.isSafeInteger(params.dataLength) ||
+							params.dataLength < 0 ||
+							typeof params.encodedDataLength !== "number" ||
+							!Number.isSafeInteger(params.encodedDataLength) ||
+							params.encodedDataLength < 0
+						)
+							throw new Error("Invalid document byte accounting");
+						documentBytes += params.dataLength;
+						documentEncodedBytes += params.encodedDataLength;
+						if (documentBytes > 262144 || documentEncodedBytes > 262144) throw new Error("Document too large");
 					} else if (
 						message.method === "Page.lifecycleEvent" &&
 						params.name === "load" &&
@@ -219,6 +283,8 @@ async function capture(): Promise<void> {
 		await call("Page.enable", {}, session);
 		await call("Page.setLifecycleEventsEnabled", { enabled: true }, session);
 		await call("Network.enable", {}, session);
+		await call("Network.setBypassServiceWorker", { bypass: true }, session);
+		await call("Network.setCacheDisabled", { cacheDisabled: true }, session);
 		await call(
 			"Emulation.setDeviceMetricsOverride",
 			{ width: 1280, height: 720, deviceScaleFactor: 1, mobile: false },
@@ -231,14 +297,22 @@ async function capture(): Promise<void> {
 		rootFrame = tree.frameTree.frame.id;
 		await call("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, session);
 		const navigation = await call("Page.navigate", { url: request.url }, session);
-		if (navigation.errorText || typeof navigation.loaderId !== "string") throw new Error("Navigation denied");
+		if (navigation.errorText || navigation.isDownload || typeof navigation.loaderId !== "string")
+			throw new Error("Navigation denied");
 		while (!loaded.has(navigation.loaderId)) {
 			if (failure) throw failure;
 			await new Promise<void>((resolve) => {
 				wakeLoad = resolve;
 			});
 		}
-		if (failure || deniedRequests || documentRequests !== 1) throw new Error("Request policy denied");
+		if (failure || deniedRequests || documentRequests !== 1 || !documentResponseId)
+			throw new Error("Request policy denied");
+		const responseBody = await call("Network.getResponseBody", { requestId: documentResponseId }, session);
+		if (typeof responseBody.body !== "string" || typeof responseBody.base64Encoded !== "boolean")
+			throw new Error("Missing document body");
+		const body = Buffer.from(responseBody.body, responseBody.base64Encoded ? "base64" : "utf8");
+		if (body.length > 262144) throw new Error("Document too large");
+		const documentDigest = `sha256:${createHash("sha256").update(body).digest("hex")}`;
 		// Page JavaScript cannot see closed declarative shadow roots. Inspect their CDP metadata
 		// before accepting a partial light-DOM observation. Native control internals remain allowed.
 		const document = await call("DOM.getDocument", { depth: -1, pierce: true }, session);
@@ -283,6 +357,25 @@ async function capture(): Promise<void> {
 				!Check(BrowserObservationSchema, evaluated.result.value)
 			)
 				throw new Error("Invalid observation");
+			if (request.target) {
+				const targeted = await call(
+					"Runtime.callFunctionOn",
+					{
+						functionDeclaration: targetExpression,
+						executionContextId: world.executionContextId,
+						arguments: [{ value: request.target }],
+						returnByValue: true,
+					},
+					session,
+				);
+				if (
+					targeted.exceptionDetails ||
+					!object(targeted.result) ||
+					!Check(BrowserTargetObservationSchema, targeted.result.value)
+				)
+					throw new Error("Invalid target observation");
+				evaluated.result.value.target = targeted.result.value;
+			}
 			observations.push(evaluated.result.value);
 		}
 		if (failure || deniedRequests || JSON.stringify(observations[0]) !== JSON.stringify(observations[1]))
@@ -293,6 +386,7 @@ async function capture(): Promise<void> {
 			startedAt,
 			finishedAt: Date.now(),
 			browserVersion: version.product,
+			documentDigest,
 		};
 		closing = true;
 		// Closing the owned browser may close the pipe before its reply. Parent supervision still

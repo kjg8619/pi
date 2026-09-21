@@ -603,6 +603,9 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 | `workflow.confirm` | 현재 preview의 명시적 사용자 확인을 전달하고 기존 Workflow 실행 시작 |
 | `workflow.cancel` | 이미 존재하는 owned Run에 취소 요청; terminal/cleanup 확인은 별도 |
 | `approval.resolve` | 현재 exact pending R3 request의 approve/reject 응답; grant/소비는 Runtime 소유 |
+| `browser.inspect` | 저장된 bounded candidate·등록 browser check·최신 Run의 browser evidence 조회 |
+| `browser.prepare` | candidate digest와 Host가 검토한 expectation을 Runtime 등록 preview로 고정; 모델 호출 없음 |
+| `browser.confirm` | exact preview의 명시적 확인 후 기존 project config에 browser check 등록; 실행/PASS 아님 |
 
 - **입력은 data뿐이다.** classification·execution mode·scope·checks·frozen Task Contract·revision, approval grant/consumption·Policy·PASS·COMPLETE는 Runtime/Kernel이 소유한다. T3가 임의 계약 필드나 도구/셸 명령을 실행 인수로 지정하지 않는다. confirmation 뒤 계약을 UI에서 변경하지 않는다.
 - owner UUID + **Runtime-issued 단조 증가 request ID** + 최대 **64개 payload-bound receipt**를 사용한다. 다른 payload로 같은 ID를 재사용하거나 같은 epoch에서 이미 evicted된 ID를 replay해 새 실행을 만들 수 없다. 이 bounded receipt는 durable replay log나 재시작 recovery가 아니다.
@@ -624,30 +627,69 @@ readiness는 project config validation이나 Provider readiness가 아니라 **�
 
 ## V0.6C C08 — 로컬 browser observation candidate
 
-첫 read-only slice는 Host가 검토한 **로컬 정적 테스트 문서**를 새 Chromium profile에서 읽는 standalone CLI다. Jev Agent/모델/행동 loop를 실행하지 않으며 Runtime Run·등록 check·T3 control을 만들지 않는다. **C08 전체는 OPEN**이다. 고정 source와 채택 판단은 [C08 후속 조사](../../docs/WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md#10-c08-후속-연구와-첫-read-only-slice-2026-09-21)를 따른다.
+Host가 검토한 **로컬 정적 테스트 문서**를 새 Chromium profile에서 관찰하고, 명시적 Host review/confirmation을 거쳐 기존 independent Verifier에 등록한다. Jev Agent/모델/행동 loop는 실행하지 않는다. Candidate·등록·fresh capture·CheckResult·Kernel completion은 별도 단계다. Pinned Jev source와 초기 slice의 역사적 근거는 [C08 조사](../../docs/WEAVRA_AGENT_LANDSCAPE_AND_ADOPTION_2026-09-18.md#10-c08-후속-연구와-첫-read-only-slice-2026-09-21), 현재 검증·게시 상태는 [WORK_LOG](../../docs/WORK_LOG.md)를 따른다.
 
 ```sh
+# 등록할 프로젝트 루트에서 실행. 대상 서버는 Host가 별도로 시작하고 소유한다.
 weavra browser observe \
   --url http://127.0.0.1:3000/reviewed-static-fixture \
   --executable /absolute/path/to/chromium \
-  --local-test-app --json
+  --selector '#status' \
+  --local-test-app --json --save-candidate
 ```
 
-- Host가 직접 준비한 Chromium 절대경로와 `--local-test-app`, `--json`이 필수다. URL은 canonical 길이 2,048 이하의 `http://127.0.0.1:<1024 이상 port>/path`만 허용하고 userinfo/query/fragment·DNS hostname·다른 scheme은 거부한다. Chromium 자동 설치·PATH 탐색·기존 profile/CDP/daemon 연결은 없다. `browser`를 Pi의 literal prompt로 쓰려면 `weavra -- browser`를 사용한다.
-- `--local-test-app`는 **Host의 범위 확인**이지 안전성 증명이나 Kernel 승인 토큰이 아니다. 해당 GET이 side effect 없는 정적 테스트 문서를 반환하는지 검토해야 한다. 개인 계정·비밀·운영 서비스·운영 proxy를 연결하지 않는다. Loopback 주소만으로 서버의 내부 동작을 증명하지 않는다.
-- 매 호출마다 private profile/HOME과 CDP pipes를 만들고, owned target의 최초 정확한 document GET 하나만 허용한다. redirect·추가 요청은 차단하고 candidate를 반환하지 않는다. 페이지 JavaScript는 navigation 전에 끄며 click/type/select/submit/scroll·임의 JS/CDP·download 실행 옵션은 없다. Browser 생성·navigation·내부 cache·profile 정리는 명시적인 setup/teardown 효과다.
-- 고정된 Jev DOM reader를 isolated world에서 두 번 실행한다. Script/frame/canvas/object/embed 및 application shadow root(open/closed)는 미지원으로 거부한다. Native control의 user-agent shadow 내부는 허용한다. CDP 구조 조회는 private helper 안에서만 처리하고 raw DOM/field values/guards/screenshots를 candidate에 싣지 않는다.
-- 결과는 `schemaVersion: 1`, `kind: BROWSER_OBSERVATION_CANDIDATE`, `authority: CANDIDATE_ONLY`다. Reader revision/digest, 보고된 browser version, capture ID/시각, bounded observation과 digest를 포함한다. Title/label은 각각 최대 256 UTF-16 units, text는 6,000, control 후보는 64개이며 알려진 생략 수를 표시한다. `elements.kind`와 ID는 관찰 데이터이지 실행 요청/권한이 아니다. 출력의 text/label 자체에 비밀이 있을 수 있으므로 완전한 redaction을 주장하지 않는다.
-- 두 관찰의 일치는 **해당 capture의 제한된 projection에 대한 비교**다. 전체 DOM/시각적 의미·미래 상태·다른 session의 freshness를 증명하지 않는다. Timestamp와 digest는 서명·승인·독립 oracle이 아니며 저장된 candidate를 현재 상태로 재사용하지 않는다.
-- 기존 `runProcess`와 filtered environment를 재사용한다. 실행 timeout 15초, helper output 합계 512 KiB, CDP receive buffer 1 MiB이며 추가 cleanup 시간이 있을 수 있다. Cleanup 확인 전에는 candidate를 반환하지 않고, cleanup 미확인 시 profile을 보존하고 실패한다. 원래 POSIX process group을 벗어난 daemon, hard memory cap, browser 전체 OS/network sandbox는 보장하지 않는다. 기존 required verifier의 network deny-all 정책은 그대로다.
+### 관찰과 candidate 저장
 
-### Host review와 독립 검증의 경계
+- Chromium 절대경로와 `--local-test-app`, `--json`은 필수다. URL은 canonical 길이 2,048 이하의 `http://127.0.0.1:<1024 이상 port>/path`만 허용하고 userinfo/query/fragment·DNS hostname·다른 scheme을 거부한다. 자동 설치·PATH 탐색·개인 profile/CDP/daemon 연결은 없다.
+- `--local-test-app`는 Host의 범위 확인이지 서버 안전성 증명이나 Kernel approval이 아니다. GET이 side effect 없는 정적 문서를 반환하는지 Host가 검토해야 한다. Loopback 주소만으로 서버 내부 I/O·운영 proxy를 통제하지 않는다.
+- `--selector`는 단일 ASCII `#ID`만 허용한다. 중복 ID, 숨은/화면 밖 요소, form/editable/script/미지원 DOM을 판정 대상으로 수락하지 않는다. `--attribute`는 `role`, `title`, `aria-label`, `aria-disabled`, `aria-checked`, `aria-expanded`, `aria-selected`만 허용한다. 값은 최대 1,024 UTF-16 units이며 text는 고정 reader의 `innerText.trim()` 의미다.
+- 기본은 stdout만 반환한다. `--save-candidate`는 target이 있어야 하며 `.ai/browser-candidates/<UUID>.json`에 명시적으로 저장한다. 디렉터리 0700·파일 0600, regular/no-follow/single-link·owner/identity 검사를 사용한다. 최대 64개, 파일당 256 KiB이며 자동 삭제/GC는 없다. `.gitignore`는 Host가 관리하며 Runtime이 수정하지 않는다.
+- DTO는 **schemaVersion 2 / BROWSER_OBSERVATION_CANDIDATE / CANDIDATE_ONLY**다. project identity, origin/document, candidate ID/digest, capture time/document revision, observation type/target/value, reader revision/digest, implementation snapshot/executable identity digest·browser version, observation digest·cleanup을 포함한다. Version 1 compatibility converter는 없다.
+- 일반 관찰은 title/label 각 256, text 6,000, controls 64개와 생략 수로 제한한다. T3에는 전체 text 대신 typed target observation과 bounded provenance만 보낸다. Cookie/storage/auth header/password/token 전용 필드·raw DOM·hidden session data·screenshot·임의 JS 결과는 DTO에 없다. **Visible text/allowlisted attribute 자체의 비밀까지 자동 판별/redact하지는 않는다.** 비밀 없는 fixture만 사용한다.
 
-Candidate → Host의 목표/관찰 가능한 AC/실제 oracle 검토 → **새 Run**의 기존 `verification.checks` 등록과 Task Contract freeze → fresh 독립 Verifier/필요한 Reviewer → 기존 Kernel completion guard 순서가 필요하다. Candidate에서 executable check를 자동 생성·등록하거나 기존 Run/check/acceptance를 수정하지 않는다. Snapshot JSON이나 Jev `DONE`을 PASS로 감싸는 것은 독립 검증이 아니다.
+### 명시적 Host 등록과 T3
 
-현재 slice는 **live browser verifier/등록 자동화/행동 정책을 제공하지 않는다**. 향후 browser evidence에는 authorized run/attempt·fixture/build·origin·browser/target·collection 시점의 binding과 fresh 독립 수집이 필요하다. Workspace digest만으로 browser/server 상태의 최신성을 대신할 수 없으며, 이 기능을 위해 required sandbox의 deny-all을 완화하지 않는다. R3 파일 삭제 승인도 browser 행동 승인으로 재사용하지 않는다.
+```text
+새 탐색 capture → CANDIDATE_ONLY
+  → Host expectation 편집 → Runtime preview → 명시적 확인
+  → 기존 verification.checks에 kind: browser 등록
+  → 새 Run에서 definition/trust freeze
+  → SELF_CHECK의 새 capture → 독립 Reviewer → TEST의 또 다른 capture
+  → 기존 CheckResult / Evidence Pack / Kernel guard
+```
 
-실제 macOS arm64 / HeadlessChrome `152.0.7977.42`에서 CLI의 새 문서 관찰, 숨은 값 비노출, 추가 요청/redirect/script/frame/closed shadow 거부, 실행 중 취소·private profile 정리와 `VerificationResultSchema` 비수락을 확인했다. Node `24.19.0`의 전체 browser smoke와 Node `26.7.0`의 64-control/6,000-unit escaped projection을 구분해 기록한다. Linux/Windows browser actual, Jev 모델/행동 loop와 독립 browser verifier는 미검증/미지원이다.
+- 기존 opt-in T3 control (`T3_WEAVRA_CONTROL=1`)의 **Project Settings → Workflow control → Browser checks**를 사용한다. `Refresh browser evidence` → candidate 선택 → check name/지원 assertion/expected value 검토·편집 → `Prepare browser registration` → Runtime digest/expectation 확인 → 별도 confirmation dialog 순서다. 관찰값을 자동 oracle로 승인하지 않으며 한 번의 클릭으로 등록하지 않는다.
+- Runtime의 `browser.prepare` 입력은 candidate ID/expected digest·Host check name·origin/document/target·assertion·freshness뿐이다. executable·등록 digest·PASS/Run/approval 필드는 받지 않는다. `browser.confirm`은 Runtime-issued preview ID/digest와 기존 owner/request/project-revision envelope만 받는다. T3는 digest/authoritative identity를 만들지 않는다.
+- 등록은 idle project/writer lease 아래 candidate·source executable·config·root identity·revision·preview expiry를 다시 확인한 뒤 기존 `.ai/config.yaml`에 원자적으로 추가한다. active Run, stale/변조 candidate, 다른 origin/target, duplicate check ID는 거부한다. 같은 check ID는 동일 정의라도 덮어쓰지 않는다. 동일 request receipt 재조회와 새 등록 요청은 구분한다.
+- Check definition은 version/check ID/project/origin/document/target/assertion/expected/freshness의 canonical SHA-256 digest로 고정한다. Worker 도구는 `.ai` 설정을 수정하거나 check를 등록할 권한이 없다. 등록 ACK는 capture·PASS·workflow 시작이 아니다.
+- Control command tuple은 C08에서 **9개**로 함께 전환했다. `workflow-control-v1`의 새 strict schema를 Pi/T3 양쪽에 배포해야 하며 이전 6-command peer로 fallback하지 않는다. 기존 true read-only bridge 계약과 RPC scope는 그대로다.
+- T3 inspection은 candidate/check/최신 Run evidence 각각 최대 2개와 omitted count를 표시한다. 수동 refresh의 기록이지 live page status가 아니다. 최신 Run의 absent/UNAVAILABLE을 과거 Run PASS로 대체하지 않는다. Dialog 대기 후 owner/sequence/project/preview/edited draft를 재확인하고, 최종 TTL·등록 판단은 Runtime이 집행한다.
+
+### 지원 assertion과 fresh independent Verifier
+
+| Assertion | 판정 |
+|---|---|
+| `text_equals` | 존재하는 bounded target text와 expected의 정확한 일치 |
+| `text_contains` | 존재하는 target text가 **비어 있지 않은** expected를 포함 |
+| `element_exists` | 지원 target이 존재 |
+| `element_not_exists` | target이 부재; 숨은/미지원 요소를 부재로 위장하지 않음 |
+| `attribute_equals` | 선택한 allowlisted attribute와 expected의 정확한 일치 |
+
+- `RegisteredVerifier`는 candidate 파일을 읽지 않는다. 등록 후 candidate를 삭제해도 매 SELF_CHECK/TEST에서 **새 HOME/profile/Chromium/CDP pipe**로 수집한다. historical Ready가 있어도 fresh Broken은 FAIL이며 unavailable/cancel/cleanup 실패를 PASS로 감싸지 않는다.
+- Browser check는 global compatible 설정과 무관하게 **strict trust**다. Run 시작 시 definition, Host helper source bytes/generations, Chromium executable filesystem identity를 freeze하고 실행 전/후/최종 정산에 검사한다. Digest는 인증 서명이나 Chromium 전체 배포물의 content hash가 아니다.
+- 기존 Policy/action audit, workspace diff, frozen check requirements, Run/revision/step/attempt와 Evidence Pack을 재사용한다. Browser PASS는 command `exit 0`이 아니라 typed assertion evidence이고 exitCode는 null이다. Browser evidence digest는 Run/check/revision/step/attempt/diff와 capture metadata를 결합한다.
+- Freshness는 `NEW_ISOLATED_CAPTURE`, `maxAgeMs` 1..15,000이다. 검증 정산·해당 live Kernel guard에서 시각을 검사하고 COMPLETE에서는 최종 TEST evidence를 재검사한다. SELF_CHECK/TEST capture ID 재사용도 거부한다. 긴 command check 뒤 browser check를 배치하는 것이 필요할 수 있으며 시간을 넘긴 과거 PASS를 구제하지 않는다.
+- Document digest는 bounded decoded HTTP response body의 SHA-256이다. 전체 시각 상태·server build identity·외부 backend 상태·미래 freshness의 증명이 아니다. 저장 evidence에는 registration/implementation/executable identity/browser version·document/observation digest·capture time/isolation/cleanup/result가 포함되지만 raw DOM/screenshot은 없다.
+- Browser FAIL은 **automatic verification repair 대상이 아니다**. `self-check-once` 설정에서도 새 Developer repair를 예약하지 않는다. 향후 browser repair는 별도 계약이 필요하며 이 기능은 command repair의 범위를 넓히지 않는다. Browser PASS라도 다른 required check FAIL 또는 필수 독립 Reviewer 실패가 있으면 완료할 수 없다.
+
+### 네트워크·취소·한계
+
+- 최초 정확한 document GET 하나만 허용한다. Redirect·추가 요청·새 origin/frame/popup/download를 거부하고 service worker/cache를 우회·비활성화한다. Page JavaScript는 navigation 전에 끄며 fixed reader만 isolated world에서 실행한다. Script/frame/canvas/object/embed/application open·closed shadow는 거부한다.
+- 문서 decoded/encoded transfer는 각각 256 KiB, helper output 합계 512 KiB, CDP receive buffer 1 MiB, 실행 timeout 15초다. `Network.dataReceived` 누적 한도와 완료 후 body 한도를 함께 확인한다. 이는 수신 overflow 관측 후 중단이며 Chromium의 hard pre-render memory cap이 아니다.
+- 기존 filtered env/process-group runner를 사용한다. Owned process cleanup과 private directory 삭제를 확인한 뒤에만 candidate/evidence를 반환한다. Cancel/실패에 stale PASS를 반환하지 않으며 cleanup 불확실 시 성공/후속 실행·writer 해제를 막는다. 외부 filesystem TOCTOU와 원래 group을 탈출한 daemon을 완전히 통제하지는 않는다.
+- Private HOME/profile/CDP-pipe 격리는 **browser 전체 OS/network sandbox가 아니다**. 기존 command verifier의 required sandbox·deny-all network는 변경하지 않았다. Browser check는 별도 local-document 경계를 명시하며 sandbox ENFORCED 증거를 위조하지 않는다.
+- Click/type/submit/login/upload/download/drag-drop, multi-step browser agent, 임의 navigation/JS/eval/CDP, remote crawling/payment, 개인 인증/profile attach는 미지원이다. Linux/Windows browser actual과 paid Provider 품질을 macOS Chromium/faux SDK proof에서 추론하지 않는다.
+
 
 ## 설정 schema 1
 
@@ -901,7 +943,7 @@ S3의 단일 역할 검증에 이어 S4는 아래 전체 순차 흐름을 연결
 - 시작 후 HEAD/index 변경은 보수적으로 unsafe로 차단한다. 보호 파일·binary 변경도 성공 대상으로 허용하지 않는다. Reviewer PASS와 SELF_CHECK/TEST 증거는 같은 digest에 묶인다. TEST 중 변경이나 COMPLETE 직전 변경은 BLOCKED이며 과거 PASS를 재사용하지 않는다.
 - 증거 한도: 5,000개 파일, 파일당 2 MiB, 합계 32 MiB, diff 240,000 bytes, 허용 root 탐색 10,000개. submodule·symlink·hardlink·special file·비표준 Git 경로는 초기 Slice에서 거부한다. 수집 불가는 성공이 아니라 불완전 수집으로 보고한다.
 
-### 등록 check 실행
+### 등록 command check 실행
 
 - immutable executable/argv/cwd/timeout/env tuple이 등록과 정확히 같아야 한다. Verifier 전용 PolicyDecision → intent 저장 → cwd/lock/취소 재확인 → `spawn(shell:false)` → 실제 종료 결과 저장 순서다. Worker에 process tool을 제공하지 않는다.
 - shell·일반 실행 wrapper·inline eval/print switch를 차단한다. Worker가 요청한 check ID는 여전히 미실행 요청이며, 실제 checks는 Kernel의 SELF_CHECK/TEST에서만 실행한다. 명시적으로 등록된 workspace script/program은 worker 보호 경로에 추가한다.

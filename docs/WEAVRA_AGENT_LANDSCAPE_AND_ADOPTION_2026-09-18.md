@@ -468,3 +468,28 @@ macOS arm64의 HeadlessChrome `152.0.7977.42`, Node `24.19.0`에서 실제 CLI�
 Node `26.7.0`에서는 64 control/6,000 text-unit의 escaped projection(출력 138,545 bytes)도 확인했다. 초기 JSON output bound 오거부와 closed-shadow 미탐지를 실제 Chromium으로 재현 후 수정했고, canonical Unicode URL 길이 회귀는 FAIL→PASS로 남겼다. Chromium bundle을 일반 CI dependency로 추가하지 않았으므로 DOM/cleanup actual proof와 deterministic admission tests를 구분한다.
 
 **첫 read-only 수집은 구현·actual 검증했다. C08 전체는 OPEN이다.** Jev 모델/행동 loop, action policy/최종 입력 검사, live browser 독립 Verifier·자동 registration, T3 browser control, 다른 browser/OS 조합은 완료로 주장하지 않는다. 최신 전체 회귀·게시·exact CI는 WORK_LOG 후속 기록을 따른다.
+
+## 11. C08 Host 등록과 fresh 독립 검증 (2026-09-21)
+
+§10은 첫 read-only slice 당시의 조사·한계 기록으로 보존한다. 이 후속 작업은 **관찰 후보 → 사람이 검토한 기대값 → 기존 Runtime check → 매번 새 browser evidence**를 연결한다. 현재 bounded 구현·전체 로컬 proof를 완료했고 정상 source/docs 게시·exact CI 전이므로 전체 closure는 OPEN이다(LOG-119~120).
+
+### 채택한 계약과 권한 경계
+
+- Candidate v2에는 project/origin/document URL·safe exact-ID target·bounded observed value, capture/document revision, pinned reader/helper/executable identity, observation/candidate digests와 `CANDIDATE_ONLY`를 둔다. 로컬 private 저장은 명시적 `--save-candidate`만 허용한다. Candidate는 check/result/AC 권한이 없으며 historical 관찰을 현재 사실로 승격하지 않는다.
+- Host는 T3 Project Settings에서 candidate metadata를 읽고 기대값을 직접 수정한다. Runtime이 closed request를 검증하고 project revision·owner·candidate/config identity·expiry에 묶인 preview를 발행한다. 명시적 modal 확인 후에만 기존 `config.verification.checks`에 immutable registration digest가 있는 browser check를 등록한다. 등록은 workflow 시작·PASS·COMPLETE가 아니다. T3는 digest/identity/result를 만들지 않는다.
+- Assertion은 `text_equals`, `text_contains`, `element_exists`, `element_not_exists`, allowlisted `attribute_equals` 다섯 가지다. Executable/argv/임의 JS/URL 확장/cookie/storage는 등록 요청에 들어가지 않는다. Browser failure는 현재 bounded command repair의 eligible failure가 아니며 미래 repair contract 없이는 자동 복구하지 않는다.
+- 기존 RegisteredVerifier에서 registered browser type을 판정한다. 매번 새 HOME/profile/Chromium/CDP pipe를 만들고 frozen definition·helper source bytes/generation·실행 파일 identity를 실행 전후 확인한다. Browser check는 global compatible mode에서도 strict이며 command exit 0과 별도 typed evidence로 판정한다. Helper/executable identity와 canonical hash는 동적 라이브러리 전체 attestation이나 서명이 아니다.
+- Evidence는 registration/project/document/target/assertion/freshness, capture ID/시각/document digest, source/browser identity, isolation/cleanup/result를 기존 Run/revision/step/attempt/diff와 함께 bind한다. Kernel은 live freshness·서로 다른 SELF_CHECK/TEST capture ID·required check completeness·독립 Reviewer·기존 Task Contract/trust guards를 검사한다. Browser/LLM 결과 하나만으로 COMPLETE하지 않는다.
+
+### 검증한 구체적 trace
+
+1. 실제 Chromium에서 Ready를 candidate로 저장하고 Host가 등록한 뒤 fresh Ready는 PASS였다. Candidate를 보존한 채 동일 URL 문서를 Broken으로 바꾸면 새 검증은 FAIL이었다. 별도의 captured candidate를 verifier input으로 주입하는 경로는 없다.
+2. 실제 SDK harness/faux provider·실제 AgentSession·Chromium에서 Developer edit → SELF_CHECK PASS → 별도 Reviewer PASS → 새 TEST PASS → durable COMPLETED를 확인했다. Reviewer 뒤 workspace를 건드리지 않고 서버 문서만 Broken으로 바꾼 대조 실행은 TEST FAIL → durable BLOCKED였다. 각 실행은 capture 3회·서로 다른 verifier capture 2개·별도 Developer/Reviewer session·repair 0을 확인했다. 유료 모델 품질 검증으로 확대하지 않는다.
+3. 실제 production T3/실제 Pi launcher control에서 observed Ready를 `Reviewed Ready v2`로 수정했다. Prepare/decline 후 config check 수는 0, draft 수정은 이전 confirm을 비활성화했다. 명시적 Confirm 뒤 check 1개와 같은 edited expectation/digest를 Runtime config에서 읽었고 UI는 `REGISTERED, NOT VERIFIED`, Run/evidence 없음으로 표시했다. 두 번째 preview decline은 추가 등록하지 않았다.
+4. 실제 subresource·redirect는 UNAVAILABLE이고 금지된 요청의 서버 도달은 0이었다. 실제 취소는 cleanup 뒤 AbortError이며 owned profile 잔존 0을 확인했다. Streaming overflow는 load 완료를 기다리는 이전 실패를 재현하고 decoded/encoded 누적 byte 제한으로 고쳤다. 새 deterministic suite 40 PASS와 실제 Chromium proof는 별개다.
+
+### 현재 검증과 한계
+
+Pi 전체 isolated `test.sh`와 check/check:ci/lock/shell/diff gates를 통과했다. Runtime은 56 files/1,487 PASS, coding-agent는 282 files/2,776 PASS/50 skipped, evals는 9 files/53 PASS다. T3 전체 직렬 14 workspace는 1,270 files/17,284 PASS/58 skipped, typecheck/lint/fmt/knip/build는 exit 0이다. T3의 기존 무관한 suggestions/warnings는 보존했다. Actual UI에서 발견한 긴 digest overflow는 기존 dialog의 `wrap-anywhere` convention을 description에도 적용한 뒤 재빌드·실제 화면/width로 수정 확인했다. 게시 SHA/정확한 CI 판정은 WORK_LOG 후속 기록을 따른다.
+
+범위는 명시적으로 승인한 `http://127.0.0.1:<port>/...` 정적 문서 하나다. Redirect·subresource·frame·download·page script·unsupported DOM을 fail-closed 처리하며 15초/256 KiB document/512 KiB output/CDP frame bound를 둔다. 이것은 browser 전체 OS sandbox·hard pre-render memory cap·동일-user 외부 filesystem race의 완전 해소가 아니다. Personal profile/account/session, forms/actions/final-input policy, 원격 navigation/crawling, 다른 OS/browser actual은 미지원/미검증이다. C06 CLOSED·원본 actual/historical/faux records·stable tag는 그대로 유지하며 추가 paid Provider 추론은 실행하지 않았다.

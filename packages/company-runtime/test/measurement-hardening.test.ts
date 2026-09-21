@@ -84,7 +84,9 @@ async function fixture(
 				evidenceRefs: ["diff:digest"],
 				changedFiles: ["src/app.ts"],
 				checks: input.checks.map((check) => ({
-					...check,
+					id: check.id,
+					kind: check.kind,
+					required: check.required,
 					runId: input.runId,
 					revision: input.revision,
 					status: "PASS" as const,

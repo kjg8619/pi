@@ -3,6 +3,15 @@ import { lstat, realpath } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Check } from "typebox/value";
 import runtimePackage from "../package.json" with { type: "json" };
+import { validBrowserCheckEvidence } from "./browser-evidence.ts";
+import {
+	BrowserRegistrationError,
+	commitBrowserRegistration,
+	listBrowserCandidates,
+	type PreparedBrowserRegistration,
+	prepareBrowserRegistration,
+} from "./browser-registry.ts";
+import { browserDigest, browserProjectId } from "./browser-types.ts";
 import { loadRuntimeConfig } from "./config.ts";
 import type { ApprovalDecision, ApprovalRequest, Run } from "./contracts.ts";
 import { taskContractDigest } from "./criterion-evidence.ts";
@@ -21,6 +30,8 @@ import {
 	HOST_CONTROL_MAX_RESPONSE_BYTES,
 	HOST_CONTROL_PREVIEW_TTL_MS,
 	HOST_CONTROL_RESULT_LIMIT,
+	type HostBrowserPreview,
+	type HostBrowserState,
 	type HostControlApproval,
 	type HostControlCapabilities,
 	type HostControlData,
@@ -92,6 +103,11 @@ export class HostControlBridge {
 	private queued = 0;
 	private disposed = false;
 	private prepared?: Prepared;
+	private browserPrepared?: {
+		registration: PreparedBrowserRegistration;
+		preview: HostBrowserPreview;
+		consumed: boolean;
+	};
 	private workflow?: StandardWorkflow;
 	private execution?: Promise<void>;
 	private cancellation?: AbortController;
@@ -286,6 +302,22 @@ export class HostControlBridge {
 				preview = null;
 			}
 		}
+		const browserPrepared = this.browserPrepared;
+		let browserPreview =
+			browserPrepared &&
+			!browserPrepared.consumed &&
+			browserPrepared.preview.expiresAt > this.now() &&
+			browserPrepared.preview.projectRevision === projectRevision
+				? browserPrepared.preview
+				: null;
+		if (browserPreview && browserPrepared) {
+			try {
+				const current = await prepareBrowserRegistration(this.root.path, browserPrepared.registration.request);
+				if (browserDigest(current) !== browserDigest(browserPrepared.registration)) browserPreview = null;
+			} catch {
+				browserPreview = null;
+			}
+		}
 		// File reads yield while the owner may finish/release its writer. Never combine
 		// an earlier durable snapshot with a later idle owner and advertise it as coherent.
 		if (this.execution !== execution) {
@@ -306,6 +338,7 @@ export class HostControlBridge {
 					cancelling: this.cancelling,
 					startFailure: this.startFailure,
 					preview,
+					browserPreview,
 					pendingApproval,
 					snapshot: {
 						status: observation.status,
@@ -321,6 +354,101 @@ export class HostControlBridge {
 	}
 	private async mutate(request: HostControlMutation): Promise<HostControlResponse> {
 		if ((this.options.readiness ?? "READY") !== "READY") throw new ControlError("CONTROL_UNAVAILABLE");
+		if (request.type === "browser.inspect") {
+			const before = await this.canonical();
+			if ((before.state?.revision ?? 0) !== request.expectedProjectRevision) throw new ControlError("STALE_PROJECT");
+			const config = await this.configuration();
+			const listed = await listBrowserCandidates(this.root.path);
+			const projectId = browserProjectId(this.root.path);
+			const registered = config.verification.checks.filter((check) => check.kind === "browser");
+			if (registered.some((check) => check.browser.projectId !== projectId))
+				throw new ControlError("BROWSER_UNAVAILABLE");
+			const run = before.state?.runs.at(-1);
+			const checks = run?.verification.filter((check) => check.kind === "browser") ?? [];
+			for (const check of checks) {
+				if (
+					check.exitCode !== null ||
+					check.failureKind !== undefined ||
+					check.sandbox !== undefined ||
+					(check.browser
+						? check.browser.projectId !== projectId || !validBrowserCheckEvidence(check)
+						: check.status === "PASS")
+				)
+					throw new ControlError("STATE_UNAVAILABLE");
+			}
+			const state: HostBrowserState = {
+				projectId,
+				candidates: listed.candidates,
+				omittedCandidates: listed.omitted,
+				checks: registered
+					.slice(-2)
+					.map((check) => ({ check: structuredClone(check.browser), required: check.required })),
+				omittedChecks: Math.max(0, registered.length - 2),
+				evidence: checks.slice(-2).map((check) => ({
+					runId: check.runId,
+					checkId: check.id,
+					revision: check.revision,
+					step: check.step ?? null,
+					status: check.status,
+					diffDigest: check.diffDigest,
+					browser: check.browser ?? null,
+				})),
+				omittedEvidence: Math.max(0, checks.length - 2),
+			};
+			if (((await this.canonical()).state?.revision ?? 0) !== request.expectedProjectRevision)
+				throw new ControlError("STALE_PROJECT");
+			return this.success(
+				request,
+				{ kind: "browser-state", state },
+				{ projectRevision: request.expectedProjectRevision },
+			);
+		}
+		if (request.type === "browser.prepare") {
+			await this.idleRevision(request.expectedProjectRevision);
+			const registration = await prepareBrowserRegistration(this.root.path, request.registration);
+			const fields = {
+				previewId: randomUUID(),
+				ownerId: this.ownerId,
+				projectRevision: registration.projectRevision,
+				expiresAt: this.now() + HOST_CONTROL_PREVIEW_TTL_MS,
+				candidate: registration.candidate,
+				check: registration.check,
+				isolation: "PRIVATE_HOME_PROFILE_CDP_PIPE_NOT_OS_SANDBOX" as const,
+			};
+			const preview: HostBrowserPreview = {
+				...fields,
+				previewDigest: browserDigest({ fields, registration, root: this.root }),
+			};
+			const response = this.success(request, { kind: "browser-prepared", preview });
+			if (Buffer.byteLength(JSON.stringify(response)) + 1 > HOST_CONTROL_MAX_RESPONSE_BYTES)
+				throw new ControlError("RESPONSE_TOO_LARGE");
+			await this.idleRevision(request.expectedProjectRevision);
+			if (this.disposed) throw new ControlError("CONTROL_UNAVAILABLE");
+			this.prepared = undefined;
+			this.browserPrepared = { registration, preview, consumed: false };
+			return response;
+		}
+		if (request.type === "browser.confirm") {
+			const prepared = this.browserPrepared;
+			if (!prepared || prepared.preview.previewId !== request.previewId) throw new ControlError("PLAN_NOT_FOUND");
+			if (prepared.consumed) throw new ControlError("PLAN_CONSUMED");
+			if (prepared.preview.expiresAt <= this.now()) throw new ControlError("PLAN_EXPIRED");
+			if (prepared.preview.previewDigest !== request.previewDigest) throw new ControlError("PLAN_CHANGED");
+			if (prepared.preview.projectRevision !== request.expectedProjectRevision)
+				throw new ControlError("STALE_PROJECT");
+			await this.idleRevision(request.expectedProjectRevision);
+			prepared.consumed = true;
+			const check = await commitBrowserRegistration(this.root.path, prepared.registration, () => {
+				if (this.disposed) throw new ControlError("CONTROL_UNAVAILABLE");
+				if (prepared.preview.expiresAt <= this.now()) throw new ControlError("PLAN_EXPIRED");
+			});
+			this.prepared = undefined;
+			return this.success(
+				request,
+				{ kind: "browser-registered", check },
+				{ projectRevision: request.expectedProjectRevision },
+			);
+		}
 		if (request.type === "workflow.prepare") {
 			await this.idleRevision(request.expectedProjectRevision);
 			const config = await this.configuration();
@@ -366,6 +494,7 @@ export class HostControlBridge {
 				throw new ControlError("RESPONSE_TOO_LARGE");
 			await this.idleRevision(request.expectedProjectRevision);
 			this.prepared = { plan, preview, configurationDigest: fingerprint(config), consumed: false };
+			this.browserPrepared = undefined;
 			return response;
 		}
 		if (request.type === "workflow.confirm") {
@@ -503,7 +632,11 @@ export class HostControlBridge {
 			response = await this.mutate(request);
 		} catch (error) {
 			response = this.failure(
-				error instanceof ControlError || error instanceof HostWorkflowError ? error.code : "CONTROL_UNAVAILABLE",
+				error instanceof ControlError ||
+					error instanceof HostWorkflowError ||
+					error instanceof BrowserRegistrationError
+					? error.code
+					: "CONTROL_UNAVAILABLE",
 				request.id,
 				request.type,
 			);
@@ -608,6 +741,7 @@ export class HostControlBridge {
 		await this.queue;
 		await this.execution;
 		this.prepared = undefined;
+		this.browserPrepared = undefined;
 		this.receipts.clear();
 	}
 }
