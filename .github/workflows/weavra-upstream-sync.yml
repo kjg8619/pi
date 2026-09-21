@@ -117,10 +117,10 @@ jobs:
           {
             echo "## Weavra upstream sync"
             echo
-            echo "- Upstream: `earendil-works/pi:main`"
-            echo "- Fork main: `${{ github.repository }}:main`"
-            echo "- Development branch: `devlop`"
-            echo "- devlop changed: `${{ steps.merge_devlop.outputs.changed || 'false' }}`"
+            echo "- Upstream: earendil-works/pi:main"
+            echo "- Fork main: ${{ github.repository }}:main"
+            echo "- Development branch: devlop"
+            echo "- devlop changed: ${{ steps.merge_devlop.outputs.changed || 'false' }}"
             echo "- Result: success"
           } >> "$GITHUB_STEP_SUMMARY"
 
